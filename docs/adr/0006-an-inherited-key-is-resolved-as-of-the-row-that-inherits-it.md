@@ -48,6 +48,20 @@ in one load, so two pair rows shared an `eff_tmstp`, and the relationship view r
 A child appearing twice in the bridge multiplies its measures — the precise failure the bridge
 exists to prevent, arriving from the engine's own view rather than from anything we wrote.
 
+**The model cannot say that an edge is many-to-one.** This is the finding that decides how the rule
+is enforced, and it is settled by the engine's own error rather than inferred: adding
+`cardinality:` to a relationship is rejected with *"Valid fields are: name, definition, description,
+source, target, source_entity_id, target_entity_id, type"*, and that list is the whole grammar. The
+one candidate, `type`, is not a cardinality slot — it accepts any string without validation
+(`1:N`, `MANY_TO_ONE`, `BOGUS_VALUE` all pass `check model`) and is **dropped on compile**: it does
+not appear in the compiled `model.json` and never reaches the engine. Nor is the engine merely
+silent about cardinality. It is agnostic by design: it treats a child's parents as a *set*,
+aggregating all target keys per `(source key, eff_tmstp)` into a fingerprint and writing a row when
+that set changes. Many-to-many is a supported case, not a defect.
+
+So the generator cannot learn "many-to-one" from the model, and it cannot learn it from the data,
+because the data is legitimately allowed to be many-to-many. Something else has to say it.
+
 ## Decision Drivers
 
 * a measure summed over the bridge is additive at every grain, whatever the model's shape
@@ -84,13 +98,29 @@ keeps the rule stated at the level of a bridge row rather than at the level of a
 survives a stage that keeps more than the latest version, which is what a snapshot event and a
 `_is_current = FALSE` row will both need.
 
-**Exactly one parent per child, and a tie is a build failure.** The generated SQL uses
-`row_number()` over `eff_tmstp DESC, ver_tmstp DESC` and then the parent key itself, so it is
-deterministic and can never emit two rows for one child. Determinism alone would be a silent wrong
-answer, so a generated check counts children with more than one parent at the ranking instant and
-fails the build when it is not zero. The two together mean the bad case is loud, and that if the
-check is ever ignored the damage is a mis-attributed row rather than a doubled measure. Doubling is
-worse: it is invisible in both of a question's acceptance queries if both are written the same way.
+**Exactly one parent per child, and a tie is a build failure.** Since neither the model nor the data
+can state the cardinality, it is inferred from the mapping and then pinned. The inference is sound:
+M5 already forbids an attribute expression from containing a subquery, an aggregate or a reach into
+another table, so a relationship's `target_transformation_expression` reads its own row and is
+single-valued per staged row *by construction*. What that does not cover is one key appearing on
+several staged rows of a single load, which is exactly how the probe's CH5 acquired two parents at
+one instant. So the check is not optional decoration on top of the inference — it is the half of the
+argument the inference cannot make.
+
+The generated SQL uses `row_number()` over `eff_tmstp DESC, ver_tmstp DESC` and then the parent key
+itself, so it is deterministic and can never emit two rows for one child. `ver_tmstp` is not a
+formality: the engine writes a closing row that shares its predecessor's `eff_tmstp` and is
+separated from it only by `ver_tmstp`. Determinism alone would be a silent wrong answer, so a
+generated check counts children with more than one open parent at the ranking instant and fails the
+build when it is not zero. The two together mean the bad case is loud, and that if the check is ever
+ignored the damage is a mis-attributed row rather than a doubled measure. Doubling is worse: it is
+invisible in both of a question's acceptance queries if both are written the same way.
+
+**Only open pairs.** The read filters `row_st = 'Y'`. The engine flips a pair to `'N'` in exactly one
+case — the source row disappears from `das__staged`, and `FULL_LOG`'s delete branch closes it — and
+it keeps both rows when it does. In this architecture `das__staged` is an append-only view over
+parquet, so that should never fire; the filter is there because "should never fire" is not a reason
+to read a retracted pair if it ever does.
 
 `view_<TGT>_with_rel` is refused outright and now for a measured reason rather than an assumed one.
 The engine's ranked view is refused because its as-of rule is not ours to state and its `rank()`
@@ -138,6 +168,28 @@ possible to write then.
 * Bad, because `v_<SRC>_<NAME>_<TGT>` is an engine-internal object with no compatibility promise,
   like every other object here. The pinning checks are what turn a vendor change into a failure
   instead of an empty column
+* Bad, and not fixable here: **a foreign key set to null is never retracted.** The engine's reader
+  filters the pair source on the target key being non-null, so "this child now belongs to nobody" is
+  inexpressible — re-landing a child with a null parent writes no row, no tombstone and no `row_st`
+  flip, and the stale pair survives forever. The probe reproduced this. If the source ever nulls an
+  order's customer, DAB keeps the old customer and nothing says so. That is a property of the
+  engine, not of this decision; it is recorded here because this is the decision that would
+  otherwise be blamed for it
+
+## More Information
+
+The probe found one thing that is not used and should be, when there is a reason to. Every
+presentation object wraps a DuckDB table macro taking a `p_eff_tmstp` with a default, so the whole
+DAB layer is point-in-time queryable for nothing: `f_child_parent_x(TIMESTAMP '2026-01-15')` returned
+the January parent while `f_child_parent_x()` returned the current one. That is a second, shorter
+way to write the as-of join. It is not taken because it moves the as-of rule back inside a vendor
+macro, which is the thing this decision is spending SQL to avoid — but a later slice that needs
+as-of over several objects at once should weigh it again rather than rediscover it.
+
+`type_key` is not stable across models: it was 1 for the relationship in this probe and 17 in an
+earlier one, and attribute type keys differ per entity within a single model. It is never
+hardcoded — `rel_name` is what the generated SQL matches on, which is the whole reason
+`v_<SRC>_<NAME>_<TGT>` is read rather than the pair table it wraps.
 
 ## Confirmation
 
