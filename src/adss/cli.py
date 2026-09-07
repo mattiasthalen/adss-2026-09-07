@@ -15,13 +15,14 @@ from typing import Annotated
 import typer
 
 from adss import __version__
+from adss.checks import run_checks
 from adss.contract import read_contract
 from adss.das import current_view_sql, lake_dir, raw_view_sql, staged_view_sql
 from adss.engine import Engine
 from adss.landing import land
 from adss.model import read_model
 from adss.names import Schema
-from adss.platform import exclusive, install
+from adss.platform import exclusive, install, reading
 from adss.project import Project
 from adss.source import over_http, record, replay
 from adss.sqlformat import formatted
@@ -212,3 +213,36 @@ def dar_build() -> None:
         for name in ordered:
             install(connection, (project.dar_sql / name).read_text())
             typer.echo(f"built {name.removesuffix('.sql')}")
+
+
+@app.command("check")
+def check() -> None:
+    """Assert what the built warehouse contains. Requires a build."""
+    project = Project.discover()
+    with reading(project.warehouse) as connection:
+        findings = run_checks(project, connection)
+    for finding in findings:
+        typer.echo(f"{'PASS' if finding.passed else 'FAIL'}  {finding.check}")
+        if not finding.passed:
+            typer.echo(f"      {finding.detail}")
+    if any(not finding.passed for finding in findings):
+        raise typer.Exit(1)
+
+
+@app.command("build")
+def build(
+    live: Annotated[bool, typer.Option(help="Read the source instead of the recording.")] = False,
+) -> None:
+    """Build the whole system, in the one direction data flows.
+
+    Each step is a separate command because the layers fail differently and are debugged
+    separately. This is them in order, which is the order a reader should meet them in.
+    """
+    das_ingest(live=live)
+    das_unpack()
+    dab_install()
+    dab_deploy()
+    dab_execute()
+    dar_generate(check=False)
+    dar_build()
+    typer.echo("built")

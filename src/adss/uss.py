@@ -279,3 +279,17 @@ def calendar_sql() -> str:
         f"    strftime(d.date_key, '%Y-%m') AS month_label\n"
         f"FROM every_day AS d;\n"
     )
+
+
+def definitions(model: Model, uss: Uss) -> dict[str, str]:
+    """Every definition, by the token that refers to it. Copied verbatim, never composed.
+
+    A generator that composed a definition would be a third place the data is explained,
+    and the worst kind: one nobody wrote and nobody reviews.
+    """
+    found = dict(model.definitions())
+    for event in uss.events:
+        found[f"{event.entity_id}.events.{event.id}"] = event.definition
+        for measure in event.measures:
+            found[f"{event.entity_id}.measures.{measure.id}"] = measure.definition
+    return found
