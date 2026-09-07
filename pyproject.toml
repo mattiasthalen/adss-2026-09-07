@@ -47,6 +47,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "ANN", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN201"]
+# A marimo cell is a decorated function whose return type is meaningless, and marimo rewrites
+# the file itself on save. docs/conventions.md section 5.
+"destinations/*" = ["ANN", "B018", "F841"]
 
 [tool.ty.environment]
 python-version = "3.12"
