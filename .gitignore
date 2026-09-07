@@ -22,3 +22,7 @@ logs/
 
 # Screenshots are attached to a pull request, not committed.
 .screenshots/
+
+# The lake is derived from das/fixtures by `adss das ingest`. The recording is the
+# committed artefact; the parquet it produces is not.
+das/lake/

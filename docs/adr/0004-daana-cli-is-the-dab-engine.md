@@ -33,9 +33,16 @@ identifiers rather than a composite key, and that mode cannot be undone once loa
 
 Three further behaviours were observed on DuckDB, which the engine's own help text does not list
 among its supported platforms. `<entity>_focal` and `<entity>_idfr` are created but never
-populated. `view_<entity>_with_rel` carries no relationship keys despite its name. And **any**
-other connection to the warehouse file — read-write or read-only — makes `execute` fail with
+populated. `view_<entity>_with_rel` carries no relationship keys despite its name. And if the
+process invoking the engine is itself holding the warehouse open, `execute` fails with
 `daana framework is not installed on the remote database`, which is not what went wrong.
+
+That last one was first reported to us in a broader form — that *any* other connection breaks it —
+and that turned out not to reproduce. DuckDB's lock is **per process**: within one process every
+connection shares an instance, so a second open succeeds; across processes the second is refused.
+The failure is therefore specific and enforceable: we must not hold the file while asking a
+subprocess to write to it. The narrower rule is the useful one, because it can be checked in code
+rather than believed.
 
 ## Decision Drivers
 
@@ -94,9 +101,10 @@ names out of the catalog must normalise. Keeping the model's casing loud is wort
 convenience: the visual break from every other layer's lower case is what makes a leak from DAB
 into DAS or DAR obvious on sight, which is the reason §1.2 asks for it.
 
-*One writer.* `adss build` holds the warehouse exclusively and refuses to start if anything else
-has it open. Destinations open read-only. And the misleading error is translated: when the engine
-says the framework is not installed, the CLI says the file is busy, because that is what happened.
+*Detached invocation.* The CLI refuses to invoke the engine while this process holds the
+warehouse, and says why. Destinations open read-only, which still holds the process lock but at
+least keeps a reader from writing. And the misleading error is translated: when the engine says
+the framework is not installed, we say the file is held, because that is what happened.
 
 ### Consequences
 
@@ -118,6 +126,8 @@ says the framework is not installed, the CLI says the file is busy, because that
 
 ### Confirmation
 
+`tests/test_platform.py` reproduces the lock failure with DuckDB alone, no engine involved: a
+subprocess cannot write while this process holds the file, and can the moment it lets go.
 `tests/test_engine_pin.py` asserts the binary's hash matches the committed `.sha256` and that its
 self-report matches the recorded string. `tests/test_mapping_rules.py` asserts the rules against
 every file in `dab/mappings/`, including that `ingestion_strategy` is `FULL_LOG` and that

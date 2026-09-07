@@ -1,0 +1,14 @@
+{
+  "entity": "Orders",
+  "requests": {
+    "https://demodata.grapecity.com/northwind/odata/v1/Orders?$count=true&$top=100&$skip=0": "page-0000.json",
+    "https://demodata.grapecity.com/northwind/odata/v1/Orders?$count=true&$top=100&$skip=100": "page-0001.json",
+    "https://demodata.grapecity.com/northwind/odata/v1/Orders?$count=true&$top=100&$skip=200": "page-0002.json",
+    "https://demodata.grapecity.com/northwind/odata/v1/Orders?$count=true&$top=100&$skip=300": "page-0003.json",
+    "https://demodata.grapecity.com/northwind/odata/v1/Orders?$count=true&$top=100&$skip=400": "page-0004.json",
+    "https://demodata.grapecity.com/northwind/odata/v1/Orders?$count=true&$top=100&$skip=500": "page-0005.json",
+    "https://demodata.grapecity.com/northwind/odata/v1/Orders?$count=true&$top=100&$skip=600": "page-0006.json",
+    "https://demodata.grapecity.com/northwind/odata/v1/Orders?$count=true&$top=100&$skip=700": "page-0007.json",
+    "https://demodata.grapecity.com/northwind/odata/v1/Orders?$count=true&$top=100&$skip=800": "page-0008.json"
+  }
+}

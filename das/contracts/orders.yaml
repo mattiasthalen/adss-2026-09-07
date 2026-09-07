@@ -1,0 +1,110 @@
+# What the source sends, what it is called here, and what type it becomes. This file is the
+# documentation, the schema and the transformation; there is nothing beside it to keep in
+# step. Descriptions stay in the source's vocabulary -- what a thing MEANS is dab/model.yaml's
+# job, and saying it twice is how two numbers start disagreeing.
+endpoints:
+  source:
+    provider: odata
+    service: https://demodata.grapecity.com/northwind/odata/v1
+    entity: Orders
+    page_size: 100  # the service rejects $top above 100 with a 400
+  target:
+    platform: duckdb
+    models: [historized, current]
+
+ownership:
+  team: adss
+  upstream: >-
+    A public demo OData service. No owner, no SLA and no change notification, so a failing
+    contract check is the notification. The recording under das/fixtures is what every build
+    reads; the scheduled live run is what says the recording has gone stale.
+
+schema:
+  primary_keys: [order_id]
+  columns:
+    - source_path: OrderId
+      target_name: order_id
+      type: INTEGER
+      mode: REQUIRED
+      description: >-
+        Edm.Int32. The only property the service metadata marks Nullable=false.
+    - source_path: CustomerId
+      target_name: customer_id
+      type: STRING
+      mode: NULLABLE
+      description: >-
+        Edm.String. Referential constraint to Customers.CustomerId.
+    - source_path: EmployeeId
+      target_name: employee_id
+      type: INTEGER
+      mode: NULLABLE
+      description: >-
+        Edm.Int32. Referential constraint to Employees.EmployeeId.
+    - source_path: OrderDate
+      target_name: order_date
+      type: DATE
+      mode: NULLABLE
+      description: >-
+        Edm.Date. An ISO calendar date with no time part.
+    - source_path: RequiredDate
+      target_name: required_date
+      type: DATE
+      mode: NULLABLE
+      description: >-
+        Edm.Date. An ISO calendar date with no time part.
+    - source_path: ShippedDate
+      target_name: shipped_date
+      type: DATE
+      mode: NULLABLE
+      description: >-
+        Edm.Date. Null on records the service has not marked shipped.
+    - source_path: ShipVia
+      target_name: ship_via
+      type: INTEGER
+      mode: NULLABLE
+      description: >-
+        Edm.Int32. Referential constraint to Shippers.ShipperId.
+    - source_path: Freight
+      target_name: freight
+      type: DECIMAL
+      precision: 18
+      scale: 4
+      mode: NULLABLE
+      description: >-
+        Edm.Decimal with Scale=Variable. The scale is pinned here because the source does not pin it.
+    - source_path: ShipName
+      target_name: ship_name
+      type: STRING
+      mode: NULLABLE
+      description: >-
+        Edm.String.
+    - source_path: ShipAddress
+      target_name: ship_address
+      type: STRING
+      mode: NULLABLE
+      description: >-
+        Edm.String.
+    - source_path: ShipCity
+      target_name: ship_city
+      type: STRING
+      mode: NULLABLE
+      description: >-
+        Edm.String.
+    - source_path: ShipRegion
+      target_name: ship_region
+      type: STRING
+      mode: NULLABLE
+      description: >-
+        Edm.String. Absent from most records rather than empty.
+    - source_path: ShipPostalCode
+      target_name: ship_postal_code
+      type: STRING
+      mode: NULLABLE
+      description: >-
+        Edm.String.
+    - source_path: ShipCountry
+      target_name: ship_country
+      type: STRING
+      mode: NULLABLE
+      description: >-
+        Edm.String. The service's own spelling

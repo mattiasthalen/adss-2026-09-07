@@ -149,7 +149,7 @@ Checked by `yamllint` with [`.yamllint.yaml`](../.yamllint.yaml).
 | Rule | Why | Severity |
 |---|---|---|
 | Two-space indent, no tabs, lines ≤ 160. | These files are read far more often than they are written. | Hard rule |
-| Flow mappings (`{a: 1, b: 2}`) are allowed for short homogeneous rows — a contract column, a mapping attribute — but never column-aligned with padding spaces. | Alignment re-aligns the whole block the day one value grows, turning a one-line change into a twenty-line diff. | Hard rule |
+| Flow mappings (`{a: 1, b: 2}`) are allowed for short homogeneous rows — a mapping attribute, a connection profile — but never column-aligned with padding spaces. A contract column has five keys and a prose description, so it is block style. | Alignment re-aligns the whole block the day one value grows, turning a one-line change into a twenty-line diff. | Hard rule |
 | Anything with an interpolation, a multi-line value, or more than about four keys is block style. | Flow style stops being readable exactly where the value stops being simple. | Hard rule |
 | Booleans are `true`/`false`. | One spelling. `yes`/`on` are the same value wearing a disguise. | Hard rule |
 
@@ -213,9 +213,15 @@ stay true.
 
 | Rule | Why | Severity |
 |---|---|---|
-| `adss build` holds the warehouse exclusively. It refuses to start if anything else has the file open, and says so. | Observed: **any** other connection to the DuckDB file — read-write *or read-only* — makes `daana-cli execute` fail. | Hard rule |
-| Every destination opens the warehouse with `read_only=True`. | A page holding a read-write handle blocks the next build, and the build is the thing that cannot be worked around. | Hard rule |
-| `daana framework is not installed on the remote database` means **the file is busy**. | The real lock error is swallowed and does not appear even at debug level. Anyone who meets this message will otherwise spend an afternoon reinstalling a framework that is already installed. | Hard rule |
+The lock is **per process**. Within one process every connection shares an instance, so a
+second open succeeds; across processes the second is refused. That distinction is the whole of
+this section, and getting it backwards costs an afternoon.
+
+| Rule | Why | Severity |
+|---|---|---|
+| This process must not hold the warehouse open while a separate process is asked to write to it. `require_detached` enforces it rather than asking anyone to remember. | The modelling engine is a separate process. While we hold the file it cannot take the lock, and it reports that as `daana framework is not installed on the remote database` — which is not what went wrong. Reproduced with DuckDB alone, no engine involved. | Hard rule |
+| Every destination opens the warehouse with `read_only=True`. | A read-only handle still holds the process lock, so a page left open blocks the next build; read-only at least keeps a reader from writing. | Hard rule |
+| `daana framework is not installed on the remote database` means **the file is busy**. | The real lock error is swallowed and does not appear even at debug level. Anyone meeting this message will otherwise spend an afternoon reinstalling a framework that is already installed. | Hard rule |
 
 ## 10. Questions
 
