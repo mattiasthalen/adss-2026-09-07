@@ -129,8 +129,10 @@ the framework is not installed, we say the file is held, because that is what ha
 `tests/test_platform.py` reproduces the lock failure with DuckDB alone, no engine involved: a
 subprocess cannot write while this process holds the file, and can the moment it lets go.
 `tests/test_engine_pin.py` asserts the binary's hash matches the committed `.sha256` and that its
-self-report matches the recorded string. `tests/test_mapping_rules.py` asserts the rules against
-every file in `dab/mappings/`, including that `ingestion_strategy` is `FULL_LOG` and that
-`entity_effective_timestamp_expression` is `extracted_at`. A data check counts `dab.<ENTITY>_desc`
-rows across two consecutive executes and fails on growth, because that base table is the only
-place the duplication defect is visible.
+self-report matches the recorded string. `tests/test_mapping_rules.py` asserts six of the seven rules against every file in
+`dab/mappings/` — M6 concerns relationships and lands with the first one — including that
+`ingestion_strategy` is `FULL_LOG` and that `entity_effective_timestamp_expression` is
+`extracted_at`. A data check counts `dab.<ENTITY>_desc` against its own distinct
+(key, attribute, version) triples, because that base table is the only place the duplication
+defect is visible: every presentation view hides it, and so would both of a question's acceptance
+queries.

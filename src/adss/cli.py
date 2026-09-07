@@ -17,7 +17,14 @@ import typer
 from adss import __version__
 from adss.checks import run_checks
 from adss.contract import read_contract
-from adss.das import current_view_sql, lake_dir, raw_view_sql, staged_view_sql
+from adss.das import (
+    clock_check_sql,
+    current_view_sql,
+    key_check_sql,
+    lake_dir,
+    raw_view_sql,
+    staged_view_sql,
+)
 from adss.destination import shoot
 from adss.engine import Engine
 from adss.landing import land
@@ -133,6 +140,16 @@ def das_unpack() -> None:
         written = project.das_sql / f"{declared.table}.sql"
         written.write_text("\n".join(statements))
         typer.echo(f"wrote {written.relative_to(project.root)}")
+
+        # The checks carry no path, so unlike the views they are committed and linted.
+        project.checks_sql.mkdir(parents=True, exist_ok=True)
+        for name, sql in (
+            (f"{declared.table}__clock", clock_check_sql(declared)),
+            (f"{declared.table}__key", key_check_sql(declared)),
+        ):
+            check = project.checks_sql / f"{name}.sql"
+            check.write_text(formatted(sql, project.sqlfluff_config))
+            typer.echo(f"wrote {check.relative_to(project.root)}")
 
     with exclusive(project.warehouse) as connection:
         for schema in (Schema.DAS_RAW, Schema.DAS_STAGED):

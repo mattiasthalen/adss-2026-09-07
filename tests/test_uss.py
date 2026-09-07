@@ -110,18 +110,20 @@ def test_a_stage_that_does_not_own_a_measure_emits_a_typed_null_for_it():
     assert "cast(NULL AS DECIMAL(28, 8)) AS _measure__parent__size_parents_units" in sql
 
 
-def test_every_branch_aliases_every_contract_column_exactly_once():
+def test_every_branch_emits_the_contract_columns_in_the_contract_order():
+    """A union takes its column names from the first branch.
+
+    So a branch that emits the right columns in a different order puts one measure's values
+    silently into another measure's column, and DESCRIBE still matches the contract. Counting
+    aliases does not catch that; only the sequence does.
+    """
     model, uss = plan()
-    columns = bridge_columns(model, uss)
+    expected = list(bridge_columns(model, uss))
     parts = branches(bridge())
     assert len(parts) == 2, "two declared events are two branches"
     for branch in parts:
         select = branch[: branch.rindex("FROM")]
-        for column in columns:
-            assert aliases(select, column) == 1, (
-                f"{column} must be aliased exactly once per branch, in one order, or the "
-                f"union lines up the wrong values"
-            )
+        assert re.findall(r" AS ([a-z_0-9]+)(?=[,\n])", select) == expected
 
 
 def test_a_zero_edge_walk_is_a_valid_walk():

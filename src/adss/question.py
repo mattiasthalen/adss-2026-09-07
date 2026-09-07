@@ -96,12 +96,37 @@ def check_question(question: Question, defined: dict[str, str]) -> None:
     if missing:
         raise QuestionError(f"{question.id}: declares {missing}, which nothing defines")
 
-    lowered = without_comments(question.staged_sql).lower()
+    control = without_comments(question.staged_sql).lower()
     for forbidden in ("dab.", "dab__", "dar__uss"):
-        if forbidden in lowered:
+        if forbidden in control:
             raise QuestionError(
                 f"{question.id}: the control query mentions {forbidden!r}. It must compute "
                 f"the answer independently, or agreement between the two proves nothing."
             )
-    if "dar__uss" not in without_comments(question.uss_sql).lower():
+    if "das__staged." not in control or "__current" not in control:
+        raise QuestionError(
+            f"{question.id}: the control query must read a das__staged __current view. "
+            f"Reading the raw layer or the lake skips the contract's casts, which is what "
+            f"makes agreement mean anything."
+        )
+
+    answer = without_comments(question.uss_sql).lower()
+    if "dar__uss" not in answer:
         raise QuestionError(f"{question.id}: the answer query does not read the star schema")
+    for forbidden in ("das__", "dab.", "dab__", "read_parquet"):
+        if forbidden in answer:
+            raise QuestionError(
+                f"{question.id}: the answer query mentions {forbidden!r}. A destination reads "
+                f"the star schema and nothing else -- the page runs this query verbatim, so a "
+                f"reach past it would render, pass, and be exactly the invisible dependency "
+                f"the flow rules exist to prevent."
+            )
+
+    # Only the answer query. The control expresses the same dimension in the source's own
+    # words -- that difference is what makes it independent rather than a transcription.
+    for dimension in question.dimensions:
+        if dimension.rsplit(".", 1)[-1].lower() not in answer:
+            raise QuestionError(
+                f"{question.id}: declares the dimension {dimension!r}, which the answer query "
+                f"does not mention. The front matter is what a reader trusts."
+            )

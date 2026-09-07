@@ -104,3 +104,29 @@ def lake_dir(root: Path) -> Path:
     The loader writes its dataset name into the path, and the dataset name is the schema.
     """
     return root / str(Schema.DAS_RAW)
+
+
+def clock_check_sql(contract: Contract) -> str:
+    """The partition key and the observation clock derive from one fact and must agree.
+
+    Emitted per contract rather than written in Python: the machinery must work for any
+    source, so it may not name one, and SQL in a string is SQL the linter never sees.
+    """
+    relation = Relation(Schema.DAS_STAGED, contract.table)
+    return (
+        f"{_GENERATED.format(table=contract.table)}\n"
+        f"SELECT count(*) AS disagreements\n"
+        f"FROM {relation.sql} AS staged\n"
+        f"WHERE staged.extracted_on <> cast(staged.extracted_at AS DATE);\n"
+    )
+
+
+def key_check_sql(contract: Contract) -> str:
+    """One row per key in the current view, however many loads the change log holds."""
+    current = Relation(Schema.DAS_STAGED, f"{contract.table}__current")
+    keys = ", ".join(f"latest.{key}" for key in contract.primary_keys)
+    return (
+        f"{_GENERATED.format(table=contract.table)}\n"
+        f"SELECT count(*) - count(DISTINCT {keys}) AS duplicates\n"
+        f"FROM {current.sql} AS latest;\n"
+    )

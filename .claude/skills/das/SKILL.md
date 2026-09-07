@@ -70,6 +70,7 @@ it and the contract would stop being the gate.
 
 ## Offline
 
-`--offline` is the default and CI never touches the network. The replay follows the same code
+**The recording is the default.** `adss das ingest` replays `das/fixtures`; `--live` reads the
+service. CI never touches the network except the weekly job that re-records and fails on a diff. The replay follows the same code
 path and the same request URLs as a live read; only what answers them differs. A request the
 recording does not cover fails loudly, and the fix is to re-record and read the diff.

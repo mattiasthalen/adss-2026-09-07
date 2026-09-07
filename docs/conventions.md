@@ -72,6 +72,7 @@ are on this page because they are the contract every consumer is written against
 | A key column is `<object>_key`. | One predictable spelling means a join can be written without looking anything up. | Hard rule |
 | Attribute columns are the lower-cased attribute identifier, unchanged. | The mapping back to its definition must be mechanical, so any column's meaning is one step away. | Hard rule |
 | Structural columns carry a leading underscore: `_bridge`, `_calendar`, `_stage`, `_event`, `_event_date`, `_is_current`, `_measure__…`. | The underscore says "the generator owns this". Anything without one came from the business model. | Hard rule |
+| The calendar's own columns are the exception, and carry none: `date_key`, `year_number`, `month_label`. | It is the one object the generator invents whole rather than deriving from the model, so there is no business name for its columns to be confused with, and these are the names a reader of any star schema already knows. | Hard rule |
 | Measure columns are `_measure__<entity>__<measure>`, where `<measure>` is the **whole** §2 name. `_measure__order__placed_orders_count`, not `_measure__order__placed`. | §2's payoff is searchability by any of the three parts, and that only holds if the whole name survives into the physical column. It costs long, repetitive column names; that is the price of the name being the same everywhere. | Hard rule |
 | The generator **never invents a member**. A null dimension stays null; there is no "Unknown" row, no "N/A" country, no placeholder date. | An invented member is meaning with no definition behind it, and §1.2 says meaning has exactly one home. A question that wants nulls grouped or excluded says so in the question file, where the choice belongs. | Hard rule |
 | The generator names every column it reads from a DAB view. It never selects `*` from `dab.*`. | daana's presentation views are themselves `SELECT *` over table macros, so a model change silently changes their shape. Naming the columns turns that into a regeneration diff. | Hard rule |
@@ -192,10 +193,10 @@ stay true.
 
 | Rule | Why | Severity |
 |---|---|---|
-| Conventional commits: `<type>(<scope>): <imperative>`. Types `feat`, `fix`, `test`, `docs`, `chore`, `refactor`, `ci`. Scopes: `repo`, `domain`, `das`, `dab`, `dar`, `questions`, `destination`, `ci`, `docs`, `skills`. | The scope names the layer, so the history reads as a map of the architecture and a reviewer knows which rules apply before opening the diff. | Hard rule |
+| Conventional commits: `<type>(<scope>): <imperative>`. Types `feat`, `fix`, `test`, `docs`, `chore`, `refactor`, `ci`. Scopes: `repo`, `domain`, `das`, `dab`, `dar`, `questions`, `destination`, `ci`, `docs`, `adr`, `skills`. | The scope names the layer, so the history reads as a map of the architecture and a reviewer knows which rules apply before opening the diff. | Hard rule |
 | The subject is imperative, lower case, no trailing period, about 72 characters. | It is a heading, read in lists a hundred times more often than the body. | Guideline |
 | Every commit passes the gate and the whole suite on its own. | Bisect is only worth anything if every point in history is a working system. | Hard rule |
-| One business question per slice; one branch per slice, `claude/adss-slice-NN-<slug>`, branched off the previous slice. | The unit of delivery is an answered question, not a file. | Hard rule |
+| One business question per slice; one branch per slice, `claude/adss-slice-NN-<slug>`, branched off the previous slice. The slug is the **question's** slug, in the business's words. | The unit of delivery is an answered question, not a file — and a branch named in the source's vocabulary is the one artefact of the slice that disagrees with all the others. | Hard rule |
 | Stacked branches are rebased, never merged; pull requests are rebase-merged, never squashed. | Squashing destroys the trail that shows the question drove the change. Merge commits make a stack unreadable. | Hard rule |
 | An ADR lands before the code it decides. | A decision record written afterwards records what was built, not what was decided. | Hard rule |
 
@@ -204,10 +205,11 @@ stay true.
 | Rule | Why | Severity |
 |---|---|---|
 | A decision goes in an ADR under [`adr/`](adr/README.md), numbered, in MADR format, and is superseded by a new file rather than edited. | The value of a decision record is the record of what was true when it was made. | Hard rule |
+| The one exception: a record may be corrected **within the slice that wrote it**, before any code depends on it, when an observation it rests on turns out to be false. Say so in the commit. | Superseding a record that was wrong before it was ever built on preserves nothing but the mistake, and leaves a reader two documents to reconcile where there was never a real decision to reverse. After that slice, supersede. | Hard rule |
 | A departure from a principle in [blueprint.md](blueprint.md) or a hard rule here needs an entry in [deviations.md](deviations.md) and an ADR. | An unregistered exception is indistinguishable from a mistake, and the next person copies it. | Hard rule |
 | Markdown lines stay around 100 characters, breaking at a sentence or clause — except table rows, which stay on one line. | Prose diffs stay legible; a re-wrapped paragraph should not look like a rewrite. | Guideline |
 | Prefer a table when there are three or more parallel things to say. | Parallel structure is easier to check for gaps than parallel prose. | Guideline |
-| Generated artefacts are **committed**, and a `--check` regeneration in the gate fails on any diff. | Committing them makes what DAR served reviewable in a pull request. The drift check is what stops the committed copy becoming a second truth nothing compares against the model. Any formatting the generator's output needs must happen *inside* the generator, or every regeneration produces a spurious diff. | Hard rule |
+| Generated artefacts are **committed**, and a `--check` regeneration in the gate fails on any diff. The exception is an artefact that cannot be the same on two machines — DAS's view SQL embeds the lake's absolute path — which is generated at build time and gitignored, with the reason recorded where it is ignored. | Committing them makes what DAR served reviewable in a pull request. The drift check is what stops the committed copy becoming a second truth nothing compares against the model. Any formatting the generator's output needs must happen *inside* the generator, or every regeneration produces a spurious diff. | Hard rule |
 
 ## 9. The warehouse has exactly one writer
 
@@ -235,7 +237,8 @@ the page and the reader.
 | `question.md` front matter carries the measure, dimensions, aggregation, time grain, persona, status, and the definitions the question depends on. Its prose carries the story and the W's. | A question that needs a conversation to be answerable is a Stage 1 question, and the whole point is to reach Stage 3. | Hard rule |
 | A question **references** definitions; it never restates them. Every reference must resolve to something `dab/model.yaml` or `dab/uss.yaml` defines, and the machinery proves it. | Blueprint B8. A restated definition is a second definition, and it will be the one that is out of date. | Hard rule |
 | A question that needs a term the model does not define is **blocked**, and the model change comes first. | This is the methodology working: a question the model cannot answer has found a gap in the model, which is what asking it was for. | Hard rule |
-| The staged query reads `das__staged.<table>__current` and must not mention `dab` or `dar__uss`. The USS query reads `dar__uss` only. | Independence is the whole value. A staged query that consults DAB is a transcription of the other one wearing a disguise. | Hard rule |
+| The staged query reads `das__staged.<table>__current` and must not mention `dab` or `dar__uss`. The USS query reads `dar__uss` only. Both halves are checked. | Independence is the whole value. A staged query that consults DAB is a transcription of the other one wearing a disguise; and the page runs the USS query verbatim, so one that reached past DAR would render, pass, and be exactly the invisible dependency the flow rules exist to prevent. | Hard rule |
+| The front matter's dimensions must appear in the **USS** query. They are DAR's names; the control query says the same thing in the source's words. | That difference is what makes the control independent rather than a transcription. Requiring the same spelling in both would force one to be written from the other. | Hard rule |
 
 ## 11. When a rule does not fit
 

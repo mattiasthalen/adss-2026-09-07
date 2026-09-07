@@ -125,7 +125,18 @@ presentation and the test cannot disagree about what was asked.
 
 ### Confirmation
 
-`tests/test_questions.py` asserts every question file parses, every definition token resolves to
-the model, the staged query mentions neither `dab` nor `dar__uss`, and the front matter's declared
-dimensions appear in both queries. `checks/` runs both queries against the built warehouse and
-asserts row-for-row equality. Both suites name nothing from the business.
+`tests/test_questions.py` asserts every question file parses and every definition token resolves
+to the model. `check_question` enforces both halves of the boundary rule — the control query
+mentions neither `dab` nor `dar__uss` and *does* read a `__current` view, and the answer query
+reads `dar__uss` and reaches past it for nothing — because the page runs the answer query verbatim
+and a reach past DAR would render, pass, and be exactly the dependency the flow rules exist to
+prevent.
+
+The declared dimensions are asserted against the **answer** query only. An earlier draft of this
+record claimed both; that was wrong, and the check caught it on its first run. The control query
+says the same thing in the source's own words, and requiring the same spelling in both would force
+one to be written from the other — which is precisely the independence this whole arrangement is
+for.
+
+`adss check` runs both queries against the built warehouse and asserts row-for-row equality. Both
+suites name nothing from the business.

@@ -58,6 +58,14 @@ class Project:
         return self.dab / "mappings"
 
     @property
+    def checks_sql(self) -> Path:
+        return self.root / "checks"
+
+    @property
+    def questions(self) -> Path:
+        return self.root / "docs" / "questions"
+
+    @property
     def sqlfluff_config(self) -> Path:
         return self.root / ".sqlfluff"
 

@@ -23,14 +23,14 @@ class DestinationError(Exception):
     """The page did not render."""
 
 
-def _installed(kind: str) -> Path | None:
-    found = sorted(BUNDLED.glob(f"{kind}-*"), key=lambda path: int(path.name.rsplit("-", 1)[-1]))
+def _installed(kind: str, bundled: Path) -> Path | None:
+    found = sorted(bundled.glob(f"{kind}-*"), key=lambda path: int(path.name.rsplit("-", 1)[-1]))
     return found[-1] if found else None
 
 
-def shim(cache: Path, build: str) -> None:
+def shim(cache: Path, build: str, bundled: Path = BUNDLED) -> None:
     """Present the installed browser under the build number the driver asked for."""
-    shell = _installed("chromium_headless_shell")
+    shell = _installed("chromium_headless_shell", bundled)
     if shell is not None:
         target = cache / f"chromium_headless_shell-{build}" / "chrome-headless-shell-linux64"
         target.mkdir(parents=True, exist_ok=True)
@@ -39,7 +39,7 @@ def shim(cache: Path, build: str) -> None:
             link.symlink_to(shell / "chrome-linux" / "headless_shell")
         (target.parent / "INSTALLATION_COMPLETE").touch()
 
-    full = _installed("chromium")
+    full = _installed("chromium", bundled)
     if full is not None:
         target = cache / f"chromium-{build}"
         target.mkdir(parents=True, exist_ok=True)

@@ -104,11 +104,17 @@ the layer's published interface welds that loader into the layer everything else
 ### Recording and replay
 
 A fixture is the recorded HTTP response body, page by page, exactly as the service returned it,
-under `das/fixtures/<source>/<entity>/`. `adss das ingest` reads the live service;
-`adss das ingest --offline` reads the fixtures and is otherwise the same code path — same resource,
-same contract, same landing. That sameness is what makes the recording honest: a replay that took
-a different path would prove nothing about the live run. `adss das record` refreshes a recording,
-and the diff on that commit is the source change, visible.
+under `das/fixtures/<table>/`, with a manifest keying each body to the request that produced it.
+**The recording is the default**: `adss das ingest` replays it, and `adss das ingest --live` reads
+the service. The two are otherwise the same code path — same resource, same contract, same
+landing, same request URLs — and that sameness is what makes the recording honest, because a
+replay that took a different path would prove nothing about the live run. A request the recording
+does not cover fails loudly rather than falling back to the network. `adss das record` refreshes a
+recording, and the diff on that commit is the source change, made visible.
+
+Defaulting to the recording rather than to the service is deliberate: the default is what runs in
+CI, on a plane, and on a day the demo service is down, and a build whose default reaches the
+network is a build a third party can fail.
 
 ### Consequences
 
@@ -135,7 +141,13 @@ and the diff on that commit is the source change, visible.
 A machinery test generates the SQL for a neutral contract fixture and asserts the emitted
 expression for every type in the vocabulary, that `union_by_name => true` and `hive_types` are
 present, that the path is absolute, and that no key permitting an expression exists in the format.
-A contract validator, gate-blocking, asserts every primary key names a declared column, every
-`target_name` is the mechanical snake_case of its `source_path`, and every type is in the closed
-vocabulary. A data check asserts `extracted_on = cast(extracted_at AS DATE)` on every landed row,
-and that a second identical load adds rows to the change log while leaving `__current` unchanged.
+The contract reader itself refuses a dangling primary key, a `target_name` that is not the
+mechanical snake_case of its `source_path`, a type outside the closed vocabulary, and any key that
+could carry business logic.
+
+The contract also **generates its own data checks**, one per contract, into `checks/`: that
+`extracted_on` equals `cast(extracted_at AS DATE)` on every landed row, and that `__current` holds
+one row per key. They are generated rather than written because the machinery may not name a
+source, and emitted as files rather than strings because SQL in a string is SQL the linter never
+sees. `adss check` runs every one it finds, so a contract added in a later slice is checked
+without anything else changing.

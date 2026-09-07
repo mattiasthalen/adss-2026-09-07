@@ -69,7 +69,12 @@ def read_mapping(path: Path) -> Mapping:
 
 
 def check_mapping(mapping: Mapping) -> None:
-    """Refuse every mapping the seven rules refuse, naming the rule that refused it."""
+    """Refuse what M1-M5 and M7 refuse, naming the rule that refused it.
+
+    M6 is about relationships and lands with the first one. M2 is checked for cardinality
+    here; its key-shape clause -- a concat without a separator collapses 'A1' + '23' and
+    'A12' + '3' into one key -- is review-only until there is a composite key to check.
+    """
     where = mapping.path.name
     for table in mapping.tables:
         if not table.table.startswith(f"{Schema.DAS_STAGED}."):

@@ -138,13 +138,25 @@ wants nulls grouped or excluded says so in the question file, where that choice 
 
 ### Confirmation
 
-A machinery test asserts the column order, the calendar's padding, the event-date filter, the
-key inheritance and the refusals — including that a **zero-edge walk is a valid walk**, so slice 2
-does not meet that as a special case. A second asserts that every branch of the union aliases
-every column of one list exactly once and that every measure is cast. The fan-out test runs the
-generated SQL against an in-memory database with DAB's shapes faked into it, two parents and three
-children, and fails if the parent total multiplies. A data check asserts `DESCRIBE
-dar__uss._bridge` equals the plan on the real warehouse.
+A machinery test asserts the column order, the event-date filter and the refusals — including
+that a **zero-edge walk is a valid walk**, so slice 2 does not meet that as a special case. A
+second asserts that every branch of the union emits the contract columns **in the contract
+order**, which is stronger than aliasing each once and is the assertion that matters: a union
+takes its column names from its first branch, so a branch that emits the right columns in a
+different order puts one measure's values silently into another measure's column, and `DESCRIBE`
+still matches. Every emitter's output, laid out the way the generator lays it out, is run through
+the repository's own linter.
+
+Three data checks pin the engine behaviours this design rests on — that `_focal` and `_idfr` are
+still empty, and that `view_<E>_with_rel` still carries no relationship key — so a vendor change
+says so rather than quietly emptying the star schema. A fourth asserts `DESCRIBE dar__uss._bridge`
+equals the plan on the real warehouse, and a fifth counts the description table directly, which is
+the only place an ingestion-strategy defect is visible.
+
+**The fan-out test is not among them, and cannot be yet.** It needs two grains — parents and
+children — and this slice has one entity. It lands with the second grain, in the slice that first
+creates something for a measure to multiply across. Until then the property is argued rather than
+demonstrated, which [deviations.md](../deviations.md) records against D-0001 as well.
 
 `adss dar generate --check` regenerates and fails on any diff, which is what keeps the committed
 SQL from becoming a second truth.

@@ -49,10 +49,13 @@ question references them; it does not restate them.
 
 ## Nulls
 
-Both dimensions are nullable in the source metadata. Neither is null in the recording, so
-this question takes no position on them yet; the first question where one is null must say
-what it wants, in its own file, because that is a property of the question rather than of
-the model.
+Both dimensions are nullable in the source metadata, and neither is null in the recording.
+
+Both queries nonetheless take the same position, for the same stated reason rather than by
+coincidence: an order with no date on which it was placed has no `placed` event, by
+construction in the generated layer, and the control query mirrors that with
+`WHERE o.order_date IS NOT NULL`. A null destination country would be kept as its own group
+by both — the generator never invents a member, and the control does not either.
 
 ## Answers
 

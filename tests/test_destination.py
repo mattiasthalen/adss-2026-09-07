@@ -12,8 +12,18 @@ def test_the_build_the_driver_wants_is_read_off_its_own_complaint():
     assert found.group(1) == "1234"
 
 
+def bundled(root: Path) -> Path:
+    """A browser installation, laid out the way the image lays one out."""
+    for kind in ("chromium", "chromium_headless_shell"):
+        binaries = root / f"{kind}-1194" / "chrome-linux"
+        binaries.mkdir(parents=True)
+        (binaries / "headless_shell").write_text("")
+    return root
+
+
 def test_the_shim_presents_what_is_installed_under_the_name_that_was_asked_for(tmp_path: Path):
-    shim(tmp_path, "9999")
+    shim(tmp_path / "cache", "9999", bundled(tmp_path / "installed"))
+    tmp_path = tmp_path / "cache"
     shell = tmp_path / "chromium_headless_shell-9999" / "chrome-headless-shell-linux64"
     assert (shell / "chrome-headless-shell").is_symlink()
     assert (shell.parent / "INSTALLATION_COMPLETE").exists(), (
@@ -23,5 +33,6 @@ def test_the_shim_presents_what_is_installed_under_the_name_that_was_asked_for(t
 
 
 def test_the_shim_is_idempotent(tmp_path: Path):
-    shim(tmp_path, "9999")
-    shim(tmp_path, "9999")
+    installed = bundled(tmp_path / "installed")
+    shim(tmp_path / "cache", "9999", installed)
+    shim(tmp_path / "cache", "9999", installed)
