@@ -1,0 +1,3 @@
+primary_keys: [renamed]
+columns:
+  - {source_path: ParentId, target_name: renamed, type: INTEGER, mode: REQUIRED, description: The key.}

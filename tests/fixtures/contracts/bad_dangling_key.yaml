@@ -1,0 +1,3 @@
+primary_keys: [absent_id]
+columns:
+  - {source_path: ParentId, target_name: parent_id, type: INTEGER, mode: REQUIRED, description: The key.}
