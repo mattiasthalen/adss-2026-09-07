@@ -65,10 +65,25 @@ class Column:
 
 
 @dataclass(frozen=True, slots=True)
+class Endpoint:
+    """Where the records come from. Read by the pipeline; never by anything downstream."""
+
+    provider: str
+    service: str
+    entity: str
+    page_size: int
+
+    @property
+    def url(self) -> str:
+        return f"{self.service.rstrip('/')}/{self.entity}"
+
+
+@dataclass(frozen=True, slots=True)
 class Contract:
     """One source entity set, landed under one name."""
 
     table: str
+    source: Endpoint
     primary_keys: tuple[str, ...]
     columns: tuple[Column, ...]
 
@@ -115,9 +130,11 @@ def read_contract(path: Path) -> Contract:
     table = path.stem
     document = yaml.safe_load(path.read_text())
     _refuse_forbidden_keys(document, table)
+    declared_schema = document["schema"]
+    endpoint = document["endpoints"]["source"]
 
     columns: list[Column] = []
-    for declared in document["columns"]:
+    for declared in declared_schema["columns"]:
         source_path = declared["source_path"]
         target_name = declared["target_name"]
         if target_name != snake_case(source_path.rsplit(".", 1)[-1]):
@@ -146,11 +163,21 @@ def read_contract(path: Path) -> Contract:
         )
 
     declared_names = {column.target_name for column in columns}
-    primary_keys = tuple(document["primary_keys"])
+    primary_keys = tuple(declared_schema["primary_keys"])
     dangling = [key for key in primary_keys if key not in declared_names]
     if dangling:
         raise ContractError(
             f"{table}: dangling primary key {dangling!r} -- a key must name a declared column"
         )
 
-    return Contract(table=table, primary_keys=primary_keys, columns=tuple(columns))
+    return Contract(
+        table=table,
+        source=Endpoint(
+            provider=str(endpoint["provider"]),
+            service=str(endpoint["service"]),
+            entity=str(endpoint["entity"]),
+            page_size=int(endpoint["page_size"]),
+        ),
+        primary_keys=primary_keys,
+        columns=tuple(columns),
+    )

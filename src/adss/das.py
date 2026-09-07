@@ -96,3 +96,11 @@ def current_view_sql(contract: Contract) -> str:
         f"    ORDER BY staged.extracted_at DESC\n"
         f") = 1;\n"
     )
+
+
+def lake_dir(root: Path) -> Path:
+    """Where the landing zone actually sits under the lake root.
+
+    The loader writes its dataset name into the path, and the dataset name is the schema.
+    """
+    return root / str(Schema.DAS_RAW)
