@@ -40,6 +40,10 @@ is accepted on. It is the prototype, not a report generated afterwards.
 | # | Question | Status |
 |---|---|---|
 | 1 | How many orders were placed per order month and destination country? | green |
+| 2 | What freight did we pay per customer country and order quarter? | not started |
+
+The full prioritised list, and what each slice widens, is in
+[docs/questions/](docs/questions/README.md).
 
 ## Reading order
 
@@ -49,5 +53,5 @@ is accepted on. It is the prototype, not a report generated afterwards.
 | [docs/conventions.md](docs/conventions.md) | the one convention document: naming, SQL, YAML, Python, commits |
 | [docs/adr/](docs/adr/README.md) | one record per decision, written before the code it decides |
 | [docs/deviations.md](docs/deviations.md) | every knowing departure from a principle, with its cost and its exit condition |
-| [docs/questions/](docs/questions/) | the business questions, and the two queries that must agree on each answer |
+| [docs/questions/](docs/questions/README.md) | the prioritised question list, and for each one the two queries that must agree on its answer |
 | [.claude/skills/](.claude/skills/) | one skill per layer, one per destination, and one for the whole |
