@@ -128,8 +128,15 @@ the framework is not installed, we say the file is held, because that is what ha
 
 `tests/test_platform.py` reproduces the lock failure with DuckDB alone, no engine involved: a
 subprocess cannot write while this process holds the file, and can the moment it lets go.
-`tests/test_engine_pin.py` asserts the binary's hash matches the committed `.sha256` and that its
-self-report matches the recorded string. `tests/test_mapping_rules.py` asserts six of the seven rules against every file in
+The binary is verified against the committed `.sha256` on every invocation, by `Engine.verify()`
+in `src/adss/engine.py`, and again in CI by `sha256sum -c` before anything runs it.
+`tests/test_engine_pin.py` does not hash the vendored binary itself — it is a 174 MB git-LFS
+object a fresh checkout need not have pulled, and section 6 says this suite touches no binary —
+so what it asserts is that a binary which does not match its record is refused, that one which
+does is accepted, and that the engine's self-report is written down beside it at all, since an
+engine with no version has nothing else to be identified by.
+
+`tests/test_mapping_rules.py` asserts six of the seven rules against every file in
 `dab/mappings/` — M6 concerns relationships and lands with the first one — including that
 `ingestion_strategy` is `FULL_LOG` and that `entity_effective_timestamp_expression` is
 `extracted_at`. A data check counts `dab.<ENTITY>_desc` against its own distinct
