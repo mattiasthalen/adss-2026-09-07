@@ -59,8 +59,13 @@ scope or aggregation words: `placed_orders_count`, never `total_orders`. Then re
 - The generator reads `view_<entity>_hist` and keeps the latest version **in which the event's
   date is set**, so an entity the event never happened to has no row for it by construction
   rather than by a filter someone has to remember.
-- It never reads `_focal` or `_idfr` (empty on this platform) or `_with_rel` (no relationship
-  keys, despite the name).
+- It never reads `_focal` or `_idfr` (empty on this platform) or `_with_rel` (a passthrough on
+  a relationship's source side, and a fanned-out join on its target side — see the dab skill).
+- **An inherited key comes from `v_<src>_<name>_<tgt>`, ranked here rather than by the engine**,
+  as of the observation time of the row that inherits it, `row_st = 'Y'` only, matched on
+  `rel_name`, joined LEFT, and ranked with `row_number()` and an explicit tiebreak so it cannot
+  fan out. Every clause of that sentence is load-bearing; ADR 0006 says which failure each one
+  prevents.
 - **It never invents a member.** A null dimension stays null. A question that wants nulls
   grouped or excluded says so in its own file, because that is a property of the question.
 - Layout is the linter's, applied *inside* the generator. Do not hand-format emitted SQL and
