@@ -5,6 +5,7 @@ valid, well-formed SQL -- only the real linter does that, so it runs here over e
 every emitter produces, laid out the way the generator lays it out before writing.
 """
 
+import functools
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +22,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "contracts"
 ROOT = Path(__file__).resolve().parent.parent
 
 
+@functools.cache
 def emitters() -> dict[str, str]:
     contract = read_contract(FIXTURES / "parent.yaml")
     dab = Path(__file__).parent / "fixtures" / "dab"

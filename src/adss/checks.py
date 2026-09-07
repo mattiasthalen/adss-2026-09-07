@@ -16,7 +16,7 @@ import duckdb
 from adss.contract import read_contract
 from adss.model import read_model
 from adss.project import Project
-from adss.question import read_questions, without_comments
+from adss.question import Status, read_questions, without_comments
 from adss.uss import bridge_columns, read_uss
 
 
@@ -108,6 +108,16 @@ def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[
         )
 
     for question in read_questions(project.questions):
+        if question.status in (Status.DRAFT, Status.SUPERSEDED):
+            findings.append(
+                Finding(
+                    f"{question.id}: not asked ({question.status})",
+                    True,
+                    "a draft is not finished and a superseded question is not asked any more; "
+                    "running either would fail the build on something nobody is answering",
+                )
+            )
+            continue
         control = _rows(connection, question.staged_sql)
         answer = _rows(connection, question.uss_sql)
         findings.append(

@@ -26,7 +26,9 @@ name used in every DAS schema, so grepping for a table finds its contract.
 2. `uv run adss das record --contract <table>` — hits the live service, writes fixtures.
    Read the diff: it is what the source actually sends.
 3. `uv run adss das ingest && uv run adss das unpack`.
-4. The generated SQL is committed. Check it reads the way you meant.
+4. The generated checks under `checks/` are committed; the view SQL under `das/sql/` is
+   not, because it embeds the lake's absolute path. `adss das unpack --check` fails if the
+   committed checks are not what the contracts generate.
 
 ## What the contract may and may not say
 

@@ -28,24 +28,31 @@ def _installed(kind: str, bundled: Path) -> Path | None:
     return found[-1] if found else None
 
 
+def _point(link: Path, target: Path) -> None:
+    """Repoint a link, including one whose target has gone.
+
+    A dangling symlink answers False to exists() and still raises on symlink_to, and this
+    cache outlives the image it points into.
+    """
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(target)
+
+
 def shim(cache: Path, build: str, bundled: Path = BUNDLED) -> None:
     """Present the installed browser under the build number the driver asked for."""
     shell = _installed("chromium_headless_shell", bundled)
     if shell is not None:
         target = cache / f"chromium_headless_shell-{build}" / "chrome-headless-shell-linux64"
         target.mkdir(parents=True, exist_ok=True)
-        link = target / "chrome-headless-shell"
-        if not link.exists():
-            link.symlink_to(shell / "chrome-linux" / "headless_shell")
+        _point(target / "chrome-headless-shell", shell / "chrome-linux" / "headless_shell")
         (target.parent / "INSTALLATION_COMPLETE").touch()
 
     full = _installed("chromium", bundled)
     if full is not None:
         target = cache / f"chromium-{build}"
         target.mkdir(parents=True, exist_ok=True)
-        link = target / "chrome-linux"
-        if not link.exists():
-            link.symlink_to(full / "chrome-linux")
+        _point(target / "chrome-linux", full / "chrome-linux")
         (target / "INSTALLATION_COMPLETE").touch()
 
 

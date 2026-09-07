@@ -162,6 +162,24 @@ def read_contract(path: Path) -> Contract:
             )
         )
 
+    from adss.das import RESERVED
+
+    seen: set[str] = set()
+    for column in columns:
+        if column.target_name in seen:
+            raise ContractError(
+                f"{table}: two columns both land as {column.target_name!r}. The warehouse "
+                f"does not refuse that -- it renames the second and the first one's values "
+                f"are what everything downstream reads."
+            )
+        if column.target_name in RESERVED:
+            raise ContractError(
+                f"{table}: {column.target_name!r} is a name this layer adds itself "
+                f"({', '.join(sorted(RESERVED))}). A source field landing under it would "
+                f"silently displace the provenance that says where the row came from."
+            )
+        seen.add(column.target_name)
+
     declared_names = {column.target_name for column in columns}
     primary_keys = tuple(declared_schema["primary_keys"])
     dangling = [key for key in primary_keys if key not in declared_names]

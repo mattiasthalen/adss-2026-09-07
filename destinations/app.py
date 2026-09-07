@@ -53,7 +53,7 @@ def _(definitions, project, question_module, read_model, read_uss):
     model = read_model(project.model)
     uss = read_uss(project.uss, model)
     defined = definitions(model, uss)
-    questions = question_module.read_questions(project.root / "docs" / "questions")
+    questions = question_module.read_questions(project.questions)
     return defined, questions
 
 

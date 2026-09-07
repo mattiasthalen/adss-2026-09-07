@@ -15,6 +15,10 @@ from adss.names import Relation, Schema
 # wrote it. Blueprint S4.
 PROVENANCE = ("source_system", "source_entity", "source_url")
 
+# Every name this layer adds for itself. A contract may not land a source field under one:
+# the warehouse would silently rename the duplicate rather than refuse it.
+RESERVED = frozenset({*PROVENANCE, "payload", "extracted_at", "extracted_on"})
+
 _GENERATED = "-- Generated from das/contracts/{table}.yaml. Do not edit; edit the contract."
 
 
@@ -109,6 +113,11 @@ def lake_dir(root: Path) -> Path:
 def clock_check_sql(contract: Contract) -> str:
     """The partition key and the observation clock derive from one fact and must agree.
 
+    The comparison is pinned to UTC. `extracted_at` is a TIMESTAMP WITH TIME ZONE, so casting
+    it to a date resolves in the reader's session timezone, while the partition key is the
+    loader's UTC date -- and the check would then fail on every machine east or west of
+    Greenwich for a warehouse that is perfectly correct.
+
     Emitted per contract rather than written in Python: the machinery must work for any
     source, so it may not name one, and SQL in a string is SQL the linter never sees.
     """
@@ -117,16 +126,19 @@ def clock_check_sql(contract: Contract) -> str:
         f"{_GENERATED.format(table=contract.table)}\n"
         f"SELECT count(*) AS disagreements\n"
         f"FROM {relation.sql} AS staged\n"
-        f"WHERE staged.extracted_on <> cast(staged.extracted_at AS DATE);\n"
+        f"WHERE staged.extracted_on <> cast(timezone('UTC', staged.extracted_at) AS DATE);\n"
     )
 
 
 def key_check_sql(contract: Contract) -> str:
     """One row per key in the current view, however many loads the change log holds."""
     current = Relation(Schema.DAS_STAGED, f"{contract.table}__current")
+    # Parenthesised: count(DISTINCT a, b) is not a function DuckDB has, so a composite key
+    # would emit a check that cannot run -- and an unrunnable check aborts the whole run
+    # before any finding is printed.
     keys = ", ".join(f"latest.{key}" for key in contract.primary_keys)
     return (
         f"{_GENERATED.format(table=contract.table)}\n"
-        f"SELECT count(*) - count(DISTINCT {keys}) AS duplicates\n"
+        f"SELECT count(*) - count(DISTINCT ({keys})) AS duplicates\n"
         f"FROM {current.sql} AS latest;\n"
     )

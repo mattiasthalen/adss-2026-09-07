@@ -47,3 +47,13 @@ def test_a_target_name_that_is_not_the_snake_case_of_its_source_path_is_refused(
 def test_a_key_that_could_carry_business_logic_is_refused():
     with pytest.raises(ContractError, match="business logic"):
         read_contract(FIXTURES / "bad_expression_key.yaml")
+
+
+def test_two_columns_landing_under_one_name_are_refused():
+    with pytest.raises(ContractError, match="renames the second"):
+        read_contract(FIXTURES / "bad_duplicate_target.yaml")
+
+
+def test_a_source_field_landing_on_a_provenance_name_is_refused():
+    with pytest.raises(ContractError, match="this layer adds itself"):
+        read_contract(FIXTURES / "bad_shadows_provenance.yaml")

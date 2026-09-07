@@ -122,6 +122,15 @@ def check_question(question: Question, defined: dict[str, str]) -> None:
                 f"the flow rules exist to prevent."
             )
 
+    for body, side in ((control, "control"), (answer, "answer")):
+        if "order by" not in body:
+            raise QuestionError(
+                f"{question.id}: the {side} query has no ORDER BY. The two answers are "
+                f"compared row by row, so without one an identical pair can differ by the "
+                f"order the engine happened to return, and someone goes looking for a data "
+                f"bug that is not there."
+            )
+
     # Only the answer query. The control expresses the same dimension in the source's own
     # words -- that difference is what makes it independent rather than a transcription.
     for dimension in question.dimensions:

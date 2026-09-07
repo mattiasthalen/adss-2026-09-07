@@ -63,8 +63,60 @@ def test_a_comment_naming_a_forbidden_layer_is_not_a_violation(tmp_path: Path):
 
 
 def test_every_question_in_this_repository_is_answerable():
-    questions = read_questions(PROJECT.root / "docs" / "questions")
+    questions = read_questions(PROJECT.questions)
     assert questions, "a slice is accepted on a question; there are none"
     defined = project_definitions()
     for question in questions:
         check_question(question, defined)
+
+
+def test_a_query_without_an_order_by_is_refused(tmp_path: Path):
+    """The two answers are compared row by row, so an unordered pair can differ by luck."""
+    directory = tmp_path / "01-unordered"
+    directory.mkdir()
+    (directory / "question.md").write_text((NEUTRAL / "question.md").read_text())
+    (directory / "uss.sql").write_text((NEUTRAL / "uss.sql").read_text())
+    (directory / "staged.sql").write_text(
+        (NEUTRAL / "staged.sql").read_text().replace("ORDER BY month_label", "")
+    )
+    with pytest.raises(QuestionError, match="no ORDER BY"):
+        check_question(read_question(directory), neutral_definitions())
+
+
+def test_an_answer_query_that_reaches_past_the_star_schema_is_refused(tmp_path: Path):
+    directory = tmp_path / "01-reaching"
+    directory.mkdir()
+    (directory / "question.md").write_text((NEUTRAL / "question.md").read_text())
+    (directory / "staged.sql").write_text((NEUTRAL / "staged.sql").read_text())
+    (directory / "uss.sql").write_text(
+        "SELECT b.x AS month_label FROM dar__uss._bridge AS b, das__staged.parent AS p "
+        "ORDER BY month_label"
+    )
+    with pytest.raises(QuestionError, match="reads the star schema and nothing else"):
+        check_question(read_question(directory), neutral_definitions())
+
+
+def test_a_control_query_that_skips_the_contract_is_refused(tmp_path: Path):
+    directory = tmp_path / "01-raw"
+    directory.mkdir()
+    (directory / "question.md").write_text((NEUTRAL / "question.md").read_text())
+    (directory / "uss.sql").write_text((NEUTRAL / "uss.sql").read_text())
+    (directory / "staged.sql").write_text(
+        "SELECT count(*) AS month_label FROM das__raw.parent AS p ORDER BY month_label"
+    )
+    with pytest.raises(QuestionError, match="__current"):
+        check_question(read_question(directory), neutral_definitions())
+
+
+def test_a_declared_dimension_the_answer_never_mentions_is_refused(tmp_path: Path):
+    directory = tmp_path / "01-undelivered"
+    directory.mkdir()
+    (directory / "question.md").write_text(
+        (NEUTRAL / "question.md")
+        .read_text()
+        .replace("dimensions: [_calendar.month_label]", "dimensions: [_calendar.year_number]")
+    )
+    (directory / "staged.sql").write_text((NEUTRAL / "staged.sql").read_text())
+    (directory / "uss.sql").write_text((NEUTRAL / "uss.sql").read_text())
+    with pytest.raises(QuestionError, match="front matter is what a reader trusts"):
+        check_question(read_question(directory), neutral_definitions())

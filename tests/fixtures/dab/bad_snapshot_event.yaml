@@ -1,0 +1,9 @@
+uss:
+  events:
+    - id: OBSERVED
+      entity: PARENT
+      definition: A parent was observed in some state.
+      kind: snapshot
+      date_attribute: HAPPENED_ON
+      measures:
+        - {id: OBSERVED_PARENTS_COUNT, definition: How many were observed., aggregate: count}

@@ -213,8 +213,6 @@ stay true.
 
 ## 9. The warehouse has exactly one writer
 
-| Rule | Why | Severity |
-|---|---|---|
 The lock is **per process**. Within one process every connection shares an instance, so a
 second open succeeds; across processes the second is refused. That distinction is the whole of
 this section, and getting it backwards costs an afternoon.

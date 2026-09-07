@@ -6,7 +6,16 @@ from pathlib import Path
 import pytest
 
 from adss.model import read_model
-from adss.uss import UssError, bridge_columns, bridge_sql, calendar_sql, peripheral_sql, read_uss
+from adss.uss import (
+    Uss,
+    UssError,
+    bridge_columns,
+    bridge_sql,
+    calendar_sql,
+    definitions,
+    peripheral_sql,
+    read_uss,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "dab"
 
@@ -135,3 +144,30 @@ def test_a_zero_edge_walk_is_a_valid_walk():
     model, uss = plan()
     assert bridge_columns(model, uss).count("parent_key") == 1
     assert "parent_key" in bridge_sql(model, uss)
+
+
+def test_the_key_columns_follow_the_model_order_not_the_declaration_order():
+    """Reordering two events in the sidecar is not a model change.
+
+    The published contract says the key columns are in model order, and the data check
+    cannot notice a rearrangement because it derives what it expects from the same function.
+    """
+    model, uss = plan()
+    reversed_events = Uss(path=uss.path, events=tuple(reversed(uss.events)))
+    assert bridge_columns(model, uss)[:6] == bridge_columns(model, reversed_events)[:6]
+
+
+def test_an_event_kind_the_generator_does_not_build_is_refused_rather_than_faked():
+    with pytest.raises(UssError, match="only builds"):
+        read_uss(FIXTURES / "bad_snapshot_event.yaml")
+
+
+def test_a_definition_is_carried_verbatim_and_never_composed():
+    model, uss = plan()
+    carried = definitions(model, uss)
+    assert carried["PARENT"] == model.entity("PARENT").definition
+    assert (
+        carried["PARENT.HAPPENED_ON"] == model.entity("PARENT").attribute("HAPPENED_ON").definition
+    )
+    assert carried["PARENT.events.HAPPENED"] == uss.events[0].definition
+    assert carried["PARENT.measures.HAPPENED_PARENTS_COUNT"] == uss.events[0].measures[0].definition

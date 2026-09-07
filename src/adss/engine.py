@@ -39,7 +39,10 @@ class Engine:
     def verify(self) -> str:
         """Refuse to run a binary that is not the one recorded beside it."""
         recorded = (self.binary.parent / f"{self.binary.name}.sha256").read_text().split()[0]
-        digest = hashlib.sha256(self.binary.read_bytes()).hexdigest()
+        # Streamed. Slurping a 174 MB binary three times a build is 500 MB of allocation
+        # spikes for a file that cannot change within the run.
+        with self.binary.open("rb") as opened:
+            digest = hashlib.file_digest(opened, "sha256").hexdigest()
         if digest != recorded:
             raise EnginePinError(
                 f"{self.binary} hashes to {digest}, but {self.binary.name}.sha256 records "

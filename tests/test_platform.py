@@ -95,3 +95,15 @@ def test_a_reader_opens_without_taking_the_write_lock(tmp_path: Path):
         assert connection.execute("SELECT x FROM t").fetchone() == (1,)
         with pytest.raises(duckdb.Error):
             connection.execute("CREATE TABLE u (x INTEGER)")
+
+
+def test_two_overlapping_opens_hold_the_guard_until_both_are_closed(tmp_path: Path):
+    """A count, not a flag. Closing the inner one must not release the outer one's lock."""
+    path = tmp_path / "w.duckdb"
+    with exclusive(path):
+        with exclusive(path):
+            pass
+        # The inner one has closed; the outer one is still holding the file.
+        with pytest.raises(WarehouseHeldError):
+            require_detached(path, "an-engine")
+    require_detached(path, "an-engine")

@@ -100,15 +100,18 @@ def read_uss(path: Path, model: Model | None = None) -> Uss:
             aggregate = Aggregate(str(raw["aggregate"]))
             if "definition" not in raw:
                 raise UssError(f"{path}: measure {raw['id']} has no definition.")
-            attribute_id = raw.get("attribute")
-            if aggregate is Aggregate.SUM and attribute_id is None:
-                raise UssError(f"{path}: measure {raw['id']} sums nothing.")
+            attribute_id = str(raw["attribute"]).strip() if raw.get("attribute") else None
+            if aggregate is Aggregate.SUM and not attribute_id:
+                raise UssError(
+                    f"{path}: measure {raw['id']} declares aggregate: sum and names nothing "
+                    f"to sum. A blank attribute would emit a column named after nothing."
+                )
             measures.append(
                 Measure(
                     id=str(raw["id"]),
                     definition=str(raw["definition"]),
                     aggregate=aggregate,
-                    attribute_id=str(attribute_id) if attribute_id else None,
+                    attribute_id=attribute_id,
                 )
             )
         events.append(
@@ -134,6 +137,13 @@ def _model_beside(path: Path) -> Model:
 
 def _refuse_measures_of_things_that_are_not_numbers(uss: Uss, model: Model) -> None:
     for event in uss.events:
+        if event.kind is not EventKind.TRANSACTION:
+            raise UssError(
+                f"{event.id} is declared {event.kind}, and the generator only builds "
+                f"transaction stages. It would emit a transaction stage anyway and mark "
+                f"every row current, which is worse than refusing: nothing downstream could "
+                f"tell. A snapshot stage arrives in the slice that first needs one."
+            )
         entity = model.entity(event.entity_id)
         if not entity.attribute(event.date_attribute_id).is_date:
             raise UssError(
@@ -178,7 +188,7 @@ def _stage_cte(model: Model, event: Event) -> str:
     )
 
 
-def _branch(model: Model, uss: Uss, event: Event, entity_keys: tuple[str, ...]) -> str:
+def _branch(model: Model, uss: Uss, event: Event, keys: tuple[str, ...]) -> str:
     """One branch of the union: this stage's own columns, and a typed NULL for the rest."""
     entity = model.entity(event.entity_id)
     lines = [
@@ -188,7 +198,7 @@ def _branch(model: Model, uss: Uss, event: Event, entity_keys: tuple[str, ...]) 
         "    TRUE AS _is_current",
         f"    {event.name}._observed_at AS _observed_at",
     ]
-    for key in entity_keys:
+    for key in keys:
         value = f"{event.name}.{key}" if key == entity.key_column else "cast(NULL AS VARCHAR)"
         lines.append(f"    {value} AS {key}")
     owned = {column for candidate, _, column in uss.measure_columns() if candidate is event}
@@ -198,24 +208,29 @@ def _branch(model: Model, uss: Uss, event: Event, entity_keys: tuple[str, ...]) 
     return "SELECT\n" + ",\n".join(lines) + f"\nFROM {event.name} AS {event.name}"
 
 
+def entity_keys(model: Model, uss: Uss) -> tuple[str, ...]:
+    """One key column per entity the declarations touch, in MODEL order.
+
+    Model order, not event order: reordering two events in the sidecar is not a model change,
+    and it must not rearrange a contract that consumers are written against. The check cannot
+    catch that on its own, because it derives what it expects from this same function.
+    """
+    touched = {event.entity_id for event in uss.events}
+    return tuple(entity.key_column for entity in model.entities if entity.id in touched)
+
+
 def bridge_columns(model: Model, uss: Uss) -> tuple[str, ...]:
     """The published column contract, in order. A model change appends; it never rearranges."""
-    entity_keys = tuple(
-        dict.fromkeys(model.entity(event.entity_id).key_column for event in uss.events)
-    )
+    keys = entity_keys(model, uss)
     structural = ("_stage", "_event", "_event_date", "_is_current", "_observed_at")
-    return structural + entity_keys + tuple(column for _, _, column in uss.measure_columns())
+    return structural + keys + tuple(column for _, _, column in uss.measure_columns())
 
 
 def bridge_sql(model: Model, uss: Uss) -> str:
     """One row per measurement event, over every stage the declarations name."""
-    entity_keys = tuple(
-        dict.fromkeys(model.entity(event.entity_id).key_column for event in uss.events)
-    )
+    keys = entity_keys(model, uss)
     ctes = ",\n\n".join(_stage_cte(model, event) for event in uss.events)
-    branches = "\n\nUNION ALL\n\n".join(
-        _branch(model, uss, event, entity_keys) for event in uss.events
-    )
+    branches = "\n\nUNION ALL\n\n".join(_branch(model, uss, event, keys) for event in uss.events)
     return f"{_GENERATED}\nCREATE OR REPLACE TABLE {BRIDGE.sql} AS\nWITH {ctes}\n\n{branches};\n"
 
 

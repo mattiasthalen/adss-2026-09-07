@@ -12,6 +12,7 @@ section 9.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -40,14 +41,15 @@ class WarehouseHeldError(Exception):
     """We are holding the warehouse while asking a separate process to write to it."""
 
 
-# Warehouses this process currently has open. An external engine runs as a subprocess and is
-# refused while any of these is live, so the rule is enforced here rather than remembered.
-_open: set[Path] = set()
+# How many connections this process currently holds to each warehouse. A count rather than a
+# set, because two overlapping opens of one path must not have the first close release the
+# guard while the second connection is still holding the lock.
+_open: Counter[Path] = Counter()
 
 
 def require_detached(path: Path, tool: str) -> None:
     """Refuse to invoke a separate process against a warehouse this one is holding."""
-    if path.absolute() in _open:
+    if _open[path.absolute()]:
         raise WarehouseHeldError(HELD.format(path=path, tool=tool))
 
 
@@ -59,12 +61,12 @@ def exclusive(path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
         connection = duckdb.connect(str(path))
     except duckdb.IOException as busy:
         raise WarehouseBusyError(BUSY.format(path=path)) from busy
-    _open.add(path.absolute())
+    _open[path.absolute()] += 1
     try:
         yield connection
     finally:
         connection.close()
-        _open.discard(path.absolute())
+        _open[path.absolute()] -= 1
 
 
 @contextmanager
@@ -74,13 +76,16 @@ def reading(path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
     A reader holding a writable handle blocks the next build, and the build is the thing
     that cannot be worked around.
     """
-    connection = duckdb.connect(str(path), read_only=True)
-    _open.add(path.absolute())
+    try:
+        connection = duckdb.connect(str(path), read_only=True)
+    except duckdb.IOException as busy:
+        raise WarehouseBusyError(BUSY.format(path=path)) from busy
+    _open[path.absolute()] += 1
     try:
         yield connection
     finally:
         connection.close()
-        _open.discard(path.absolute())
+        _open[path.absolute()] -= 1
 
 
 def statements(sql: str) -> list[str]:

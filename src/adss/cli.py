@@ -10,6 +10,7 @@ blueprint's first promise is that every tool here is replaceable.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -126,10 +127,24 @@ def das_ingest(
 
 
 @das.command("unpack")
-def das_unpack() -> None:
-    """Write the views the contracts describe, ready to be installed on the warehouse."""
+def das_unpack(
+    check_only: Annotated[
+        bool, typer.Option("--check", help="Fail if the committed checks are not what regenerates.")
+    ] = False,
+) -> None:
+    """Write the views the contracts describe, and the checks that go with them.
+
+    The views embed the lake's absolute path, so they are built rather than committed. The
+    checks carry no path, so they are committed -- and `--check` is what stops the committed
+    copy becoming a second truth.
+    """
+    stale = False
     project = Project.discover()
     project.das_sql.mkdir(parents=True, exist_ok=True)
+    project.checks_sql.mkdir(parents=True, exist_ok=True)
+    # A renamed or removed contract would otherwise leave an orphan check behind, and an
+    # orphan check aborts the whole run before any finding is printed.
+    written_checks: set[Path] = set()
     for path in project.contract_paths():
         declared = read_contract(path)
         statements = [
@@ -137,9 +152,12 @@ def das_unpack() -> None:
             staged_view_sql(declared),
             current_view_sql(declared),
         ]
-        written = project.das_sql / f"{declared.table}.sql"
-        written.write_text("\n".join(statements))
-        typer.echo(f"wrote {written.relative_to(project.root)}")
+        # The views are built rather than committed, so --check has nothing to say about
+        # them and should not write them either.
+        if not check_only:
+            written = project.das_sql / f"{declared.table}.sql"
+            written.write_text("\n".join(statements))
+            typer.echo(f"wrote {written.relative_to(project.root)}")
 
         # The checks carry no path, so unlike the views they are committed and linted.
         project.checks_sql.mkdir(parents=True, exist_ok=True)
@@ -148,8 +166,33 @@ def das_unpack() -> None:
             (f"{declared.table}__key", key_check_sql(declared)),
         ):
             check = project.checks_sql / f"{name}.sql"
-            check.write_text(formatted(sql, project.sqlfluff_config))
+            laid_out = formatted(sql, project.sqlfluff_config)
+            written_checks.add(check)
+            if check_only:
+                if not check.exists() or check.read_text() != laid_out:
+                    typer.echo(
+                        f"{check.relative_to(project.root)} is not what the contract generates"
+                    )
+                    stale = True
+                continue
+            check.write_text(laid_out)
             typer.echo(f"wrote {check.relative_to(project.root)}")
+
+    for orphan in sorted(project.checks_sql.glob("*.sql")):
+        if orphan in written_checks:
+            continue
+        if check_only:
+            typer.echo(f"{orphan.relative_to(project.root)} belongs to no contract")
+            stale = True
+        else:
+            orphan.unlink()
+            typer.echo(f"removed {orphan.relative_to(project.root)}")
+
+    if stale:
+        raise typer.Exit(1)
+
+    if check_only:
+        return
 
     with exclusive(project.warehouse) as connection:
         for schema in (Schema.DAS_RAW, Schema.DAS_STAGED):
@@ -229,7 +272,9 @@ def dar_build() -> None:
     with exclusive(project.warehouse) as connection:
         connection.execute(f"CREATE SCHEMA IF NOT EXISTS {Schema.DAR_USS}")
         for name in ordered:
-            install(connection, (project.dar_sql / name).read_text())
+            # What was generated, not what is on disk. "Nothing here is hand-edited" is then
+            # true by construction rather than by a check somebody has to run.
+            install(connection, generated[name])
             typer.echo(f"built {name.removesuffix('.sql')}")
 
 
@@ -257,7 +302,7 @@ def build(
     separately. This is them in order, which is the order a reader should meet them in.
     """
     das_ingest(live=live)
-    das_unpack()
+    das_unpack(check_only=False)
     dab_install()
     dab_deploy()
     dab_execute()

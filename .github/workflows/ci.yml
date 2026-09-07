@@ -83,5 +83,7 @@ jobs:
 
       # The committed SQL must be what the model produces. Without this the generated layer
       # becomes a second truth that nothing compares against the model.
-      - name: Check the generated layer has not drifted
-        run: uv run adss dar generate --check
+      - name: Check the generated layers have not drifted
+        run: |
+          uv run adss dar generate --check
+          uv run adss das unpack --check
