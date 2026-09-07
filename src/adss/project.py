@@ -49,5 +49,17 @@ class Project:
     def warehouse(self) -> Path:
         return self.root / "warehouse.duckdb"
 
+    @property
+    def dab(self) -> Path:
+        return self.root / "dab"
+
+    @property
+    def mappings(self) -> Path:
+        return self.dab / "mappings"
+
+    @property
+    def engine_binary(self) -> Path:
+        return self.root / "bin" / "linux-amd64" / "daana-cli"
+
     def contract_paths(self) -> tuple[Path, ...]:
         return tuple(sorted(self.contracts.glob("*.yaml")))

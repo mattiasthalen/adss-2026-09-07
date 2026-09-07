@@ -1,0 +1,17 @@
+{
+  "ID": "ADSS",
+  "Name": "ADSS",
+  "Definition": "The business model, loaded from what the system recorded.",
+  "Description": "One workflow for the whole model. Entities are added to it as the questions that need them arrive; nothing here is per-question.",
+  "connection_profile": "dev",
+  "SQLDialect": "DUCKDB",
+  "Model": {
+    "File": "./model.json"
+  },
+  "Mappings": [
+    "./mappings/order-mapping.json"
+  ],
+  "Advanced": {
+    "BatchExpression": ""
+  }
+}

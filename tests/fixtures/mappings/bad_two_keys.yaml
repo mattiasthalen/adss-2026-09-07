@@ -1,0 +1,11 @@
+entity_id: PARENT
+mapping_groups:
+  - name: default_mapping_group
+    tables:
+      - connection: dev
+        table: das__staged.parent
+        primary_keys: [parent_id, parent_label]
+        ingestion_strategy: FULL_LOG
+        entity_effective_timestamp_expression: extracted_at
+        attributes:
+          - {id: PARENT_LABEL, transformation_expression: parent_label}

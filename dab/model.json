@@ -1,0 +1,91 @@
+{
+  "model": {
+    "id": "ADSS",
+    "name": "ADSS",
+    "definition": "What the business means by the things it records.",
+    "description": "One model for the whole platform. Entities arrive as the questions that need them arrive, and a new attribute, entity or relationship is always a new structure rather than a change to one something already depends on.",
+    "entities": [
+      {
+        "id": "ORDER",
+        "name": "ORDER",
+        "definition": "A commitment by the business to supply goods, created when it accepts a customer's request for them.",
+        "description": "One order is one such commitment. It begins on the day the business accepts it and is settled by delivering what was promised, to where it was promised.",
+        "attributes": [
+          {
+            "id": "ORDER_NUMBER",
+            "name": "ORDER_NUMBER",
+            "definition": "The number the business uses when it refers to one particular order.",
+            "description": "Unique across all orders, and never reused once issued.",
+            "type": "STRING",
+            "atomic_context": "ORDER_ORDER_NUMBER"
+          },
+          {
+            "id": "PLACED_ON",
+            "name": "PLACED_ON",
+            "definition": "The day the business accepted the order, and from which the order exists.",
+            "description": "An order is placed once. This is the date every question about when demand occurred is measured against.",
+            "type": "START_TIMESTAMP",
+            "atomic_context": "ORDER_PLACED_ON"
+          },
+          {
+            "id": "DESTINATION_COUNTRY",
+            "name": "DESTINATION_COUNTRY",
+            "definition": "The country the business has undertaken to deliver the order to.",
+            "description": "Where the goods are going, which is not necessarily where the customer is. A question about demand by geography means this unless it says otherwise.",
+            "type": "STRING",
+            "atomic_context": "ORDER_DESTINATION_COUNTRY"
+          },
+          {
+            "id": "ORDER_DESTINATION_COUNTRY_EFF_TMSTP",
+            "name": "ORDER_DESTINATION_COUNTRY_EFF_TMSTP",
+            "definition": "Effective timestamp for DESTINATION_COUNTRY",
+            "description": "Automatically generated timestamp tracking last change",
+            "type": "EFFECTIVE_TIMESTAMP",
+            "atomic_context": "ORDER_DESTINATION_COUNTRY"
+          },
+          {
+            "id": "ORDER_IDFR_01",
+            "name": "ORDER_IDFR",
+            "definition": "",
+            "description": "",
+            "type": "IDENTIFIER",
+            "atomic_context": "ORDER_IDFR_01"
+          },
+          {
+            "id": "ORDER_IDFR_02",
+            "name": "ORDER_IDFR",
+            "definition": "",
+            "description": "",
+            "type": "IDENTIFIER",
+            "atomic_context": "ORDER_IDFR_02"
+          },
+          {
+            "id": "ORDER_IDFR_03",
+            "name": "ORDER_IDFR",
+            "definition": "",
+            "description": "",
+            "type": "IDENTIFIER",
+            "atomic_context": "ORDER_IDFR_03"
+          },
+          {
+            "id": "ORDER_IDFR_04",
+            "name": "ORDER_IDFR",
+            "definition": "",
+            "description": "",
+            "type": "IDENTIFIER",
+            "atomic_context": "ORDER_IDFR_04"
+          },
+          {
+            "id": "ORDER_IDFR_05",
+            "name": "ORDER_IDFR",
+            "definition": "",
+            "description": "",
+            "type": "IDENTIFIER",
+            "atomic_context": "ORDER_IDFR_05"
+          }
+        ]
+      }
+    ],
+    "relationships": null
+  }
+}

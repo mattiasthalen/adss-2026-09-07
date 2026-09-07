@@ -17,6 +17,7 @@ import typer
 from adss import __version__
 from adss.contract import read_contract
 from adss.das import current_view_sql, lake_dir, raw_view_sql, staged_view_sql
+from adss.engine import Engine
 from adss.landing import land
 from adss.names import Schema
 from adss.platform import exclusive, install
@@ -33,6 +34,20 @@ das = typer.Typer(
     name="das", help="Data according to the system: capture and unpack.", no_args_is_help=True
 )
 app.add_typer(das)
+dab = typer.Typer(
+    name="dab",
+    help="Data according to the business: integrate and historize.",
+    no_args_is_help=True,
+)
+app.add_typer(dab)
+
+
+def _engine(project: Project) -> Engine:
+    return Engine(
+        binary=project.engine_binary,
+        working_directory=project.dab,
+        warehouse=project.warehouse,
+    )
 
 
 def _report_version(requested: bool) -> None:
@@ -113,3 +128,27 @@ def das_unpack() -> None:
             declared = read_contract(path)
             install(connection, (project.das_sql / f"{declared.table}.sql").read_text())
             typer.echo(f"installed {Schema.DAS_STAGED}.{declared.table}")
+
+
+@dab.command("install")
+def dab_install() -> None:
+    """Put the modelling framework into the warehouse. Once per warehouse."""
+    project = Project.discover()
+    _engine(project).run("install", "--connection", "dev")
+    typer.echo("installed the modelling framework")
+
+
+@dab.command("deploy")
+def dab_deploy() -> None:
+    """Make the model and its mappings ready to run."""
+    project = Project.discover()
+    _engine(project).run("deploy")
+    typer.echo("deployed the model")
+
+
+@dab.command("execute")
+def dab_execute() -> None:
+    """Load the business model from what the system recorded."""
+    project = Project.discover()
+    _engine(project).run("execute")
+    typer.echo("loaded the business model")

@@ -1,0 +1,11 @@
+workflow:
+  id: ADSS
+  name: ADSS
+  definition: The business model, loaded from what the system recorded.
+  description: >-
+    One workflow for the whole model. Entities are added to it as the questions that need
+    them arrive; nothing here is per-question.
+  model: ./model.yaml
+  connection: dev
+  mappings:
+    - ./mappings/order-mapping.yaml
