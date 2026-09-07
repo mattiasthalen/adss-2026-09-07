@@ -58,6 +58,22 @@ class Project:
         return self.dab / "mappings"
 
     @property
+    def sqlfluff_config(self) -> Path:
+        return self.root / ".sqlfluff"
+
+    @property
+    def model(self) -> Path:
+        return self.dab / "model.yaml"
+
+    @property
+    def uss(self) -> Path:
+        return self.dab / "uss.yaml"
+
+    @property
+    def dar_sql(self) -> Path:
+        return self.root / "dar" / "uss"
+
+    @property
     def engine_binary(self) -> Path:
         return self.root / "bin" / "linux-amd64" / "daana-cli"
 

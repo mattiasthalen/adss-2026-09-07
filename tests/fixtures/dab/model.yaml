@@ -1,0 +1,16 @@
+model:
+  id: NEUTRAL
+  name: NEUTRAL
+  definition: A model that names nothing from any business.
+  description: It exists so a test proves the machinery is generic instead of asserting it.
+  entities:
+    - id: PARENT
+      name: PARENT
+      definition: A thing that other things point at.
+      description: One parent.
+      attributes:
+        - {id: PARENT_NUMBER, name: PARENT_NUMBER, definition: Its number., type: STRING, effective_timestamp: false}
+        - {id: HAPPENED_ON, name: HAPPENED_ON, definition: When it happened., type: START_TIMESTAMP}
+        - {id: PARENT_LABEL, name: PARENT_LABEL, definition: Its label., type: STRING, effective_timestamp: true}
+        - {id: PARENT_SIZE, name: PARENT_SIZE, definition: Its size., type: NUMBER, effective_timestamp: true}
+        - {id: FINISHED_ON, name: FINISHED_ON, definition: When it finished., type: END_TIMESTAMP}

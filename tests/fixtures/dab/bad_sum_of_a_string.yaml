@@ -1,0 +1,9 @@
+uss:
+  events:
+    - id: HAPPENED
+      entity: PARENT
+      definition: A parent happened.
+      kind: transaction
+      date_attribute: HAPPENED_ON
+      measures:
+        - {id: LABEL_PARENTS_COUNT, definition: Nonsense., aggregate: sum, attribute: PARENT_LABEL}

@@ -40,6 +40,15 @@ def quoted(identifier: str) -> str:
     return f'"{identifier}"' if identifier.lower() in _RESERVED else identifier
 
 
+def crossing(identifier: str) -> str:
+    """An identifier crossing over from DAB, where mixed case is deliberate.
+
+    Always quoted, never conditionally: an identifier that loses its quotes fails only at
+    run time, and the two conventions must be visually distinct. Conventions section 3.
+    """
+    return f'"{identifier}"'
+
+
 @dataclass(frozen=True, slots=True)
 class Relation:
     """A schema-qualified object this system creates."""

@@ -19,10 +19,13 @@ from adss.contract import read_contract
 from adss.das import current_view_sql, lake_dir, raw_view_sql, staged_view_sql
 from adss.engine import Engine
 from adss.landing import land
+from adss.model import read_model
 from adss.names import Schema
 from adss.platform import exclusive, install
 from adss.project import Project
 from adss.source import over_http, record, replay
+from adss.sqlformat import formatted
+from adss.uss import bridge_sql, calendar_sql, peripheral_sql, read_uss
 
 app = typer.Typer(
     name="adss",
@@ -40,6 +43,14 @@ dab = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(dab)
+
+
+dar = typer.Typer(
+    name="dar",
+    help="Data according to the requirements: the generated star schema.",
+    no_args_is_help=True,
+)
+app.add_typer(dar)
 
 
 def _engine(project: Project) -> Engine:
@@ -152,3 +163,52 @@ def dab_execute() -> None:
     project = Project.discover()
     _engine(project).run("execute")
     typer.echo("loaded the business model")
+
+
+def _generate(project: Project) -> dict[str, str]:
+    """The whole generated layer, as file name to SQL. Nothing here is hand-written."""
+    model = read_model(project.model)
+    uss = read_uss(project.uss, model)
+    entity_ids = list(dict.fromkeys(event.entity_id for event in uss.events))
+    generated = {f"{model.entity(e).object_name}.sql": peripheral_sql(model, e) for e in entity_ids}
+    generated["_bridge.sql"] = bridge_sql(model, uss)
+    generated["_calendar.sql"] = calendar_sql()
+    return {name: formatted(sql, project.sqlfluff_config) for name, sql in generated.items()}
+
+
+@dar.command("generate")
+def dar_generate(
+    check: Annotated[
+        bool, typer.Option(help="Fail if what is committed is not what regenerates.")
+    ] = False,
+) -> None:
+    """Write the star schema's SQL from the model and its declarations."""
+    project = Project.discover()
+    project.dar_sql.mkdir(parents=True, exist_ok=True)
+    stale = False
+    for name, sql in _generate(project).items():
+        written = project.dar_sql / name
+        if check:
+            current = written.read_text() if written.exists() else ""
+            if current != sql:
+                typer.echo(f"{written.relative_to(project.root)} is not what the model generates")
+                stale = True
+            continue
+        written.write_text(sql)
+        typer.echo(f"wrote {written.relative_to(project.root)}")
+    if stale:
+        raise typer.Exit(1)
+
+
+@dar.command("build")
+def dar_build() -> None:
+    """Run the generated SQL against the warehouse, peripherals first."""
+    project = Project.discover()
+    generated = _generate(project)
+    ordered = [n for n in generated if n not in ("_bridge.sql", "_calendar.sql")]
+    ordered += ["_bridge.sql", "_calendar.sql"]
+    with exclusive(project.warehouse) as connection:
+        connection.execute(f"CREATE SCHEMA IF NOT EXISTS {Schema.DAR_USS}")
+        for name in ordered:
+            install(connection, (project.dar_sql / name).read_text())
+            typer.echo(f"built {name.removesuffix('.sql')}")
