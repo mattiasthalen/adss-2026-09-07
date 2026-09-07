@@ -1,0 +1,287 @@
+diff --git a/.pre-commit-config.yaml b/.pre-commit-config.yaml
+index 9530ae7..6109b6a 100644
+--- a/.pre-commit-config.yaml
++++ b/.pre-commit-config.yaml
+@@ -14,6 +14,7 @@ repos:
+       - id: ruff-format
+         name: ruff format
+         entry: uv run --frozen ruff format --force-exclude
++        exclude: ^destinations/
+         language: system
+         types_or: [python, pyi]
+         require_serial: true
+diff --git a/.sqlfluff b/.sqlfluff
+index 49dca5f..04ad936 100644
+--- a/.sqlfluff
++++ b/.sqlfluff
+@@ -7,7 +7,10 @@ max_line_length = 120
+ # AL09 forbids `x AS x`, which is exactly the every-column-aliased discipline that makes a
+ # UNION branch positionally safe. RF06 fires on every mixed-case identifier crossing over from
+ # DAB. LT05 and LT09 are line-layout opinions a generator should not have to implement.
+-exclude_rules = AL09, RF06, LT05, LT09
++# ST06 wants simple columns before calculations. A generated view's column order mirrors
++# its contract's declaration order, so the two can be read side by side; reordering to
++# please a linter would delete that property.
++exclude_rules = AL09, RF06, LT05, LT09, ST06
+ 
+ [sqlfluff:indentation]
+ indented_joins = false
+diff --git a/README.md b/README.md
+index d084f7a..047dda3 100644
+--- a/README.md
++++ b/README.md
+@@ -16,18 +16,22 @@ The layer names are not decoration. They are the principles — see
+ 
+ ## Status
+ 
+-Slice 0: the scaffold. The layers, the questions that accept them, and the skills that describe
+-them arrive in the slices that follow.
++Slice 1 is green: one business question answered end to end, through all three layers, and
++presented in a page. `uv run adss build` rebuilds the whole system from the recording in about
++eleven seconds with no network.
+ 
+ ## Getting started
+ 
+ ```bash
+ uv sync --all-groups
+-uv run adss --version
+-uv run pytest
+-uv run pre-commit run --all-files
++uv run adss build                    # the whole system, offline, from das/fixtures
++uv run adss check                    # what the built warehouse must contain
++uv run marimo run destinations/app.py  # the page a slice is accepted on
++uv run pre-commit run --all-files    # the gate every commit passes
+ ```
+ 
++The engine is a large object under git-LFS. `git lfs pull` if your clone has only the pointer.
++
+ ## Slices
+ 
+ Each slice answers one business question, and the presentation of that answer is what the slice
+@@ -35,7 +39,7 @@ is accepted on. It is the prototype, not a report generated afterwards.
+ 
+ | # | Question | Status |
+ |---|---|---|
+-| 1 | How many orders were placed per order month and ship country? | not started |
++| 1 | How many orders were placed per order month and destination country? | green |
+ 
+ ## Reading order
+ 
+@@ -46,3 +50,4 @@ is accepted on. It is the prototype, not a report generated afterwards.
+ | [docs/adr/](docs/adr/README.md) | one record per decision, written before the code it decides |
+ | [docs/deviations.md](docs/deviations.md) | every knowing departure from a principle, with its cost and its exit condition |
+ | [docs/questions/](docs/questions/) | the business questions, and the two queries that must agree on each answer |
++| [.claude/skills/](.claude/skills/) | one skill per layer, one per destination, and one for the whole |
+diff --git a/docs/conventions.md b/docs/conventions.md
+index ce889ed..5e89d02 100644
+--- a/docs/conventions.md
++++ b/docs/conventions.md
+@@ -41,7 +41,10 @@ Never bronze/silver/gold, never staging/core/marts. The name carries the princip
+ | A contract file's stem is the landed table name, and that name is used in every schema of this layer. | One name for one thing, so grepping for a table finds its contract. | Hard rule |
+ | A source name that would be a violation anywhere else — `ShipVia`, `total_orders` — is **not** a violation here. | It is a column in a table nobody on this side controls. A rule that cannot tell that case from a name we chose produces false accusations. | Hard rule |
+ | A contract's `description` stays in system vocabulary: the source's type, its nullability, what the source calls it. Never what it means to the business. | Business meaning has exactly one home (§1.2). | Hard rule |
+-| Columns this layer adds itself carry no source's word and are named for what they record: `extracted_at`, `extracted_on`, `payload`. | Provenance is ours, not the source's, and must be tellable apart from it at a glance. | Hard rule |
++| Columns this layer adds itself carry no source's word and are named for what they record: `payload`, `source_system`, `source_entity`, `source_url`, `extracted_at`, `extracted_on`. | Provenance is ours, not the source's, and must be tellable apart from it at a glance. | Hard rule |
++| A landed record is **one whole source record from one response**. Composing a landed row from more than one response is forbidden. | Blueprint S4 requires provenance per *data point*. One record per row makes a field's provenance the record's provenance — which is true only while that holds, and silently false the moment a row is composed from two responses. | Hard rule |
++| **No loader vocabulary crosses into `das__staged`.** `_dlt_load_id` and `_dlt_id` stay in `das__raw`; the staged view exposes `extracted_at` and `extracted_on`, derived from the load id, and nothing else of the loader's. | The blueprint's first promise is that every tool is replaceable without invalidating a principle. A loader's column name in the layer's published interface welds that loader in, in the layer everything else is rebuilt from. The derivation is injective, so no provenance is lost. | Hard rule |
++| A contract generates two staged objects: `das__staged.<table>`, the change log with one row per source record per load, and `das__staged.<table>__current`, one row per key from the latest load that carried it. | DAS is append-only (S2), so the change log is what it actually holds and is what DAB historizes from. `__current` exists because a question asked of the source needs one row per thing, not one per observation. | Hard rule |
+ 
+ ### 1.2 DAB — the business vocabulary
+ 
+@@ -50,7 +53,9 @@ Never bronze/silver/gold, never staging/core/marts. The name carries the princip
+ | Entity, attribute and relationship identifiers are `UPPER_SNAKE_CASE`, with `id` and `name` holding the identical string. | It is the modelling language's convention, and the visual break from every other layer's lower case makes a leak obvious on sight. | Hard rule |
+ | Entity and attribute names are **singular**: `ORDER`, `ORDER_LINE`, `SHIP_COUNTRY`. | An entity names a kind of thing, not a pile of them. The pile is what a query produces. | Hard rule |
+ | Descriptive attributes are prefixed with their entity (`CUSTOMER_NAME`, `ORDER_LINE_ID`); generic ones and measures are not (`STATUS`, `QUANTITY`). | The prefix is what makes an attribute readable once it has been inherited into a wide DAR row. | Guideline |
+-| **No source name appears anywhere in DAB** — not in an id, not in a definition, not in a description. | This is the layer whose purpose is source-agnosticism; a source name in it means the dependency was moved rather than broken. | Hard rule |
++| **No source name appears anywhere in `dab/model.yaml`** — not in an id, not in a name, not in a definition, not in a description. | This is the layer whose purpose is source-agnosticism; a source name in it means the dependency was moved rather than broken. | Hard rule |
++| Source names may appear in `dab/mappings/**`, and only in `table`, `primary_keys` and `transformation_expression`. | A mapping's entire job is to bind two vocabularies, and it cannot do that without naming both. Confining them to three keys is what keeps the binding auditable. | Hard rule |
++| `dab/uss.yaml` is governed by §1.3 and §2, not by this section. | It lives beside the model but it declares DAR things. One directory, two regimes; this sentence is the arbiter. | Hard rule |
+ | Every entity, attribute and relationship has a `definition` in business language, and that is the **only** place the data is explained. | Everything else — contracts, questions, the generated layer, the app — references these. Two definitions eventually mean two numbers. | Hard rule |
+ | A relationship name is a verb phrase, so `<SOURCE>_<NAME>_<TARGET>` reads as a sentence: `ORDER_IS_PLACED_BY_CUSTOMER`. | Direction is the thing people get wrong, and a sentence cannot be read backwards by accident. | Hard rule |
+ | Names say what a thing *is* to the business, not how it is stored or derived: `PLACED_ON`, not `ORDER_DATE_TS`. | The physical shape changes; the concept does not. | Guideline |
+@@ -67,9 +72,30 @@ are on this page because they are the contract every consumer is written against
+ | A key column is `<object>_key`. | One predictable spelling means a join can be written without looking anything up. | Hard rule |
+ | Attribute columns are the lower-cased attribute identifier, unchanged. | The mapping back to its definition must be mechanical, so any column's meaning is one step away. | Hard rule |
+ | Structural columns carry a leading underscore: `_bridge`, `_calendar`, `_stage`, `_event`, `_event_date`, `_is_current`, `_measure__…`. | The underscore says "the generator owns this". Anything without one came from the business model. | Hard rule |
+-| Measure columns are `_measure__<entity>__<measure>`. | Two underscores separate the three segments so an entity or measure name containing one is still unambiguous. | Hard rule |
++| The calendar's own columns are the exception, and carry none: `date_key`, `year_number`, `month_label`. | It is the one object the generator invents whole rather than deriving from the model, so there is no business name for its columns to be confused with, and these are the names a reader of any star schema already knows. | Hard rule |
++| Measure columns are `_measure__<entity>__<measure>`, where `<measure>` is the **whole** §2 name. `_measure__order__placed_orders_count`, not `_measure__order__placed`. | §2's payoff is searchability by any of the three parts, and that only holds if the whole name survives into the physical column. It costs long, repetitive column names; that is the price of the name being the same everywhere. | Hard rule |
++| The generator **never invents a member**. A null dimension stays null; there is no "Unknown" row, no "N/A" country, no placeholder date. | An invented member is meaning with no definition behind it, and §1.2 says meaning has exactly one home. A question that wants nulls grouped or excluded says so in the question file, where the choice belongs. | Hard rule |
++| The generator names every column it reads from a DAB view. It never selects `*` from `dab.*`. | daana's presentation views are themselves `SELECT *` over table macros, so a model change silently changes their shape. Naming the columns turns that into a regeneration diff. | Hard rule |
+ | **Nothing in this layer is hand-edited.** A wrong name is fixed in the business model and regenerated. | Blueprint R4. An edit to generated output is lost on the next generation. | Hard rule |
+ 
++### 1.4 DAB — mapping rules
++
++A mapping says how one entity is loaded from DAS. These rules exist because daana accepts several
++kinds of wrong mapping without complaint, and two of them corrupt data silently.
++
++| # | Rule | Why | Severity |
++|---|---|---|---|
++| M1 | `table:` names a `das__staged` object and nothing else. Never a subquery, never a join, never `das__raw`. | Blueprint F3. A join here is business logic in the wrong layer; a raw read skips the contract's casts and the contract stops being the gate. | Hard rule |
++| M2 | Exactly **one** `primary_keys` entry, whose VARCHAR result is the entity key: a bare string column, `cast(col AS VARCHAR)`, or a `concat` of casts with a separator. | Two entries are two *alternate identifiers* to daana, not a composite key, and that mode cannot be undone once loaded. A `concat` without a separator makes `'A1' + '23'` and `'A12' + '3'` the same key. | Hard rule |
++| M3 | `ingestion_strategy: FULL_LOG`. `FULL` is permitted only against a source view **proven** to hold exactly one row per key, and the proof is a data check, not a claim. | Observed: `FULL` against a multi-row-per-key source inserts one duplicate `_desc` row per execute, forever, and every presentation view hides it. Our staged change log is multi-row-per-key by construction, so `FULL` is the wrong default here and the failure is invisible. | Hard rule |
++| M4 | `entity_effective_timestamp_expression: extracted_at`. | Blueprint B3. The effective time of a fact is when DAS observed it. Anything else dates the fact by something that is not about the fact — and no source here reports when it changed. | Hard rule |
++| M5 | An attribute expression reads its own row: a column, a cast, or a `CASE` over columns of that row. Never a subquery, never an aggregate, never a reach into another table. | An expression that reaches beyond the row is a join, and every join must come from a declared relationship. | Hard rule |
++| M6 | A relationship's `id` is `<SRC>_<NAME>_<TGT>`; its `source_table` is byte-identical to its group's `table`; its target expression mirrors the target entity's own key expression exactly. | A mismatched `source_table` is skipped silently, and a differently spelled key produces pairs that join to nothing. Neither says anything at load time. | Hard rule |
++| M7 | Every mapped table carries at least one attribute. | daana refuses to deploy an entity with none, and the failure arrives at deploy rather than at review. | Hard rule |
++
++Start from the generated skeleton and replace **every** placeholder: they are all wrong on
++purpose, and all of them compile.
++
+ ## 2. Measure naming
+ 
+ The most consequential convention here, and the one to get right first.
+@@ -109,6 +135,8 @@ SQL have to be indistinguishable to a reviewer.
+ | Identifiers crossing over from DAB are double-quoted; everything this repository creates is lower case and unquoted, except reserved words. | The two conventions must be visually distinct, because a mixed-case identifier that loses its quotes fails only at run time. |
+ | No `SELECT *` in anything a consumer reads, except a union of stages whose column list the generator fixes. | A star is a schema change waiting to be silent. |
+ | SQL that lives in a Python string is written to a file so the same linter sees it. | A rule that applies only to the SQL somebody remembered to put in a `.sql` file is not a rule. |
++| Every `read_parquet` over the lake passes `union_by_name => true` and `hive_types` for the partition column. | Both are correctness, not taste. Without the first, a column that appears only in later loads is **silently dropped** — no error, just missing data. Without the second, the partition key comes back VARCHAR. |
++| Every path in a persisted view is absolute. | A relative path inside a view resolves against the process's working directory at **query** time, not at create time, so a view created from the repository root breaks the moment a page opens the same warehouse from elsewhere. |
+ 
+ Four rules are excluded, and the reasons are in [`.sqlfluff`](../.sqlfluff): `AL09` forbids
+ `x AS x`, which is exactly the every-column-aliased discipline that makes a `UNION` branch
+@@ -122,7 +150,7 @@ Checked by `yamllint` with [`.yamllint.yaml`](../.yamllint.yaml).
+ | Rule | Why | Severity |
+ |---|---|---|
+ | Two-space indent, no tabs, lines ≤ 160. | These files are read far more often than they are written. | Hard rule |
+-| Flow mappings (`{a: 1, b: 2}`) are allowed for short homogeneous rows — a contract column, a mapping attribute — but never column-aligned with padding spaces. | Alignment re-aligns the whole block the day one value grows, turning a one-line change into a twenty-line diff. | Hard rule |
++| Flow mappings (`{a: 1, b: 2}`) are allowed for short homogeneous rows — a mapping attribute, a connection profile — but never column-aligned with padding spaces. A contract column has five keys and a prose description, so it is block style. | Alignment re-aligns the whole block the day one value grows, turning a one-line change into a twenty-line diff. | Hard rule |
+ | Anything with an interpolation, a multi-line value, or more than about four keys is block style. | Flow style stops being readable exactly where the value stops being simple. | Hard rule |
+ | Booleans are `true`/`false`. | One spelling. `yes`/`on` are the same value wearing a disguise. | Hard rule |
+ 
+@@ -135,24 +163,40 @@ Checked by `yamllint` with [`.yamllint.yaml`](../.yamllint.yaml).
+ | **No data vocabulary anywhere under `src/` or in test code.** No entity, attribute or business term from the model appears in the machinery or in a test. | The machinery must work for any source and any business model; a data name in it is proof that it does not. Test fixtures use neutral models held as data files, so the tests *prove* the machinery is generic rather than asserting it. | Hard rule |
+ | Data vocabulary belongs in the YAML, SQL and Markdown artefacts — contracts, the model, generated SQL, questions, these documents. | Those artefacts *are* the description of this particular business. That is the point of keeping it out of the code. | Hard rule |
+ | Names describe the machinery's concepts: `contract`, `pipeline`, `plan`, `stage`, `peripheral`, `question`, `destination`. | The machinery has its own domain and deserves its own vocabulary. | Guideline |
++| **No tool vocabulary in a published interface.** A tool's name may appear in the adapter that drives it and in that adapter's tests. It may not appear in a schema, a view's column, a generated artefact, or a CLI subcommand. | The blueprint's first promise is that every tool is replaceable. `adss das ingest`, not `adss dlt run`. | Hard rule |
++| marimo notebooks under `destinations/` are exempt from `ANN201` and are not formatted by `ruff format`. | A marimo cell is a decorated function whose return type is meaningless, and marimo rewrites the file itself on save, so a formatter fights it. The exemption is in the config, which §5 says *is* the rule. | Hard rule |
+ 
+ ## 6. Tests
+ 
++There are **two suites**, and they are not run at the same time or by the same thing.
++
++| Suite | What it is | When it runs |
++|---|---|---|
++| **machinery** (`tests/`) | Pure functions over data files. No warehouse, no network, no binary. | Every commit, by the pre-commit gate and by CI. |
++| **checks** (`checks/`) | Assertions about what the built warehouse actually contains. | After `adss build`, by CI and on demand. |
++
++The split is not fastidiousness. The warehouse is not committed, so a data check in the gate
++would fail in every fresh checkout — and §6's own rules forbid both of the ways out of that (a
++skip, or a stub to assert against). Naming the two suites is what lets "every commit is green"
++stay true.
++
+ | Rule | Why | Severity |
+ |---|---|---|
+-| Machinery is test-first: the failing test and the code that passes it land in one commit. | A test written afterwards is a test that has only ever been seen to pass. |  Hard rule |
+-| Data checks are not written against a stub. They assert what the built warehouse contains and land in the same commit as the build that satisfies them. | TDD is for functions. A `SELECT` is not designed test-first, and pretending otherwise is ceremony. | Hard rule |
++| Machinery is test-first: the failing test and the code that passes it land in one commit. | A test written afterwards is a test that has only ever been seen to pass. | Hard rule |
++| A data check is never written against a stub or a fabricated warehouse. It asserts what the real build produced, and lands in the same commit as the build step that satisfies it. | TDD is for functions. A check that passes against a stub tells you nothing about the build. | Hard rule |
+ | No `pytest.skip`, no imperative `xfail()` in a test body. | A skip is a test that silently does not exist. An imperative `xfail` can never report an unexpected pass, so it cannot tell you the day the bug is fixed. | Hard rule |
++| No test contains an entity, attribute, measure, source or column name from the business. Fixtures are neutral models held as **data files**; the question runner discovers question files and asserts over them without naming anything. | The machinery must work for any business; a business name in a test is proof that it does not. A per-question test *function* smuggles the vocabulary back in through its own name — so the runner is parameterised. | Hard rule |
+ | A failing check is fixed by fixing the code, or by making the configuration honest. Never by weakening the test. | A weakened test costs the same to run and reports the opposite of the truth. | Hard rule |
++| **When a question's two queries disagree, `dab/model.yaml` is the arbiter.** The query that departs from the definition is the one that changes. Never adjust both until they match. | With two hand-written expressions of one question, "fix the code" is ambiguous by construction. Without a named arbiter, the cheapest repair is to make the check agree with itself, which deletes the only thing it was measuring. | Hard rule |
+ 
+ ## 7. Commits, branches and pull requests
+ 
+ | Rule | Why | Severity |
+ |---|---|---|
+-| Conventional commits: `<type>(<scope>): <imperative>`. Types `feat`, `fix`, `test`, `docs`, `chore`, `refactor`, `ci`. Scopes: `repo`, `domain`, `das`, `dab`, `dar`, `questions`, `destination`, `ci`, `docs`, `skills`. | The scope names the layer, so the history reads as a map of the architecture and a reviewer knows which rules apply before opening the diff. | Hard rule |
++| Conventional commits: `<type>(<scope>): <imperative>`. Types `feat`, `fix`, `test`, `docs`, `chore`, `refactor`, `ci`. Scopes: `repo`, `domain`, `das`, `dab`, `dar`, `questions`, `destination`, `ci`, `docs`, `adr`, `skills`. | The scope names the layer, so the history reads as a map of the architecture and a reviewer knows which rules apply before opening the diff. | Hard rule |
+ | The subject is imperative, lower case, no trailing period, about 72 characters. | It is a heading, read in lists a hundred times more often than the body. | Guideline |
+ | Every commit passes the gate and the whole suite on its own. | Bisect is only worth anything if every point in history is a working system. | Hard rule |
+-| One business question per slice; one branch per slice, `claude/adss-slice-NN-<slug>`, branched off the previous slice. | The unit of delivery is an answered question, not a file. | Hard rule |
++| One business question per slice; one branch per slice, `claude/adss-slice-NN-<slug>`, branched off the previous slice. The slug is the **question's** slug, in the business's words. | The unit of delivery is an answered question, not a file — and a branch named in the source's vocabulary is the one artefact of the slice that disagrees with all the others. | Hard rule |
+ | Stacked branches are rebased, never merged; pull requests are rebase-merged, never squashed. | Squashing destroys the trail that shows the question drove the change. Merge commits make a stack unreadable. | Hard rule |
+ | An ADR lands before the code it decides. | A decision record written afterwards records what was built, not what was decided. | Hard rule |
+ 
+@@ -161,11 +205,42 @@ Checked by `yamllint` with [`.yamllint.yaml`](../.yamllint.yaml).
+ | Rule | Why | Severity |
+ |---|---|---|
+ | A decision goes in an ADR under [`adr/`](adr/README.md), numbered, in MADR format, and is superseded by a new file rather than edited. | The value of a decision record is the record of what was true when it was made. | Hard rule |
++| The one exception: a record may be corrected **within the slice that wrote it**, before any code depends on it, when an observation it rests on turns out to be false. Say so in the commit. | Superseding a record that was wrong before it was ever built on preserves nothing but the mistake, and leaves a reader two documents to reconcile where there was never a real decision to reverse. After that slice, supersede. | Hard rule |
+ | A departure from a principle in [blueprint.md](blueprint.md) or a hard rule here needs an entry in [deviations.md](deviations.md) and an ADR. | An unregistered exception is indistinguishable from a mistake, and the next person copies it. | Hard rule |
+ | Markdown lines stay around 100 characters, breaking at a sentence or clause — except table rows, which stay on one line. | Prose diffs stay legible; a re-wrapped paragraph should not look like a rewrite. | Guideline |
+ | Prefer a table when there are three or more parallel things to say. | Parallel structure is easier to check for gaps than parallel prose. | Guideline |
++| Generated artefacts are **committed**, and a `--check` regeneration in the gate fails on any diff. The exception is an artefact that cannot be the same on two machines — DAS's view SQL embeds the lake's absolute path — which is generated at build time and gitignored, with the reason recorded where it is ignored. | Committing them makes what DAR served reviewable in a pull request. The drift check is what stops the committed copy becoming a second truth nothing compares against the model. Any formatting the generator's output needs must happen *inside* the generator, or every regeneration produces a spurious diff. | Hard rule |
+ 
+-## 9. When a rule does not fit
++## 9. The warehouse has exactly one writer
++
++| Rule | Why | Severity |
++|---|---|---|
++The lock is **per process**. Within one process every connection shares an instance, so a
++second open succeeds; across processes the second is refused. That distinction is the whole of
++this section, and getting it backwards costs an afternoon.
++
++| Rule | Why | Severity |
++|---|---|---|
++| This process must not hold the warehouse open while a separate process is asked to write to it. `require_detached` enforces it rather than asking anyone to remember. | The modelling engine is a separate process. While we hold the file it cannot take the lock, and it reports that as `daana framework is not installed on the remote database` — which is not what went wrong. Reproduced with DuckDB alone, no engine involved. | Hard rule |
++| Every destination opens the warehouse with `read_only=True`. | A read-only handle still holds the process lock, so a page left open blocks the next build; read-only at least keeps a reader from writing. | Hard rule |
++| `daana framework is not installed on the remote database` means **the file is busy**. | The real lock error is swallowed and does not appear even at debug level. Anyone meeting this message will otherwise spend an afternoon reinstalling a framework that is already installed. | Hard rule |
++
++## 10. Questions
++
++A question is the unit of delivery, and it is a **data file**, not code. That is what keeps the
++acceptance test free of business vocabulary (§6) and what lets the same artefact serve the test,
++the page and the reader.
++
++| Rule | Why | Severity |
++|---|---|---|
++| One directory per question under `docs/questions/NN-<slug>/`, holding `question.md` and the two SQL bodies as `.sql` files. | `.sql` files are linted by the same sqlfluff hook as everything else — §3 already demands that SQL not hide in a string. | Hard rule |
++| `question.md` front matter carries the measure, dimensions, aggregation, time grain, persona, status, and the definitions the question depends on. Its prose carries the story and the W's. | A question that needs a conversation to be answerable is a Stage 1 question, and the whole point is to reach Stage 3. | Hard rule |
++| A question **references** definitions; it never restates them. Every reference must resolve to something `dab/model.yaml` or `dab/uss.yaml` defines, and the machinery proves it. | Blueprint B8. A restated definition is a second definition, and it will be the one that is out of date. | Hard rule |
++| A question that needs a term the model does not define is **blocked**, and the model change comes first. | This is the methodology working: a question the model cannot answer has found a gap in the model, which is what asking it was for. | Hard rule |
++| The staged query reads `das__staged.<table>__current` and must not mention `dab` or `dar__uss`. The USS query reads `dar__uss` only. Both halves are checked. | Independence is the whole value. A staged query that consults DAB is a transcription of the other one wearing a disguise; and the page runs the USS query verbatim, so one that reached past DAR would render, pass, and be exactly the invisible dependency the flow rules exist to prevent. | Hard rule |
++| The front matter's dimensions must appear in the **USS** query. They are DAR's names; the control query says the same thing in the source's words. | That difference is what makes the control independent rather than a transcription. Requiring the same spelling in both would force one to be written from the other. | Hard rule |
++
++## 11. When a rule does not fit
+ 
+ Rules are aimed at cases; a case the rule was not aimed at is not a violation. Cheapest recourse
+ first:
+diff --git a/docs/deviations.md b/docs/deviations.md
+index 5e15e2e..9af2619 100644
+--- a/docs/deviations.md
++++ b/docs/deviations.md
+@@ -41,6 +41,10 @@ Field by field:
+ 
+ ## Review
+ 
+-The register is read at the start of every slice, and each open entry is checked against its exit
+-condition. An entry whose exit condition has been met and which is still open is a defect in the
++The register is read at the start of every slice. Each open entry is checked against its exit
++condition **and against whether its argument is still being carried on assertion** — D-0001's
++justification rests on a walk over many-to-one edges, which slice 1's single entity does not
++exercise at all. An entry should also be re-read the moment a second consumer appears, not only
++when isolation is demanded, because by then the shared structure will already have shaped both
++readers. An entry whose exit condition has been met and which is still open is a defect in the
+ same way a failing test is: the system is no longer doing what its own documentation says.
+diff --git a/pyproject.toml b/pyproject.toml
+index 2711793..cbe12a8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,6 +13,7 @@ dependencies = [
+     "polars>=1.44.1",
+     "pyarrow>=25.0.1",
+     "pyyaml>=6.0.3",
++    "sqlfluff>=4.3.0",
+     "typer>=0.27.2",
+ ]
+ 
+@@ -29,7 +30,6 @@ dev = [
+     "pre-commit>=4.6.2",
+     "pytest>=9.1.1",
+     "ruff>=0.16.6",
+-    "sqlfluff>=4.3.0",
+     "ty>=0.0.78",
+     "yamllint>=1.38.0",
+ ]
+@@ -47,6 +47,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "ANN", "RUF"]
+ 
+ [tool.ruff.lint.per-file-ignores]
+ "tests/*" = ["ANN201"]
++# A marimo cell is a decorated function whose return type is meaningless, and marimo rewrites
++# the file itself on save. docs/conventions.md section 5.
++"destinations/*" = ["ANN", "B018", "F841"]
+ 
+ [tool.ty.environment]
+ python-version = "3.12"

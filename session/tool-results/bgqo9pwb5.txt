@@ -1,0 +1,343 @@
+Published onMonday, June 15, 2026
+
+# The Work Before the Answer
+
+Authors- NameSiavoush MohammadiTwitter
+
+- §1. The question that wasn't just a question
+
+- §2. The hidden problem: not technology, clarity
+
+- §3. The false solution: how this actually started
+
+- §4. The leadership moment: when definitions came to the table
+
+- §5. The method: from implicit knowledge to declarative structure
+
+- §6. The shift: what actually changed
+
+- §7. The deeper change: pushing back entropy
+
+- §8. The AI-era lesson: foundation before acceleration
+
+- §9. Closing: Nextory after the work
+
+## §1. The question that wasn't just a question
+
+Not long ago, Shadi Bitar needed customer data for specific dates.
+
+He's the CEO of Nextory, a Nordic audiobook streaming company. Normally, getting that kind of data means messaging a colleague, waiting for them to run the query, format it, and send it back. Sometimes hours, sometimes longer. The kind of friction that, at the scale of a CEO's week, becomes invisible because it's just how things work.
+
+Instead, he connected Claude to Nextory's data via MCP and asked the question in plain English. The answer came back in seconds. He asked a follow-up. Then another.
+
+Later, what struck him wasn't the speed. It was something else:
+
+`I was in the data myself, asking follow-up questions on the spot, rather than always waiting on someone else to find it for me.
+
+That sentence is the case study in miniature. The shift wasn't from "slow" to "fast." It was from second-hand to first-hand. The CEO of a Nordic audiobook streaming company, sitting in his own data, asking the company what it knew.
+
+How did Nextory get here?
+
+If you'd asked me three years ago what would need to be true for a CEO to ask his company a question and trust the answer, I'd have given a list. Good models. Integrated data. Fast pipelines. All of those matter, and Nextory built them too. But none holds up on its own. They need shared meaning underneath. And shared meaning, on first telling, doesn't sound like an AI story at all.
+
+It sounds like a definitions problem.
+
+## §2. The hidden problem: not technology, clarity
+
+Nextory had reached the point a lot of growing companies reach without anyone naming it: the system worked, until it didn't. The data was there. The pipelines ran. Stakeholders got their numbers. Yet the friction kept compounding. Decisions stalled because someone's number didn't match someone else's. Teams used the same word for slightly different things and didn't know it. Knowledge lived in the head of whichever data engineer had been there longest.
+
+Ninos, Nextory's technical founder, named it the most plainly:
+
+`Our challenges weren't technology problems. They were clarity problems.
+
+It's a small sentence that inverts the usual instinct. The default move at this stage is to throw engineering at the symptoms: another pipeline, another dashboard, another data engineer. Ninos's claim - which Nextory had to learn before they could act on it - is that those moves don't address what's actually happening. What's happening is that the organization's understanding of its own data has gotten quietly inconsistent, and no amount of additional plumbing (or AI) fixes a definition that means three things to three different teams.
+
+Calle Niblaeus, the senior data engineer who had been at Nextory longest and was, in his own words, the only person with full context on the old platform, describes what this felt like:
+
+`A common scenario was that someone would send me a screenshot or link to a dashboard I had never seen before, using a copy-pasted, long query, and then asking me why graphs didn't look like expected, or why a metric showed a different number here than somewhere else.
+
+I want you to close your eyes and imagine that scenario for a moment, because every senior data engineer reading this will have lived their own version of it. A stakeholder, doing their best, building their own analysis on top of a query someone wrote for someone else's question six months ago. The query mutates over time. Numbers diverge across surfaces. Nobody is wrong in any clean way. Everyone is frustrated.
+
+What Calle is describing isn't a tooling problem. The dashboards work. The SQL runs. The numbers come out. The problem is that what the numbers mean has drifted from what the company thinks it's measuring. That's what clarity problems look like when you're inside one. They don't announce themselves. They show up as a screenshot in your DMs.
+
+And once you start looking at the friction this way, the AI question reframes itself. If the underlying definitions are slippery, an LLM on top can't fix that - it can only restate the slippage in fluent English. Which is worse, because the answer sounds confident. As Gustaf Sköld, Nextory's COO, would put it later:
+
+`Sprinkling LLMs on top of a weak foundation does not yield great results.
+
+This is the recognition Nextory arrived at before they ever shipped a model. The work that needed doing wasn't AI work. It was the work that has to come before AI work to make AI work at all.
+
+Which raises the next question: how did they start?
+
+## §3. The false solution: how this actually started
+
+Most data engagements start with an RFP. This one didn't.
+
+I'd been seeing the Nextory job ad scroll past my LinkedIn feed for a while. I love books, I work in data, so the algorithm had decided I should see it. The role description was the kind every growing company writes at some point: we need someone who can do data things for us. But one detail in the ad stopped me. The role sat under the COO, not under IT.
+
+That's the kind of detail most readers would scroll past as an org-chart footnote. To me it was a tell.
+
+Most organizations facing data trouble route data to IT. The reasoning is intuitive: data lives on servers, servers are IT's job, therefore data is IT's job. The problem is that the people suffering when data isn't working aren't IT. They're the business. IT gets yelled at for the pipeline being down; the business gets yelled at for the number being wrong. Those are different kinds of pain, and they call for different fixes.
+
+Data is a business concern that happens to run on technology. When you put it under IT, you optimize for the part of the problem that's easiest to measure and starve the part that actually matters. The thing most organizations get wrong, Nextory had already gotten right.
+
+So I reached out to Gustaf directly. We had a conversation. He let me meet the Nextory data team, hear where they were and where they wanted to go. We sketched a roadmap, scoped it, and started.
+
+What this side-stepped is the most common mistake organizations make when they hit the kind of friction §2 describes. They try to recruit their way out of it. The instinct is rational. You see a problem, you hire someone to fix it. And sometimes that's right; sometimes you need more capacity at the right level of seniority. But often the problem isn't capacity. It's the architecture of what's being built.
+
+And the skill that fixes architecture, modeling a business and its data so they mean the same thing, is rarer than the job market makes it look. For a long stretch, the industry taught data professionals to move data and store it, not to model it. An engineer can have ten years of experience, every year of it real, without one of those years touching this kind of work. That isn't a failing of the engineers; it's what the industry asked of them. But it means a job ad is unlikely to surface the person who can solve a structural problem, and a CV won't tell you whether it did.
+
+I've watched organizations make expensive wrong-type hires for the wrong kind of problem. The signal is usually the same: six months in, the new senior person has produced clean work in their lane, and the original problem is still there. Because the original problem was never in their lane.
+
+Nextory had been thinking architecturally before I showed up. And the architectural thinking was the visible surface of something deeper. Where data sits in the org chart isn't an org-chart preference. It's a semantic decision: what "data" means to the organization. Every decision in this case study that follows is the same decision applied at a different layer: what entities the business has, what a customer means, what the platform should run on.
+
+That was the engagement I wanted to do.
+
+## §4. The leadership moment: when definitions came to the table
+
+Once the engagement was underway, the work began the way I'd hoped: at the level of definitions, not pipelines. Gustaf did something most COOs delegate.
+
+He took the entity definitions Nextory was working with, the formal, written-down names for the things the business actually runs on, customers and subscriptions and content and territories, and presented them to the leadership team, founders included.
+
+His goal wasn't to get sign-off. His goal was to find out what would happen.
+
+`This was actually a lot of fun and sparked some really interesting discussions. My goal was to surface how much of our shared understanding was informal and undocumented, and that once you scratch the surface, that informality produces inconsistency.
+
+The result was the case study's most diagnostic moment. When the leadership team compared notes, quietly, without anyone trying to win, they realized something:
+
+`Even leadership had different definitions of the same entities.
+
+This is one of those facts that sounds normal until you stop and think about it.
+
+These are the people who set strategy. They sit in the same meetings. They report on the same numbers. They use the same vocabulary every day. The moment they had to write down what those words meant, they didn't fully agree.
+
+Gustaf's read on this was sharp:
+
+`If that is true at the top, it is almost certainly true across the entire organisation, creating confusion that is simply sub-optimal.
+
+This scene moves the data-definitions conversation out of the data team and into the C-suite. It says: this work isn't IT plumbing. It's the question of what your company is actually talking about when it talks about itself.
+
+I have yet to walk into an organization where everyone agrees on what the core business concepts actually mean. Without this kind of work, that agreement doesn't exist.
+
+Patrik Lager has written for us about exactly this. Definitions, he argues, are the foundation of every data warehouse. Gustaf's leadership-room moment is the operational evidence of why. If even the people setting strategy can't agree on what an entity means, then every downstream system, every dashboard, every report, every AI agent, inherits the disagreement and pretends it's a number.
+
+## §5. The method: from implicit knowledge to declarative structure
+
+At Nextory, definitions and implementations are not two different things.
+
+In most data platforms, they are. The definitions live somewhere, a wiki, a data catalog, a Confluence page, and the implementation lives somewhere else, in SQL files and dbt models and pipeline configs. They start aligned. They drift. Within a year or two, the documentation is wrong and nobody trusts it, because the only thing actually true is whatever the code is doing now.
+
+Nextory built a platform where the definition is the implementation.
+
+This is what makes Gustaf's leadership-room presentation so consequential. The entity definitions Gustaf showed his colleagues weren't a deliverable for the wiki. They were the actual model the platform runs on. The platform reads those definitions and turns them into the running system. Change a definition, change the system. Argue about a definition in the leadership meeting, and the result of the argument becomes a code change.
+
+This is what keeps definitions from becoming a paper product that drifts into irrelevance. There's nothing to drift away from, because there's nothing apart.
+
+This is the reason Daana exists. We made the argument in Why We Built Daana.
+
+Nextory went declarative. "Declarative" has been carrying about five different meanings around the data industry since 2021. Let me pin down which one Nextory meant through one concrete example from Calle.
+
+Here's the old platform:
+
+`In the old platform, we ingested data into structured tables (i.e. we had committed to a schema during ingestion), which always created issues when source schema changed. Also, each staging layer query was manually written, and as a consequence, most of these queries differed a bit regarding things like naming conventions, rules about what logical steps that were allowed in the staging layer, and overall query structure. This meant that every single time we had to modify or debug the staging queries, we had to spend a bit of extra time remember exactly how this particular source had been handled.
+
+And the new platform:
+
+`One example is our data-contract-driven unpacking of the raw source data. We ingest the data raw from source with everything in a big JSON blob. Then we have a data contract for each source, owned by the data producing product team, that lists how this raw data should be unpacked into a structured format. The actual SQL that produces the structured tables with unpacked data is then auto-generated by scripts that read each contract and applies the contract rules to build the SQL.
+
+This is the same shape as the leadership-definitions principle, applied one layer down. The contract is the definition. The SQL is its mechanical consequence. You don't maintain the SQL. You maintain the contract.
+
+Calle on what that's like as a senior DE:
+
+`In the new platform we instead focus just on the data contract, and can feel confident that every staging table will work exactly the same across all sources. We focus on the overall architectural principles rather than source-individual specifics.
+
+And then, his read on what this means for the role:
+
+`For me this is a huge shift in the ways of working as a data engineer. I think it's a big step up in maturity, and it's much better to be able to keep discussions within and outside the team focused on architecture rather than how specific data sources are handled.
+
+A declarative shift buys bandwidth that moves up the stack. Less time remembering what convention this source used; more time deciding what the system should do.
+
+Calle is describing what we've called the model-driven data engineer, a role we wrote about in The Rise of the Model-Driven Data Engineer. Reading Calle alongside that piece is reading the archetype with a real engineer in the seat.
+
+Which brings us to Xiaoyan.
+
+Xiaoyan Zhang is Nextory's Head of Data. She joined after the methodology was already running, and she did not come in convinced. Three things bothered her at first. The first was the "why bother" question: if the system generates code that produces the same output a person would write by hand, what's different? The second was a concentration concern: if the generation step is load-bearing for the whole platform, you've concentrated the platform's maintenance into whoever owns that step. And the third, in her own words:
+
+`I don't like the feeling of a black box, and was worried that's what this would be.
+
+Xiaoyan is the right kind of skeptic. She had built data platforms the manual way before, at previous companies, including one rebuild on a metadata-driven code-generation tool. She knew what could go wrong with auto-generated approaches: opacity, debugging hell, vendor lock-in, the business logic disappearing into a tool nobody can read.
+
+What changed her mind wasn't a marketing pitch. It was sitting with the system and seeing what was visible:
+
+`The business logic is still fully visible, the transformations are still there, you just don't need to write the boilerplate code.
+
+Calle and Xiaoyan together describe the same shift from opposite sides. Calle tells us what got replaced: hand-written staging queries with their fingerprints. Xiaoyan tells us what got preserved: the business logic, the transformations, the readable record of what the system is doing and why. Together they make the methodology defensible. You're not trading transparency for productivity. You're getting rid of the part of the work that was never the point.
+
+It is, in some ways, an unfashionable answer. It doesn't lead with the AI part. The AI capabilities come later, almost as a consequence. What comes first is structure, made operational at the level of definitions, by people who decided structure was worth doing.
+
+## §6. The shift: what actually changed
+
+Before we get to what changed, I want to name what we got wrong.
+
+The methodology I just described isn't the one we built on day one. It's what we landed on after a wrong turn that cost us about six weeks.
+
+Here's what happened. We built the DAS layer (ingestion, raw-to-structured, representing the system perspective of the data) first, in full, before we had anything end-to-end. The reasoning seemed sound: get the foundation right, then build up. From inside the build, it looked like steady progress. Mappings deployed, schemas validated, contracts written. From the team's perspective, waiting for something concrete to look at, it looked like nothing.
+
+The deeper problem was that depth-first ordering hid bugs that only an end-to-end pipeline can catch. The clearest example: a silent identifier collision I didn't find until I started building a thin DAR prototype (consumption/serving layer of the data) to look at the data end-to-end. Two records that should have been distinct were being merged into one because of how I'd composed the identifier. The bug had been in the DAS for weeks, invisible because nothing downstream was looking at it.
+
+What I'd do differently is build the entire stack thin first. A skeleton at every layer that someone can look at, even if it's wrong. Then iterate against existing trusted reports where possible. Depth comes after the loop closes. The funny part: I'd written exactly this argument in From Business Question to Working Prototype in Hours years before the Nextory engagement. Knowing a thing in principle and doing it under pressure are different problems. Once that loop closed at Nextory, the acceleration was real. The trust that came with validation is what made everything afterwards possible.
+
+Gustaf, looking back from where Nextory is now, sees four areas where the work shows up. They're worth taking one at a time, because each is a different kind of shift.
+
+`Data Ownership.`
+
+Gustaf:
+
+`We now have clearer data ownership, which gives our teams a better understanding of their impact and faster recall when improvements are made to our service.
+
+Behind that sentence is the data-contract example from §5, from the organization side. The contract isn't just a technical artifact. It's the unit of accountability.
+
+`Speed.`
+
+Gustaf:
+
+`With a declarative data platform, our speed has increased significantly. We moved away from manual SQL and legacy ELT pipelines with little to no information about definitions, schemas, or data ownership. Changes that used to take days now take hours.
+
+The "days to hours" line is the concrete metric, and it's worth pausing on, not because it's flashy (it's not), but because of where the time went. In the old platform, time was spent remembering. Remembering what convention this source used, which definition the team had agreed on six months ago, whose head held the answer. The declarative shift doesn't eliminate work; it shifts the work upstream, where it can be done once and reused. Calle puts the DE-seat experience this way:
+
+`For me this is a huge shift in the ways of working as a data engineer. I think it's a big step up in maturity.
+
+`Agentic Analytics.`
+
+Gustaf:
+
+`By coupling an enriched data model and a semantic layer with MCP capabilities, we enabled the entire organisation to get trusted answers. This has raised awareness of what data we actually have and put fast, reliable answers at everyone's fingertips.
+
+This connects back to where this case study opened. Shadi, the CEO, asking Nextory questions through Claude. That scene wasn't an isolated executive party trick. It was an instance of what Gustaf is describing at scale. The semantic layer is what makes the same natural-language conversation reproducible across the organization, not just for one person.
+
+`Common Language.`
+
+Gustaf:
+
+`The work on the new platform has aligned us around shared definitions and terminology across Nextory. This improves internal efficiency and removes misunderstandings. Another benefit: when everyone works from the same definitions, production systems start converging to map against the business logic, not the other way around.
+
+That last sentence is the inversion-of-dependency-direction insight that I think will outlive the rest of this case study. Most platforms inherit the structure of the systems that produced the data, and business logic gets retrofitted on top. Nextory's platform inverts that: the business logic is fixed, and the production systems converge toward it. Calle, from the DE seat:
+
+`Discussions within and outside the team focused on architecture rather than how specific data sources are handled.
+
+That's the same shift Gustaf is describing, at the level of what gets talked about in technical meetings. The vocabulary moved from source-specific to architecture-general. The same words mean the same things across teams. The system stopped needing translators.
+
+That's Gustaf's view from the COO seat. There's a fifth shift, harder to name from there, that Xiaoyan called out. Coming from someone who has been through prior platform rebuilds, this one matters:
+
+`Here, the team builds faster, but more importantly, the maintenance of our platform is much easier.
+
+The "more importantly" is doing real work in that sentence. Most methodologies look great when you ship version one. The question is what they look like in year three, when half the team has rotated, the definitions have been pressure-tested by reality, and the original architects are no longer there to remember why something was built the way it was. Maintainability is the long-tail benefit. It's what makes a system compound instead of decay.
+
+Read all of this together, and the throughline is fewer islands. Less informal knowledge in heads. Less drift between what one team means and what another team means. Less retrofitting of business logic onto whatever the production system happens to expose. The platform isn't doing anything fundamentally new at any one layer; it's keeping the layers in sync, on purpose, all the time.
+
+Which is another way of saying: it's pushing back entropy.
+
+## §7. The deeper change: pushing back entropy
+
+Ninos is Nextory's technical founder. He uses a particular phrase, often, to describe what this work is:
+
+`Entropy in a growing company is quiet and gradual. Teams develop their own terminology, definitions drift, knowledge gets locked in someone's head or buried in a Slack thread. Nobody decides this should happen. It just does, as a natural consequence of scale.
+
+Every founder reading this will recognize the diagnosis. The terminology drift Ninos describes is the same drift Calle described from the data-engineering seat: different naming conventions across sources, the same query mutating across teams, the screenshot of the dashboard you've never seen. From the founder seat, those operational symptoms look like a single underlying process: clarity getting quietly more expensive over time, with nobody choosing it.
+
+The framework Ninos lands on is short:
+
+`Pushing back entropy means actively choosing clarity over convenience. Making knowledge explicit, shared, and consistent rather than letting everyone operate on their own informal version of the truth.
+
+Clarity over convenience. The default direction of growth, in any organization, is toward convenience. It's faster, in any given moment, to use the word everybody on the call already knows, even if the people on the call mean slightly different things by it. It's faster to write your own query than to look up whether someone has already written one. It's faster to keep the knowledge in your head than to write it down. Each instance is rational. The aggregate effect is the entropy Ninos is describing.
+
+What Nextory chose was a long series of decisions where the convenient thing and the clarifying thing pointed in opposite directions, and the clarifying thing got chosen. The leadership-presentation moment, the entity definitions, the contracts at ingestion, the semantic layer, all of it. That's the work that doesn't show up on a roadmap and doesn't get a launch post. It's the work of choosing.
+
+Here's Ninos again, on what it has bought them:
+
+`We spend less time debating what a number means and more time using it to make decisions. And personally, I can ask a question about our business directly and get a trusted answer in seconds, rather than waiting for someone to run a query for me. That shift is what pushing back entropy actually looks like.
+
+That last sentence, that shift is what pushing back entropy actually looks like, is the case study's quiet thesis. Pushing back entropy isn't a strategy slide. It's the experience of asking your company a question and trusting the answer.
+
+Which is also exactly what Shadi was describing in §1.
+
+## §8. The AI-era lesson: foundation before acceleration
+
+There's an industry conversation right now that goes roughly: "AI is changing everything in data." That sentence is true and also useless. Everything is too big. The interesting question is what AI changes about data work when the underlying foundation is good versus when it isn't.
+
+Calle has the sharpest framing I've seen on this. Here he is on the before-state:
+
+`Earlier we had a "governance by obscurity" kind of situation, where effectively stakeholders were shut out from doing more complex analysis without a data team member being part of the analysis and reviewing the work.
+
+Governance by obscurity captures a whole class of dysfunction in two words. It names the implicit governance model that most data organizations have run on for the past decade: stakeholders couldn't do the analysis themselves because the platform was too opaque to use safely without a data person in the loop. We called this "data governance," but it was really just gatekeeping that happened to be effective because everyone agreed it was load-bearing. Take the agreement away and there wasn't much underneath.
+
+AI assistants by themselves haven't removed the obscurity. An LLM pointed at slippery definitions just restates the slippage confidently in fluent English, the same way a human would. What's removed the obscurity is AI assistants meeting a foundation that gives them the context to be right. Calle, on the consequence at Nextory:
+
+`SQL is no longer a requirement to use the warehouse directly.
+
+Which means data teams are now learning that their governance model was always a stand-in for actual governance, and the stand-in just stopped working. Stakeholders are pointing AI assistants at warehouses and getting answers, and the data team's only choices are to review the output (which doesn't scale) or to make the underlying structure trustworthy enough that the assistants produce defensible analysis on their own.
+
+The methodology Nextory built is what makes the second choice possible.
+
+Here's Calle on why:
+
+`Agents benefit greatly from clear structure, good naming and clear context (this is in my experience often even more important than exactly which LLM model you pick), and this is exactly what you get in a declarative framework.
+
+That parenthetical is the whole AI-era lesson in one phrase. Often more important than exactly which LLM model you pick. The default reading of where AI capability comes from is the model: bigger, smarter, more capable. The practitioner reading from the senior-DE seat is different. Capability is a property of the foundation the model is operating on, more than of the model itself.
+
+Calle on the negative claim:
+
+`I'm quite sure that the agents would write worse SQL in our old platform, while also spending more tokens on trial and error to end up with queries that actually work.
+
+And on what's now possible:
+
+`It would have been much more complex to build this knowledge layer in our old platform, if even at all possible.
+
+Some capabilities are unavailable to a platform without the foundation, no matter which model you point at it. The "knowledge layer" Calle refers to is a downstream consequence of the rest of the methodology Nextory built.
+
+Ninos puts the same point at the founder level:
+
+`AI can only give great answers if the underlying data is trustworthy. Investing in that foundation felt like a strategic necessity. Better to do it proactively than wait for it to become a crisis.
+
+Nextory invested. Here's where they are now.
+
+## §9. Closing: Nextory after the work
+
+Nextory hasn't finished. No growing company finishes. What they've done is build a foundation that lets the next decisions, about data ownership, about new sources, about how agents are integrated into the workflow, get made with more clarity and less drift than otherwise. The work continues. It's just continuing on different terrain.
+
+Gustaf, looking forward, has a framework he uses:
+
+`I usually talk about three Ds in a product company: Discovery, Delivery, and Data. As the entire organisation adopts an agentic way of working from discovery to delivery, with a significant increase in speed, data needs to keep pace. We have the foundation in place, but we now need to stitch the pieces together to reap the benefits, drive user adoption, and improve our workflows. Personally, I will also focus a lot on keeping Nextorians aligned around our shared definitions, both in human interactions and in our interactions with agents.
+
+The "keeping Nextorians aligned around shared definitions" line is a useful gloss on what comes next. The foundation is built. The job now is to keep choosing clarity over convenience as the company grows. That's not a one-time engagement. It's an ongoing discipline.
+
+Calle, on the engineering side, has a parallel note:
+
+`My plan moving forward is to build a knowledge layer that keeps track of our full platform, with a lineage graph of all assets and how they connect, enriched with human-curated structured context covering architecture, rules, gotchas and everything an agent will need in order to understand how to use the data.
+
+He's describing what comes after the platform-as-a-foundation: the knowledge layer that sits above it, makes the platform self-describing for both humans and agents, and lets the next round of capabilities compound on what's already there. It's the natural next thing. It would have been impossible on the old platform.
+
+What I keep coming back to, writing this, is that the most important shift at Nextory wasn't a technology shift, even though there's plenty of technology in it. It was a discipline shift. Nextory decided, several times, that the work of clarity was worth doing even though it was harder than the work of convenience. That decision is what made everything downstream possible.
+
+If you want to know whether your own organization is closer to clarity or to drift, ask two questions. First: if you asked your leadership team to write down what your three most important business concepts actually mean, would they all agree? Second: if your most senior data engineer left tomorrow, how much knowledge would leave with them? That's where the work starts.
+
+Shadi, asking the company a question and trusting the answer. Xiaoyan, seeing that the business logic is still visible. Calle, knowing every staging table works the same way. Ninos, watching teams have shorter arguments about what numbers mean.
+
+These are the same thing. They're what it feels like when an organization has decided to know what its own words mean.
+
+Discuss on Twitter • View on GitHub
+
+`Load Comments
+
+## Tags
+
+data-engineeringdata-architecturemethodologycase-studyaisemantic-clarity
+
+## Previous Article
+
+Why Definitions Are the Foundation of Every Data Warehouse
+
+## Next Article
+
+Context Isn't Enough: Agentic Analytics Eventually Has to Fix the Data
+
+← Back to the blog

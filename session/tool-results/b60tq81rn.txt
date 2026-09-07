@@ -1,0 +1,767 @@
+########## 0000-use-madr.md ##########
+---
+status: accepted
+date: 2026-09-07
+decision-makers: [adss maintainers]
+slice: 0
+---
+
+# Decisions are recorded as MADR files, written before the code they decide
+
+## Context and Problem Statement
+
+This system is built for a life cycle measured in decades, and almost every difficult thing about
+it is a choice that had alternatives. Six months from now the question will not be "what does this
+code do" — that is readable — but "what else was considered, and what did we know at the time".
+
+Without a record, the answer is reconstructed from the code, which can only ever show the option
+that won. The alternatives, the constraint that ruled them out, and the cost that was knowingly
+accepted are all invisible, so the next person either re-litigates a settled question or, worse,
+quietly reverses it without knowing there was a decision there at all.
+
+## Decision Drivers
+
+* the reasoning has to outlive the person who did it
+* a reader must be able to tell a considered trade-off from an accident
+* a record must be cheap enough to write that it actually gets written
+* the record must be readable by an agent with no conversation history
+
+## Considered Options
+
+* MADR files in the repository, one per decision, written before the code
+* MADR files written after the implementation, describing what was built
+* Decisions recorded in pull request descriptions
+* Decisions recorded in an external wiki
+* No formal record; rely on commit messages
+
+## Decision Outcome
+
+Chosen option: **MADR files under `docs/adr/`, numbered, written before the code they decide.**
+
+Three properties make it the right one.
+
+*In the repository.* The decision travels with the code it governs, is reviewed in the same pull
+request, and is available to anyone — or anything — reading the repository with no other access.
+An external wiki is a second surface that drifts from the code, and a pull request description is
+unfindable six months later without knowing which pull request to open.
+
+*Before the code.* This is the part that does real work. Writing the options out before building
+forces the alternatives to be stated while they are still live, and it regularly changes the
+answer — which is the whole return on the exercise. A record written afterwards can only describe
+what was built, and its "considered options" section is reconstruction.
+
+*Superseded, never edited.* Editing a record to match current reality destroys the thing that
+made it worth keeping. A decision that has changed gets a new file that supersedes the old one, so
+both the old reasoning and the reason it stopped holding survive.
+
+The format is MADR because it names the parts that matter — context, drivers, options, outcome,
+consequences — and because "Consequences" is where the honest cost goes. A record with only good
+consequences has not been thought about.
+
+### Consequences
+
+* Good, because the reasoning behind every non-obvious choice is recoverable by anyone reading
+  the repository, with no conversation history and no access to the people involved
+* Good, because writing the alternatives down before building routinely changes what gets built
+* Good, because a decision and the code implementing it are reviewed together
+* Good, because [deviations.md](../deviations.md) has somewhere to point: the register is the
+  index, the ADR is the argument
+* Bad, because it is friction on every non-trivial change, and friction is what gets skipped under
+  deadline pressure. The mitigation is that the bar is "a decision that had alternatives", not
+  "every change" — a record for an obvious choice is noise that trains people to ignore the rest
+* Bad, because a superseded record left in place can be read as current by someone who does not
+  check the index or the `status` field
+
+### Confirmation
+
+The index in [README.md](README.md) lists every record. A pull request that changes an
+architectural choice without an accompanying record is incomplete, and that is a review check
+rather than an automated one — no linter can tell an architectural decision from a rename.
+########## 0001-the-machinery-has-its-own-typed-domain.md ##########
+---
+status: accepted
+date: 2026-09-07
+decision-makers: [adss maintainers]
+slice: 1
+---
+
+# The machinery is modelled in its own typed vocabulary, and no business word appears under `src/`
+
+## Context and Problem Statement
+
+The brief asks for a domain model that does not restate `dab/model.yaml`. That constraint is
+easy to read as a style preference and it is not one: it decides what this repository is.
+
+There are two candidate domains here and they are genuinely different. One is the business —
+orders, countries, the dates on which things happened — and it already has a home, because
+`dab/model.yaml` is the only place the data is explained (blueprint B8). The other is the
+*system*: contracts, pipelines, landings, staged views, mappings, plans, stages, peripherals,
+bridges, questions, destinations. Nothing describes that domain yet, and it is the one the Python
+is actually about.
+
+The failure mode this guards against is specific. A pipeline that knows what an order is has
+stopped being a pipeline and become an order-loading script, and the next source needs a second
+one. The blog names this from the other direction: what makes a declarative platform work is that
+"an agent that learns the shape of one entity knows the shape of all of them"
+(*context-isnt-enough*). Uniformity is the property, and a special case in the machinery is what
+destroys it — quietly, one entity at a time.
+
+There is a real cost on the other side, and the same literature names it: over-generic models
+"lacking domain specificity" are one of the two named failure modes of model-driven platforms
+(*the-rise-of-model-driven-data-engineer*). A machinery vocabulary is a second thing to learn, and
+an abstraction built for slices that may never arrive is worse than the concrete code it replaced.
+
+## Decision Drivers
+
+* the machinery must work for a source and a business model it has never seen
+* the constraint must be checkable, not merely believed
+* tests must *prove* the machinery is generic rather than assert it
+* the model must be small enough that slice 1 does not pay for slice 6
+
+## Considered Options
+
+* A typed machinery domain model, with no business vocabulary under `src/` or in tests
+* Untyped dictionaries and strings throughout, with the shape documented in prose
+* A machinery model that names business concepts where it is convenient
+* A generic model built now for all six slices
+
+## Decision Outcome
+
+Chosen option: **a typed machinery domain model with no business vocabulary under `src/` or in
+tests**, and neutral fixture systems held as data files.
+
+The rule earns its keep by being falsifiable. "The machinery is generic" is an assertion; "no
+business word appears in it" is a property anyone can check by reading, and a reviewer who finds
+`order` in a function name has found a real defect without needing to understand the pipeline. It
+converts an architectural intention into something a code review can act on.
+
+Tests are where the rule does its most useful work. A test that loads a fixture called `ORDER`
+proves the machinery works for orders; a test that loads a neutral fixture — `PARENT`, `CHILD`,
+declared in a YAML file the test does not read for meaning — proves it works for *a* model. The
+second is the claim we actually want, and it is only available if the vocabulary stays out of the
+test. This is also why the question runner is parameterised over discovered question files rather
+than written as one test function per question: a per-question function smuggles the business
+vocabulary back in through its own name.
+
+Untyped dictionaries were the serious alternative, and they lose on the same ground. The types are
+where the machinery's own concepts are *named*, and a `dict[str, Any]` passed between six
+functions has no domain model at all — only a convention nobody can check. A strict type checker
+handles frozen dataclasses, string enums and discriminated unions with no friction, so the cost of
+typing is close to zero and the return is a compiler that refuses to let a `Contract` be used
+where a `Model` is meant.
+
+The last option — building the model for all six slices now — is rejected on the named failure
+mode. Slice 1 gets exactly the types slice 1 needs. No `Relationship`, no `Cardinality`, no
+measure kinds, no dialect abstraction beyond the single seam. Every one of those arrives in the
+slice that first has two of something to generalise over, which is the only point at which the
+generalisation can be judged.
+
+### Consequences
+
+* Good, because the claim "this works for any source and any business model" becomes a property a
+  reader can verify rather than a promise
+* Good, because the types name the machinery's own domain, which is otherwise nameless and lives
+  only in whoever wrote the pipeline
+* Good, because a neutral fixture makes a test prove genericity instead of asserting it
+* Bad, because there is now a second vocabulary to learn, and someone debugging a data problem has
+  to translate between "peripheral" and the entity they were actually looking at
+* Bad, because the rule has an awkward edge at the boundary: SQL generation must *emit* business
+  names it may not *contain*, so those names arrive as data and the code manipulating them reads
+  more abstractly than the thing it produces
+* Bad, because building only for slice 1 guarantees refactoring in slices 2 and 4, when
+  relationships and a second grain arrive. That is the intended trade: refactoring under a test
+  suite is cheaper than an abstraction chosen before the second case existed
+
+### Confirmation
+
+`tests/` contains no entity, attribute, measure, source or column name from the business, and its
+fixtures are neutral models held as data files. That is a hard rule in
+[conventions.md §5 and §6](../conventions.md) and it is checked by reading — no linter can tell a
+business noun from a machinery one, and a regex list of forbidden words would be a second copy of
+the business model living in the machinery, which is the thing this record forbids.
+
+The type gate is `ty --error all`, and `ANN` stays in the ruff selection because `ty` does not
+flag a fully unannotated `def`.
+########## 0002-dar-is-one-generated-unified-star-schema.md ##########
+---
+status: accepted
+date: 2026-09-07
+decision-makers: [adss maintainers]
+slice: 1
+---
+
+# DAR is one generated Unified Star Schema: an event bridge whose stages own their measures and inherit only keys, one peripheral per entity, one dense calendar
+
+## Context and Problem Statement
+
+DAR is the layer a person reads. The blueprint says it is volatile and generated (R4), and the
+Unified Star Schema is the shape chosen for it: one *bridge* holding a row per measurement event,
+one *peripheral* per entity holding its current state, and one calendar every process is dated
+against. This record fixes what the generator emits, because every question, every page and every
+future consumer is written against those column names and will not survive them changing.
+
+Three things about the source make the shape less obvious than the description sounds.
+
+**Fan-out.** The USS description says keys and measures propagate downward along many-to-one
+relationships. Keys can. Measures cannot: if a parent's measure were copied onto every child row
+that points at it, summing that measure would multiply it by the number of children. That is the
+classic fan trap, and avoiding it is the entire reason a bridge exists rather than one wide join.
+
+**History.** DAB keeps a version of every entity row. A question about something that *happened*
+and a question about a state as it was *observed* are different questions and need different rows,
+but they belong in one table, because the whole value of the bridge is that two processes can be
+summed and compared on one calendar.
+
+**What the generator is allowed to read.** Two observations constrain this hard, and both were
+made against the real engine on DuckDB rather than reasoned about. `<entity>_focal` and
+`<entity>_idfr` are created but never populated — a generator that joined to them would produce
+empty results and no error. And `view_<entity>_with_rel` carries no relationship key columns at
+all, despite its name; its column list is byte-identical to `view_<entity>`. A generator built on
+the names alone would be wrong in both directions.
+
+There is a fourth thing, and it is the one this slice cannot demonstrate. The argument that one
+shared bridge is safe rests on the walk over many-to-one edges. Slice 1 has one entity and no
+relationships, so the walk has zero edges and nothing inherits. The property is asserted here and
+first exercised in slice 2.
+
+## Decision Drivers
+
+* a `sum()` over the bridge is right without the reader knowing how the model is shaped
+* one calendar, so two processes can be compared
+* a published column contract that a model change *extends* rather than rearranges
+* deterministic output: the same declarations always produce the same SQL
+* nothing silently missing
+
+## Considered Options
+
+* An event bridge with one stage per (entity, event), keys inherited and measures owned
+* One bridge row per entity instance, with measures joined on
+* A hand-written star schema per question
+* Reading DAB's relationship views for the inherited keys
+
+## Decision Outcome
+
+Chosen option: **an event-grained bridge whose stages own their measures and inherit only keys.**
+
+*Keys inherit; measures do not.* A stage carries the key of every entity it reaches by walking
+many-to-one edges, and a measure is non-null only on the stage of the (entity, event) that owns
+it. Every other branch of the union emits a typed `NULL` in that column. This is what makes
+`sum()` additive at any grain the reader chooses, and it is proved by a test rather than trusted:
+a fixture with two parents and three children, where `sum(_measure__parent__…)` must still be the
+parent total and not three times it.
+
+*One row per measurement event.* A transaction stage reads `dab.view_<E>_hist`, keeps the latest
+version in which the event's date is set, and dates the row by that attribute. An unshipped order
+therefore has no shipment event *by construction* rather than by a filter somebody has to
+remember. A state stage reads the same history view, dates rows by `eff_tmstp`, and marks the
+latest version per key `_is_current`. Both kinds land in the same table with the same columns,
+which is what lets them be compared.
+
+*The generator reads `view_<entity>_hist` and the relationship pair objects, and nothing else.*
+Not `_focal`, which is empty. Not `_with_rel`, which does not carry what its name implies. Reading
+the current view instead of the history view would also lose `_observed_at`, which is how a bridge
+row carries its own provenance back to the DAS load that produced it.
+
+The rejected options each fail on one of the drivers. One row per entity instance with measures
+joined on is the fan trap, restated as a design. A hand-written star per question abandons R4 and
+puts the layer's correctness in a person's hands, every time, forever. Reading the relationship
+*views* rather than the pair objects is the subtle one: those views rank pairs by effective
+timestamp and keep the open rows, and our effective timestamp is the moment DAS observed the row,
+so a changed foreign key can drop out of the view entirely — rows silently missing from the
+bridge, with the query still running and the total merely smaller.
+
+### The column contract
+
+`dar__uss._bridge`:
+
+| column | type | null | meaning |
+|---|---|---|---|
+| `_stage` | VARCHAR | no | the entity this row is a row *of* |
+| `_event` | VARCHAR | no | the event, lower-cased: `placed`, `shipped`, `observed` |
+| `_event_date` | DATE | no | the day it happened, or the day the state was observed; joins `_calendar.date_key` |
+| `_is_current` | BOOLEAN | no | always true on a transaction stage; the latest version per key on a state stage |
+| `_observed_at` | TIMESTAMP | no | the DAB `eff_tmstp` behind this row, which is the DAS `extracted_at` |
+| `<entity>_key` | VARCHAR | own key no, inherited yes | one per entity in model order |
+| `_measure__<entity>__<measure>` | BIGINT for a count, DECIMAL(28,8) for a sum | non-null only on the owning stage | one per declared measure, in model order |
+
+`dar__uss.<entity>` is a peripheral **table**, one row per key, key first and attributes in
+declaration order. Tables rather than views, so what DAR served is exactly what the build log
+describes.
+
+`dar__uss._calendar` is dense and daily from the first to the last `_event_date` in the bridge,
+with civil arithmetic only — `year_number`, `quarter_of_year`, `month_of_year`, `day_of_month`,
+`year_start`, `quarter_start`, `month_start`, `quarter_label`, `month_label`. Column names avoid
+reserved words. Fiscal periods and holidays are business meaning and would need a definition, so
+they belong in DAB and not in a generator.
+
+Two rules follow from the contract and are written down because they are query-time traps: a join
+on the row's own stage key may be `INNER`, a join on an inherited key must be `LEFT`; and a ratio
+is `sum(a) / sum(b)` at query time, never a stored measure.
+
+Nulls: the generator never invents a member. A null dimension stays null, and a question that
+wants nulls grouped or excluded says so in the question file, where that choice belongs.
+
+### Consequences
+
+* Good, because a sum over the bridge is additive whatever the shape of the model, and the proof
+  is a test rather than a convention
+* Good, because every process lands on one calendar, so two of them can be compared
+* Good, because a consumer writes against a contract that a model change extends — new entities
+  and measures are appended, never inserted or renamed
+* Good, because a changed foreign key keeps its row, which reading the relationship view would not
+  have done
+* Bad, because the bridge is sparse: most cells of most rows are null. At this scale that costs
+  nothing, and it is the price of one table instead of one per process
+* Bad, because ratios and state questions need care at query time, and nothing in the schema stops
+  a reader averaging an average
+* Bad, because this slice cannot demonstrate the property the shared-bridge deviation (D-0001)
+  rests on. With one entity there are no edges to inherit along, so the fan-trap argument is
+  carried on assertion until slice 2
+* Bad, because the generator now depends on three specific behaviours of a third-party engine on a
+  platform that engine does not advertise supporting. Each is pinned by a check, but a vendor
+  change could invalidate any of them
+
+### Confirmation
+
+A machinery test asserts the column order, the calendar's padding, the event-date filter, the
+key inheritance and the refusals — including that a **zero-edge walk is a valid walk**, so slice 2
+does not meet that as a special case. A second asserts that every branch of the union aliases
+every column of one list exactly once and that every measure is cast. The fan-out test runs the
+generated SQL against an in-memory database with DAB's shapes faked into it, two parents and three
+children, and fails if the parent total multiplies. A data check asserts `DESCRIBE
+dar__uss._bridge` equals the plan on the real warehouse.
+
+`adss dar generate --check` regenerates and fails on any diff, which is what keeps the committed
+SQL from becoming a second truth.
+
+This decision is the argument behind deviation **D-0001** in
+[deviations.md](../deviations.md).
+########## 0003-a-das-contract-is-one-artefact.md ##########
+---
+status: accepted
+date: 2026-09-07
+decision-makers: [adss maintainers]
+slice: 1
+---
+
+# A DAS contract is documentation, schema and transformation in one artefact, and it generates a forgiving raw view plus a strict staged change log
+
+## Context and Problem Statement
+
+Somewhere around the fifteenth staging table, hand-written SQL becomes a collection of
+undocumented micro-decisions nobody can reason about as a whole. A `COALESCE` wrapping a
+`SAFE_CAST` wrapping a JSON extraction might be handling a known source quirk or working around
+bad data that was hot-fixed months ago, and there is no way to tell, because the knowledge left
+with whoever wrote it. The contract exists to put that knowledge somewhere a person can read.
+
+Two blueprint principles pull in opposite directions here and the design has to satisfy both. S3
+says ingestion is forgiving and unpacking is strict: committing to a schema at ingest turns every
+upstream change into lost data, and enforcing nothing on the way out turns every upstream change
+into a silent one. S1 says DAS captures and persists *only* — no interpretation. A type cast sits
+uncomfortably between them, and the record has to say why it is capture rather than
+interpretation.
+
+The append-only rule (S2) creates the question this record most has to answer. After two loads the
+lake holds two copies of every unchanged record. Something downstream has to decide whether that
+is a change log or a duplicate, and the answer determines how DAB historizes — which makes it the
+most consequential thing in the layer.
+
+Two observations, both made against the real tools, close off the obvious implementations. `dlt`
+does not stop normalising when told to limit nesting: top-level keys are still split into inferred
+typed columns, and inference chose `DOUBLE` for a decimal money field. And `read_parquet` over a
+glob **silently drops** columns that appear only in later files — no error, no warning, just
+missing data — which is a correctness failure that an append-only lake will produce on its own the
+first time a column is added.
+
+## Decision Drivers
+
+* an upstream change must never lose data, and must never pass through unnoticed
+* the contract is the documentation, so there is nothing to keep in step with it
+* the layer must say what the source said, in the source's words
+* per-data-point provenance: from where, and when
+* every future engineer's staging decision is made once, in one place
+
+## Considered Options
+
+* One YAML contract generating a raw view over the payload plus a strict staged change log, with a `__current` projection beside it
+* `das__staged` deduplicated to one row per key, with the change log discarded
+* Letting the loader infer the schema and treating its output as the staged layer
+* Hand-written staging SQL per source table
+
+## Decision Outcome
+
+Chosen option: **one contract per source entity set, generating `das__raw.<table>`,
+`das__staged.<table>` as the change log, and `das__staged.<table>__current` beside it.**
+
+*`das__raw` is forgiving.* Each source record lands whole, as one JSON value in a `payload`
+column, alongside provenance the pipeline adds itself. Nothing is inferred, nothing is split, and
+a field the contract has never heard of still lands — it is simply not yet extracted. Schema drift
+becomes a contract edit rather than a pipeline failure, which is the whole point of S3's first
+half.
+
+*`das__staged` is strict.* One `cast(payload ->> '$.<SourcePath>' AS <TYPE>) AS <target_name>` per
+declared column, and nothing else. A column the contract does not declare does not exist
+downstream. `payload` is deliberately **absent** from the staged view: if it were present, a DAB
+mapping could read `payload ->> '$.X'` and bypass the contract entirely, and the contract would
+stop being the gate.
+
+This is where the S1 tension resolves. The cast is not interpretation, it is *transcription*: the
+contract records what the source's own metadata says a field is, and the cast makes the warehouse
+agree. The evidence that this is the right side of the line is that the alternative loses
+information — inference made a decimal into a floating-point number, silently, and money became
+approximate. Declaring `DECIMAL(18, 4)` in the contract recovers exactly what the source declared.
+What would cross the line is a `COALESCE`, a `CASE` on values, a filter or a default, and the
+contract format is structurally incapable of expressing any of them: there is no key for it.
+
+*The staged view is the change log, and `__current` sits beside it.* This is the consequential
+half. DAS is append-only, so the change log is what the layer actually holds, and it is what DAB
+historizes from — with `FULL_LOG`, which is idempotent against a multi-row-per-key source. The
+`__current` projection exists because a question asked *of the source* needs one row per thing,
+not one per observation; it is what the independent control query in every question file reads.
+Deduplicating `das__staged` itself was the alternative, and it fails on B3: the platform would
+then have no record of what it observed and when, and DAB's history would be reconstructed from
+something that had already thrown the observations away.
+
+### The provenance columns
+
+The pipeline adds these itself, and they are named for what they record rather than for whoever
+wrote them:
+
+| column | why |
+|---|---|
+| `source_system` | which system this came from. Answers half of "from where" without inference from a path |
+| `source_entity` | which entity set within it |
+| `source_url` | the request that produced the record |
+| `extracted_at` | when DAS observed it. Derived from the load id, and the clock DAB dates every version by |
+| `extracted_on` | the date of `extracted_at`, and the lake's hive partition key |
+
+`extracted_on` and `extracted_at` derive from the **same** fact, so they cannot disagree except
+across a midnight boundary — and the build asserts they do not. The loader's own bookkeeping
+columns stay in `das__raw` and do not cross into `das__staged`, because a loader's column name in
+the layer's published interface welds that loader into the layer everything else is rebuilt from.
+
+### Recording and replay
+
+A fixture is the recorded HTTP response body, page by page, exactly as the service returned it,
+under `das/fixtures/<source>/<entity>/`. `adss das ingest` reads the live service;
+`adss das ingest --offline` reads the fixtures and is otherwise the same code path — same resource,
+same contract, same landing. That sameness is what makes the recording honest: a replay that took
+a different path would prove nothing about the live run. `adss das record` refreshes a recording,
+and the diff on that commit is the source change, visible.
+
+### Consequences
+
+* Good, because an upstream change lands rather than failing, and surfaces as an unextracted field
+  rather than as missing data
+* Good, because the contract is the documentation, the schema and the transformation, so there is
+  nothing that can drift from it
+* Good, because thirty tables share one set of staging decisions, and fixing a cast in the type
+  table fixes every contract that uses it
+* Good, because the change log preserves what the platform observed and when, which is what B3
+  needs and what a deduplicating staged view would have destroyed
+* Bad, because two staged objects per contract is more surface than one, and a reader has to know
+  which to use. The rule is short — DAB reads the change log, questions read `__current` — but it
+  is a rule
+* Bad, because `payload` being a plain string in the parquet means every strict read pays a JSON
+  parse. At this scale that is free; at a scale where it is not, this decision is what would need
+  revisiting
+* Bad, because the fixtures are a recording of a service that can change without telling us, so a
+  green offline build proves the code works, not that the source still looks like that. Only the
+  scheduled live run proves the second thing
+
+### Confirmation
+
+A machinery test generates the SQL for a neutral contract fixture and asserts the emitted
+expression for every type in the vocabulary, that `union_by_name => true` and `hive_types` are
+present, that the path is absolute, and that no key permitting an expression exists in the format.
+A contract validator, gate-blocking, asserts every primary key names a declared column, every
+`target_name` is the mechanical snake_case of its `source_path`, and every type is in the closed
+vocabulary. A data check asserts `extracted_on = cast(extracted_at AS DATE)` on every landed row,
+and that a second identical load adds rows to the change log while leaving `__current` unchanged.
+########## 0004-daana-cli-is-the-dab-engine.md ##########
+---
+status: accepted
+date: 2026-09-07
+decision-makers: [adss maintainers]
+slice: 1
+---
+
+# daana-cli is the DAB engine, vendored as a checksum-pinned binary and constrained by a mapping rule set this repository enforces itself
+
+## Context and Problem Statement
+
+DAB is where the three challenges are actually addressed, and Ensemble Modeling is how: a Core
+Business Concept holding only identity, a Description per attribute with its own history, an
+Association per relationship. The point of that decomposition is that change is additive — a new
+attribute is a new structure, never an `ALTER` to one other things depend on (blueprint B7).
+`daana-cli` implements exactly this shape, generating the structures and the loading code from a
+declared model, which is the "consistency by construction" the architecture depends on.
+
+Adopting it raises two problems that have nothing to do with modelling.
+
+The first is supply. The binary is a 174 MB git-LFS object on a private repository's branch. CI
+cannot reach it unauthenticated — raw, media and API all refuse — so the engine has to get into a
+build somehow, and the choice has consequences for anyone who ever clones this repository.
+
+The second is that the engine accepts several kinds of wrong mapping without complaint, and two of
+those are silent. `FULL` ingestion against a source view holding more than one row per key inserts
+one duplicate row per execute, forever, and **every presentation view hides it** — the current
+view and the history view both stayed the right size across three runs while the base table grew
+22 → 23 → 24 → 25. Our staged change log is multi-row-per-key by construction, so the wrong
+setting is the one that looks like a snapshot loader and is named after completeness. A mismatched
+relationship `source_table` is skipped in silence. Two `primary_keys` entries mean two alternate
+identifiers rather than a composite key, and that mode cannot be undone once loaded.
+
+Three further behaviours were observed on DuckDB, which the engine's own help text does not list
+among its supported platforms. `<entity>_focal` and `<entity>_idfr` are created but never
+populated. `view_<entity>_with_rel` carries no relationship keys despite its name. And if the
+process invoking the engine is itself holding the warehouse open, `execute` fails with
+`daana framework is not installed on the remote database`, which is not what went wrong.
+
+That last one was first reported to us in a broader form — that *any* other connection breaks it —
+and that turned out not to reproduce. DuckDB's lock is **per process**: within one process every
+connection shares an instance, so a second open succeeds; across processes the second is refused.
+The failure is therefore specific and enforceable: we must not hold the file while asking a
+subprocess to write to it. The narrower rule is the useful one, because it can be checked in code
+rather than believed.
+
+## Decision Drivers
+
+* a clone of this repository can build it, without a secret
+* the engine version is pinned by something that cannot be silently changed
+* the ways the engine accepts a wrong mapping are closed by this repository, not remembered
+* the DAB layer's history is what DAS observed, and is reproducible
+* a misleading engine error costs a reader minutes, not an afternoon
+
+## Considered Options
+
+* Vendor the binary here under git-LFS, restored in CI from a checksum-keyed cache
+* Fetch it in CI from the private source repository using a token secret
+* Two-tier CI: the gate always, the warehouse build only where the binary happens to exist
+* Require a local path and document it
+
+## Decision Outcome
+
+Chosen option: **vendor it here under git-LFS at `bin/linux-amd64/daana-cli`, with its `.sha256`
+beside it, restored in CI from an Actions cache keyed on that checksum.**
+
+The property that decides it is that the repository becomes self-contained: anyone who can clone
+it can build it, with no secret, no access to a second private repository, and no step that works
+only on the machine it was written on. For a system whose entire claim is reproducibility, an
+engine reachable only by the person holding a token is the wrong shape. Fetching with a secret was
+the serious alternative and it loses on exactly that — CI breaks for a fork, and for a future
+maintainer after a rotation, in a way that looks like a code failure. Two-tier CI loses harder:
+the check that actually proves the architecture works would be the one that does not run.
+
+The cost is real and is accepted: 174 MB of LFS storage, and a bandwidth bill on any run that
+misses the cache. Keying the cache on the checksum rather than on a version string means the
+transfer happens once per *binary*, and a changed binary invalidates the cache by construction
+rather than by anyone remembering to bump something.
+
+*The engine is pinned by content.* `daana-cli --version` self-reports `nightly` with a commit
+hash, so there is no version to depend on. `bin/linux-amd64/daana-cli.sha256` is the pin, it is
+verified before every invocation, and a mismatch is a hard failure rather than a warning. The
+self-reported string is recorded alongside it, so an upgrade is a diff that names both what
+changed and what it called itself.
+
+*The mapping rules are enforced here.* The seven rules in
+[conventions.md §1.4](../conventions.md) exist because the engine will not enforce them, and this
+repository checks them against `dab/mappings/*.yaml` in the machinery suite. `FULL_LOG` is the
+default and `FULL` requires a proof, because the failure it produces is invisible in every view a
+person would look at — including, and this is the part worth stating plainly, in both of a
+question's acceptance queries. The safety net would not have caught it.
+
+*DAR reads the `view_*` layer only.* Not `_focal`, not `_idfr`, not `_with_rel`. That is recorded
+here rather than in the DAR record because it is a fact about this engine on this platform, and it
+is where someone will look for it.
+
+*Entity ids stay `UPPER_SNAKE_CASE`.* DuckDB preserves that casing into object names, so `view_ORDER`
+rather than `view_order`, where PostgreSQL would fold it. The convention survives because DuckDB
+resolves identifiers case-insensitively — a consumer may write either — but any code that matches
+names out of the catalog must normalise. Keeping the model's casing loud is worth more than the
+convenience: the visual break from every other layer's lower case is what makes a leak from DAB
+into DAS or DAR obvious on sight, which is the reason §1.2 asks for it.
+
+*Detached invocation.* The CLI refuses to invoke the engine while this process holds the
+warehouse, and says why. Destinations open read-only, which still holds the process lock but at
+least keeps a reader from writing. And the misleading error is translated: when the engine says
+the framework is not installed, we say the file is held, because that is what happened.
+
+### Consequences
+
+* Good, because anyone who can clone this repository can build it, with no secret and no second
+  repository
+* Good, because the engine is pinned by content, so it cannot change without the diff saying so
+* Good, because the seven mapping rules are checked by this repository's own tests rather than
+  remembered, which is what the architecture asks of every other convention
+* Good, because the engine's most misleading error now says what actually happened
+* Bad, because 174 MB of LFS storage is a real cost, and a cache miss is a real transfer. The
+  checksum key bounds it to once per binary, but it is not free
+* Bad, because a vendored binary is a supply-chain artefact in the repository. The `.sha256`
+  proves it has not changed; it does not prove it was ever trustworthy
+* Bad, because the build depends on three behaviours of an engine on a platform its own
+  documentation does not list. Each is pinned by a check, so a vendor change fails loudly — but it
+  will fail, and the fallback is a platform migration rather than a patch
+* Bad, because vendoring `linux-amd64` alone means this repository builds on one architecture.
+  Adding another is adding another 174 MB
+
+### Confirmation
+
+`tests/test_platform.py` reproduces the lock failure with DuckDB alone, no engine involved: a
+subprocess cannot write while this process holds the file, and can the moment it lets go.
+`tests/test_engine_pin.py` asserts the binary's hash matches the committed `.sha256` and that its
+self-report matches the recorded string. `tests/test_mapping_rules.py` asserts the rules against
+every file in `dab/mappings/`, including that `ingestion_strategy` is `FULL_LOG` and that
+`entity_effective_timestamp_expression` is `extracted_at`. A data check counts `dab.<ENTITY>_desc`
+rows across two consecutive executes and fails on growth, because that base table is the only
+place the duplication defect is visible.
+########## 0005-a-question-is-the-unit-of-delivery.md ##########
+---
+status: accepted
+date: 2026-09-07
+decision-makers: [adss maintainers]
+slice: 1
+---
+
+# A business question is the unit of delivery, carried as a data file with the two queries that must agree on its answer
+
+## Context and Problem Statement
+
+At the coffee machine, "how were sales last quarter?" works, because both people share years of
+context. A dashboard has none of it. The gap between that question and one a data system can
+answer is the actual work: an answerable question names its aggregation, its measure, its
+dimensions and its time grain, and defines every term that two people might read differently.
+
+This system delivers in slices, and a slice is accepted on a presentation of one question's
+answer. So the question is not documentation *about* the work — it is the specification, the
+acceptance test, and the thing the page renders. That makes its format load-bearing in three
+directions at once, and it has to satisfy constraints that pull against each other.
+
+`dab/model.yaml` is the only place the data is explained (B8), so a question may not restate a
+definition — but it must carry enough that a reader can answer it without a conversation. The
+acceptance test compares two business queries, but no test may contain business vocabulary
+(conventions §6). And the check that gives the slice its confidence — computing the answer twice
+and requiring agreement — is only worth anything if the two computations are genuinely
+independent, which is a property nobody can enforce mechanically.
+
+## Decision Drivers
+
+* a question is answerable from the file alone, with no conversation
+* definitions are referenced, never restated, and every reference is proved to resolve
+* the acceptance test names nothing from the business
+* the two queries are independent enough that agreement means something
+* the question survives being reprioritised, refined or pivoted, which the methodology expects
+
+## Considered Options
+
+* A question directory holding `question.md` plus the two queries as `.sql` files
+* A single markdown file with the SQL in fenced blocks
+* Questions as test functions in `tests/`
+* A recorded expected result committed alongside, with no second query
+
+## Decision Outcome
+
+Chosen option: **a directory per question under `docs/questions/NN-<slug>/`, holding
+`question.md` and the two queries as `staged.sql` and `uss.sql`.**
+
+Separate `.sql` files rather than fenced blocks, for a reason that is not aesthetic: `.sql` files
+are linted by the same sqlfluff hook as every other statement in the repository, and
+[conventions §3](../conventions.md) already refuses to let SQL hide inside a string. A fenced
+block is a string. The moment the acceptance queries are exempt from the SQL rules, they become
+the least-reviewed SQL in a repository whose whole claim rests on them.
+
+*The file is a data file, and that is what keeps the test clean.* The runner discovers question
+directories, reads the front matter, runs both queries and asserts agreement — naming nothing. A
+per-question test *function* would smuggle the vocabulary back in through its own name, so the
+runner is parameterised over what it finds.
+
+*Definitions are referenced by identifier.* The front matter lists the model identifiers the
+question depends on, and the prose cites them by token rather than by paraphrase. A machinery test
+asserts every token resolves to something `dab/model.yaml` or `dab/uss.yaml` defines. When a
+question needs a term the model does not define, the question is **blocked** and the model change
+comes first — which is not an obstacle but the methodology working: a question the model cannot
+answer has found a gap in the model, and finding it is what asking was for.
+
+### What the two queries actually prove, and what they do not
+
+This deserves to be stated honestly, because it is easy to oversell.
+
+The control query computes the answer from `das__staged.<table>__current`, bypassing DAB and DAR
+entirely. The other computes it from `dar__uss`. CI asserts they agree row for row.
+
+What it catches is the failure this architecture is most exposed to and least able to see: that
+routing a number through integration and generation *changed it*. Dropped rows from a join, a
+multiplied measure, a mis-inherited key, a version collapse that kept the wrong row, an event
+filter that excluded more than it meant to — all of these show up as a number that no longer
+matches the source.
+
+What it does not catch is a wrong definition. If the model says an order is placed on its shipped
+date, both queries can be written to that and both will be wrong together. Nor does it catch a
+failure the staged layer shares — and there is one specific case worth naming: the engine's
+duplicate-row defect is invisible in every presentation view, so both queries would agree while
+the history quietly corrupted. That is why a separate data check counts the base table directly.
+
+The risk that the two are written to agree rather than to be right is real and cannot be designed
+away. Three things reduce it. The queries read different schemas in different vocabularies, so a
+transcription is visible as one. The control query is forbidden from mentioning `dab` or
+`dar__uss`, so it cannot consult the answer it is checking. And when they disagree,
+`dab/model.yaml` is the named arbiter: the query that departs from the definition is the one that
+changes, never both until they match. Without that last rule the cheapest repair is to make the
+check agree with itself, which deletes the only thing it was measuring.
+
+A recorded expected result was the alternative. It is simpler and it catches every regression
+exactly — but its first recording is only as right as the query that produced it, and after that
+it can only confirm the system still agrees with its own past. It is a regression test, not a
+reconciliation, and this layer needs the second.
+
+### Lifecycle
+
+`status` is one of `draft`, `red`, `green`, `superseded`. The methodology expects a question to be
+validated, refined or pivoted once the business sees real data, and all three are wins — so a
+refinement edits the question in place and a pivot supersedes it with a new one, keeping the
+original with its status set. What the business asked for before it saw the answer is part of the
+record of why the model looks the way it does.
+
+One question, one slice, one branch, one page. The page reads the question's own `uss.sql`, so the
+presentation and the test cannot disagree about what was asked.
+
+### Consequences
+
+* Good, because the specification, the acceptance test and the rendered page are one artefact,
+  which is what makes the prototype the deliverable rather than a report about it
+* Good, because the acceptance queries are linted like all other SQL
+* Good, because a question that outruns the model is blocked visibly rather than answered
+  approximately
+* Bad, because every answer is written twice, which is duplicated effort and a second thing to
+  maintain when a definition changes
+* Bad, because the control query has a shelf life. It stays writable only while a question needs
+  no integration; from the first question spanning two sources, writing it against the staged
+  layer means reimplementing DAB inside the check. Slice 6 is where that bill arrives, and this
+  record does not pay it
+* Bad, because "independent" is a property of how the queries were written and nothing enforces
+  it. The arbiter rule limits the damage; it does not prevent the sin
+
+### Confirmation
+
+`tests/test_questions.py` asserts every question file parses, every definition token resolves to
+the model, the staged query mentions neither `dab` nor `dar__uss`, and the front matter's declared
+dimensions appear in both queries. `checks/` runs both queries against the built warehouse and
+asserts row-for-row equality. Both suites name nothing from the business.
+########## README.md ##########
+# Architecture decision records
+
+One file per decision, numbered, in [MADR](https://adr.github.io/madr/) format. A record is
+**superseded by a new file, never edited**, because the value of a decision record is the record
+of what was true when it was made.
+
+An ADR lands **before** the code it decides. A decision record written afterwards records what
+was built, not what was decided.
+
+| # | Decision | Slice |
+|---|---|---|
+| [0000](0000-use-madr.md) | Decisions are recorded as MADR files in this directory | 0 |
+| [0001](0001-the-machinery-has-its-own-typed-domain.md) | The machinery is modelled in its own typed vocabulary, and no business word appears under `src/` | 1 |
+| [0002](0002-dar-is-one-generated-unified-star-schema.md) | DAR is one generated Unified Star Schema: an event bridge, peripherals, one calendar | 1 |
+| [0003](0003-a-das-contract-is-one-artefact.md) | A DAS contract is documentation, schema and transformation in one artefact | 1 |
+| [0004](0004-daana-cli-is-the-dab-engine.md) | daana-cli is the DAB engine, vendored and checksum-pinned | 1 |
+| [0005](0005-a-question-is-the-unit-of-delivery.md) | A business question is the unit of delivery, with two queries that must agree | 1 |

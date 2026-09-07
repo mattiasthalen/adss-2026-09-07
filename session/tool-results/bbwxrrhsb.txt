@@ -1,0 +1,829 @@
+=============== src/adss/uss.py ===============
+     1	"""The Unified Star Schema, generated: an event bridge, a peripheral per entity, a calendar.
+     2	
+     3	Keys inherit along many-to-one relationships; measures do not. Copying a parent's measure
+     4	onto every child row would multiply it when summed, which is the fan trap a bridge exists to
+     5	avoid -- so a measure is non-null only on the stage of the (entity, event) that owns it, and
+     6	every other branch of the union emits a typed NULL. ADR 0002.
+     7	
+     8	Slice 1 has one entity and no relationships, so the walk that inherits keys has no edges. A
+     9	zero-edge walk is a valid walk, and the tests say so, because the alternative is meeting it
+    10	as a special case the first time an edge exists.
+    11	"""
+    12	
+    13	from __future__ import annotations
+    14	
+    15	from dataclasses import dataclass
+    16	from enum import StrEnum
+    17	from pathlib import Path
+    18	
+    19	import yaml
+    20	
+    21	from adss.model import Entity, Model
+    22	from adss.names import Relation, Schema, crossing
+    23	
+    24	BRIDGE = Relation(Schema.DAR_USS, "_bridge")
+    25	CALENDAR = Relation(Schema.DAR_USS, "_calendar")
+    26	
+    27	COUNT_TYPE = "BIGINT"
+    28	SUM_TYPE = "DECIMAL(28, 8)"
+    29	
+    30	_GENERATED = "-- Generated from dab/model.yaml and dab/uss.yaml. Do not edit; regenerate."
+    31	
+    32	
+    33	class UssError(Exception):
+    34	    """A declaration the generator will not build from."""
+    35	
+    36	
+    37	class Aggregate(StrEnum):
+    38	    COUNT = "count"
+    39	    SUM = "sum"
+    40	
+    41	
+    42	class EventKind(StrEnum):
+    43	    TRANSACTION = "transaction"
+    44	    SNAPSHOT = "snapshot"
+    45	
+    46	
+    47	@dataclass(frozen=True, slots=True)
+    48	class Measure:
+    49	    id: str
+    50	    definition: str
+    51	    aggregate: Aggregate
+    52	    attribute_id: str | None
+    53	
+    54	    @property
+    55	    def sql_type(self) -> str:
+    56	        return COUNT_TYPE if self.aggregate is Aggregate.COUNT else SUM_TYPE
+    57	
+    58	
+    59	@dataclass(frozen=True, slots=True)
+    60	class Event:
+    61	    id: str
+    62	    entity_id: str
+    63	    definition: str
+    64	    kind: EventKind
+    65	    date_attribute_id: str
+    66	    measures: tuple[Measure, ...]
+    67	
+    68	    @property
+    69	    def name(self) -> str:
+    70	        return self.id.lower()
+    71	
+    72	
+    73	@dataclass(frozen=True, slots=True)
+    74	class Uss:
+    75	    path: Path
+    76	    events: tuple[Event, ...]
+    77	
+    78	    def measure_columns(self) -> tuple[tuple[Event, Measure, str], ...]:
+    79	        """Every measure column in the bridge, in declaration order."""
+    80	        return tuple(
+    81	            (event, measure, f"_measure__{event.entity_id.lower()}__{measure.id.lower()}")
+    82	            for event in self.events
+    83	            for measure in event.measures
+    84	        )
+    85	
+    86	
+    87	def read_uss(path: Path, model: Model | None = None) -> Uss:
+    88	    """Read the declarations, refusing anything that would generate but should not."""
+    89	    document = yaml.safe_load(path.read_text())["uss"]
+    90	    events: list[Event] = []
+    91	    for declared in document["events"]:
+    92	        event_id = str(declared["id"])
+    93	        if "definition" not in declared:
+    94	            raise UssError(
+    95	                f"{path}: event {event_id} has no definition. A glossary copies these "
+    96	                f"strings verbatim, so one that does not exist becomes a blank row."
+    97	            )
+    98	        measures: list[Measure] = []
+    99	        for raw in declared.get("measures", ()):
+   100	            aggregate = Aggregate(str(raw["aggregate"]))
+   101	            if "definition" not in raw:
+   102	                raise UssError(f"{path}: measure {raw['id']} has no definition.")
+   103	            attribute_id = str(raw["attribute"]).strip() if raw.get("attribute") else None
+   104	            if aggregate is Aggregate.SUM and not attribute_id:
+   105	                raise UssError(
+   106	                    f"{path}: measure {raw['id']} declares aggregate: sum and names nothing "
+   107	                    f"to sum. A blank attribute would emit a column named after nothing."
+   108	                )
+   109	            measures.append(
+   110	                Measure(
+   111	                    id=str(raw["id"]),
+   112	                    definition=str(raw["definition"]),
+   113	                    aggregate=aggregate,
+   114	                    attribute_id=attribute_id,
+   115	                )
+   116	            )
+   117	        events.append(
+   118	            Event(
+   119	                id=event_id,
+   120	                entity_id=str(declared["entity"]),
+   121	                definition=str(declared["definition"]),
+   122	                kind=EventKind(str(declared["kind"])),
+   123	                date_attribute_id=str(declared["date_attribute"]),
+   124	                measures=tuple(measures),
+   125	            )
+   126	        )
+   127	    uss = Uss(path=path, events=tuple(events))
+   128	    _refuse_measures_of_things_that_are_not_numbers(uss, model or _model_beside(path))
+   129	    return uss
+   130	
+   131	
+   132	def _model_beside(path: Path) -> Model:
+   133	    from adss.model import read_model
+   134	
+   135	    return read_model(path.parent / "model.yaml")
+   136	
+   137	
+   138	def _refuse_measures_of_things_that_are_not_numbers(uss: Uss, model: Model) -> None:
+   139	    for event in uss.events:
+   140	        if event.kind is not EventKind.TRANSACTION:
+   141	            raise UssError(
+   142	                f"{event.id} is declared {event.kind}, and the generator only builds "
+   143	                f"transaction stages. It would emit a transaction stage anyway and mark "
+   144	                f"every row current, which is worse than refusing: nothing downstream could "
+   145	                f"tell. A snapshot stage arrives in the slice that first needs one."
+   146	            )
+   147	        entity = model.entity(event.entity_id)
+   148	        if not entity.attribute(event.date_attribute_id).is_date:
+   149	            raise UssError(
+   150	                f"{event.id} is dated by {event.date_attribute_id}, which is not a date."
+   151	            )
+   152	        for measure in event.measures:
+   153	            if measure.attribute_id and not entity.attribute(measure.attribute_id).is_number:
+   154	                raise UssError(
+   155	                    f"{event.id}.{measure.id} sums {measure.attribute_id}, which is not a "
+   156	                    f"number. Summing what is not a number produces a number nobody can read."
+   157	                )
+   158	
+   159	
+   160	def _stage_cte(model: Model, event: Event) -> str:
+   161	    """One stage: the latest version of each entity in which the event is dated."""
+   162	    entity = model.entity(event.entity_id)
+   163	    date = crossing(event.date_attribute_id)
+   164	    lines = [
+   165	        f"    {event.name}.{crossing(entity.source_key)} AS {entity.key_column}",
+   166	        f"    {event.name}.eff_tmstp AS _observed_at",
+   167	        f"    cast({event.name}.{date} AS DATE) AS _event_date",
+   168	    ]
+   169	    for measure in event.measures:
+   170	        column = f"_measure__{entity.object_name}__{measure.id.lower()}"
+   171	        if measure.aggregate is Aggregate.COUNT:
+   172	            value = f"cast(1 AS {COUNT_TYPE})"
+   173	        else:
+   174	            attribute = crossing(str(measure.attribute_id))
+   175	            value = f"cast({event.name}.{attribute} AS {SUM_TYPE})"
+   176	        lines.append(f"    {value} AS {column}")
+   177	    selected = ",\n".join(lines)
+   178	    return (
+   179	        f"{event.name} AS (\n"
+   180	        f"SELECT\n{selected}\n"
+   181	        f'FROM dab."view_{entity.id}_hist" AS {event.name}\n'
+   182	        f"WHERE {event.name}.{date} IS NOT NULL\n"
+   183	        f"QUALIFY row_number() OVER (\n"
+   184	        f"    PARTITION BY {event.name}.{crossing(entity.source_key)}\n"
+   185	        f"    ORDER BY {event.name}.eff_tmstp DESC\n"
+   186	        f") = 1\n"
+   187	        f")"
+   188	    )
+   189	
+   190	
+   191	def _branch(model: Model, uss: Uss, event: Event, keys: tuple[str, ...]) -> str:
+   192	    """One branch of the union: this stage's own columns, and a typed NULL for the rest."""
+   193	    entity = model.entity(event.entity_id)
+   194	    lines = [
+   195	        f"    '{entity.object_name}' AS _stage",
+   196	        f"    '{event.name}' AS _event",
+   197	        f"    {event.name}._event_date AS _event_date",
+   198	        "    TRUE AS _is_current",
+   199	        f"    {event.name}._observed_at AS _observed_at",
+   200	    ]
+   201	    for key in keys:
+   202	        value = f"{event.name}.{key}" if key == entity.key_column else "cast(NULL AS VARCHAR)"
+   203	        lines.append(f"    {value} AS {key}")
+   204	    owned = {column for candidate, _, column in uss.measure_columns() if candidate is event}
+   205	    for _, measure, column in uss.measure_columns():
+   206	        value = f"{event.name}.{column}" if column in owned else f"cast(NULL AS {measure.sql_type})"
+   207	        lines.append(f"    {value} AS {column}")
+   208	    return "SELECT\n" + ",\n".join(lines) + f"\nFROM {event.name} AS {event.name}"
+   209	
+   210	
+   211	def entity_keys(model: Model, uss: Uss) -> tuple[str, ...]:
+   212	    """One key column per entity the declarations touch, in MODEL order.
+   213	
+   214	    Model order, not event order: reordering two events in the sidecar is not a model change,
+   215	    and it must not rearrange a contract that consumers are written against. The check cannot
+   216	    catch that on its own, because it derives what it expects from this same function.
+   217	    """
+   218	    touched = {event.entity_id for event in uss.events}
+   219	    return tuple(entity.key_column for entity in model.entities if entity.id in touched)
+   220	
+   221	
+   222	def bridge_columns(model: Model, uss: Uss) -> tuple[str, ...]:
+   223	    """The published column contract, in order. A model change appends; it never rearranges."""
+   224	    keys = entity_keys(model, uss)
+   225	    structural = ("_stage", "_event", "_event_date", "_is_current", "_observed_at")
+   226	    return structural + keys + tuple(column for _, _, column in uss.measure_columns())
+   227	
+   228	
+   229	def bridge_sql(model: Model, uss: Uss) -> str:
+   230	    """One row per measurement event, over every stage the declarations name."""
+   231	    keys = entity_keys(model, uss)
+   232	    ctes = ",\n\n".join(_stage_cte(model, event) for event in uss.events)
+   233	    branches = "\n\nUNION ALL\n\n".join(_branch(model, uss, event, keys) for event in uss.events)
+   234	    return f"{_GENERATED}\nCREATE OR REPLACE TABLE {BRIDGE.sql} AS\nWITH {ctes}\n\n{branches};\n"
+   235	
+   236	
+   237	def peripheral_sql(model: Model, entity_id: str) -> str:
+   238	    """One row per entity instance, current state, key first and attributes as declared."""
+   239	    entity: Entity = model.entity(entity_id)
+   240	    lines = [
+   241	        f"    e.{crossing(entity.source_key)} AS {entity.key_column}",
+   242	        "    e.eff_tmstp AS _observed_at",
+   243	    ]
+   244	    lines += [f"    e.{crossing(a.id)} AS {a.column}" for a in entity.attributes]
+   245	    selected = ",\n".join(lines)
+   246	    relation = Relation(Schema.DAR_USS, entity.object_name)
+   247	    return (
+   248	        f"{_GENERATED}\n"
+   249	        f"CREATE OR REPLACE TABLE {relation.sql} AS\n"
+   250	        f"SELECT\n{selected}\n"
+   251	        f'FROM dab."view_{entity.id}_hist" AS e\n'
+   252	        f"QUALIFY row_number() OVER (\n"
+   253	        f"    PARTITION BY e.{crossing(entity.source_key)}\n"
+   254	        f"    ORDER BY e.eff_tmstp DESC\n"
+   255	        f") = 1;\n"
+   256	    )
+   257	
+   258	
+   259	def calendar_sql() -> str:
+   260	    """Dense and daily across everything the bridge holds. Civil arithmetic only.
+   261	
+   262	    A calendar containing only the days something happened is not a calendar: a month with
+   263	    no events must still appear in a time series. Fiscal periods and holidays are business
+   264	    meaning and would need a definition, so they belong in the model, not in a generator.
+   265	    """
+   266	    return (
+   267	        f"{_GENERATED}\n"
+   268	        f"CREATE OR REPLACE TABLE {CALENDAR.sql} AS\n"
+   269	        f"WITH bounds AS (\n"
+   270	        f"SELECT\n"
+   271	        f"    min(b._event_date) AS first_date,\n"
+   272	        f"    max(b._event_date) AS last_date\n"
+   273	        f"FROM {BRIDGE.sql} AS b\n"
+   274	        f"),\n\n"
+   275	        f"every_day AS (\n"
+   276	        f"SELECT\n"
+   277	        f"    cast(d.day AS DATE) AS date_key\n"
+   278	        f"FROM bounds AS bo\n"
+   279	        f"CROSS JOIN range(\n"
+   280	        f"    bo.first_date, bo.last_date + INTERVAL 1 DAY, INTERVAL 1 DAY\n"
+   281	        f") AS d (day)\n"
+   282	        f")\n\n"
+   283	        f"SELECT\n"
+   284	        f"    d.date_key AS date_key,\n"
+   285	        f"    cast(year(d.date_key) AS INTEGER) AS year_number,\n"
+   286	        f"    cast(quarter(d.date_key) AS INTEGER) AS quarter_of_year,\n"
+   287	        f"    cast(month(d.date_key) AS INTEGER) AS month_of_year,\n"
+   288	        f"    cast(day(d.date_key) AS INTEGER) AS day_of_month,\n"
+   289	        f"    cast(date_trunc('year', d.date_key) AS DATE) AS year_start,\n"
+   290	        f"    cast(date_trunc('quarter', d.date_key) AS DATE) AS quarter_start,\n"
+   291	        f"    cast(date_trunc('month', d.date_key) AS DATE) AS month_start,\n"
+   292	        f"    strftime(d.date_key, '%Y') || '-Q' || cast(quarter(d.date_key) AS VARCHAR) "
+   293	        f"AS quarter_label,\n"
+   294	        f"    strftime(d.date_key, '%Y-%m') AS month_label\n"
+   295	        f"FROM every_day AS d;\n"
+   296	    )
+   297	
+   298	
+   299	def definitions(model: Model, uss: Uss) -> dict[str, str]:
+   300	    """Every definition, by the token that refers to it. Copied verbatim, never composed.
+   301	
+   302	    A generator that composed a definition would be a third place the data is explained,
+   303	    and the worst kind: one nobody wrote and nobody reviews.
+   304	    """
+   305	    found = dict(model.definitions())
+   306	    for event in uss.events:
+   307	        found[f"{event.entity_id}.events.{event.id}"] = event.definition
+   308	        for measure in event.measures:
+   309	            found[f"{event.entity_id}.measures.{measure.id}"] = measure.definition
+   310	    return found
+=============== src/adss/model.py ===============
+     1	"""A structural reading of the business model. It carries meaning; it never reads it.
+     2	
+     3	The definitions in the model are the only explanation of the data there is. This module
+     4	moves them around -- into a glossary, into a check that a question's references resolve --
+     5	and never composes one, because a composed definition is a second explanation that nobody
+     6	wrote and nobody reviews.
+     7	"""
+     8	
+     9	from __future__ import annotations
+    10	
+    11	from dataclasses import dataclass
+    12	from enum import StrEnum
+    13	from pathlib import Path
+    14	
+    15	import yaml
+    16	
+    17	
+    18	class AttributeType(StrEnum):
+    19	    """The modelling language's whole type vocabulary. Semantic, not physical."""
+    20	
+    21	    STRING = "STRING"
+    22	    NUMBER = "NUMBER"
+    23	    UNIT = "UNIT"
+    24	    START_TIMESTAMP = "START_TIMESTAMP"
+    25	    END_TIMESTAMP = "END_TIMESTAMP"
+    26	
+    27	
+    28	@dataclass(frozen=True, slots=True)
+    29	class Attribute:
+    30	    id: str
+    31	    type: AttributeType
+    32	    definition: str
+    33	
+    34	    @property
+    35	    def column(self) -> str:
+    36	        """How this attribute is spelled in the generated layer."""
+    37	        return self.id.lower()
+    38	
+    39	    @property
+    40	    def is_number(self) -> bool:
+    41	        return self.type is AttributeType.NUMBER
+    42	
+    43	    @property
+    44	    def is_date(self) -> bool:
+    45	        return self.type in (AttributeType.START_TIMESTAMP, AttributeType.END_TIMESTAMP)
+    46	
+    47	
+    48	@dataclass(frozen=True, slots=True)
+    49	class Entity:
+    50	    id: str
+    51	    definition: str
+    52	    attributes: tuple[Attribute, ...]
+    53	
+    54	    @property
+    55	    def object_name(self) -> str:
+    56	        """The generated layer's name for this entity: snake_case, singular."""
+    57	        return self.id.lower()
+    58	
+    59	    @property
+    60	    def key_column(self) -> str:
+    61	        return f"{self.object_name}_key"
+    62	
+    63	    @property
+    64	    def source_key(self) -> str:
+    65	        """What the modelling engine calls this entity's key, in its own casing."""
+    66	        return f"{self.id}_key"
+    67	
+    68	    def attribute(self, attribute_id: str) -> Attribute:
+    69	        for attribute in self.attributes:
+    70	            if attribute.id == attribute_id:
+    71	                return attribute
+    72	        raise KeyError(f"{self.id} has no attribute {attribute_id!r}")
+    73	
+    74	
+    75	@dataclass(frozen=True, slots=True)
+    76	class Model:
+    77	    path: Path
+    78	    entities: tuple[Entity, ...]
+    79	
+    80	    def entity(self, entity_id: str) -> Entity:
+    81	        for entity in self.entities:
+    82	            if entity.id == entity_id:
+    83	                return entity
+    84	        raise KeyError(f"{self.path} has no entity {entity_id!r}")
+    85	
+    86	    def definitions(self) -> dict[str, str]:
+    87	        """Every definition, by the token that refers to it. Copied, never composed."""
+    88	        found: dict[str, str] = {}
+    89	        for entity in self.entities:
+    90	            found[entity.id] = entity.definition
+    91	            for attribute in entity.attributes:
+    92	                found[f"{entity.id}.{attribute.id}"] = attribute.definition
+    93	        return found
+    94	
+    95	
+    96	def read_model(path: Path) -> Model:
+    97	    document = yaml.safe_load(path.read_text())["model"]
+    98	    entities = tuple(
+    99	        Entity(
+   100	            id=str(entity["id"]),
+   101	            definition=str(entity["definition"]),
+   102	            attributes=tuple(
+   103	                Attribute(
+   104	                    id=str(attribute["id"]),
+   105	                    type=AttributeType(str(attribute["type"])),
+   106	                    definition=str(attribute["definition"]),
+   107	                )
+   108	                for attribute in entity["attributes"]
+   109	            ),
+   110	        )
+   111	        for entity in document["entities"]
+   112	    )
+   113	    return Model(path=path, entities=entities)
+=============== src/adss/mapping.py ===============
+     1	"""The rules that keep a mapping honest, because the engine will not.
+     2	
+     3	Every rule here exists because the engine accepts the violation without complaint. Two of
+     4	them accept it and then corrupt data quietly. Conventions section 1.4, ADR 0004.
+     5	"""
+     6	
+     7	from __future__ import annotations
+     8	
+     9	import re
+    10	from dataclasses import dataclass
+    11	from pathlib import Path
+    12	
+    13	import yaml
+    14	
+    15	from adss.names import Schema
+    16	
+    17	# An attribute expression may read its own row: a column, a cast of one, or a CASE over
+    18	# them. Anything else is a join, and every join must come from a declared relationship.
+    19	_REACHING = re.compile(r"\b(select|join|from|over|group\s+by)\b", re.IGNORECASE)
+    20	_AGGREGATE = re.compile(r"\b(sum|count|min|max|avg|any_value|array_agg)\s*\(", re.IGNORECASE)
+    21	
+    22	REQUIRED_STRATEGY = "FULL_LOG"
+    23	REQUIRED_CLOCK = "extracted_at"
+    24	
+    25	
+    26	class MappingError(Exception):
+    27	    """A mapping the engine would accept and should not."""
+    28	
+    29	
+    30	@dataclass(frozen=True, slots=True)
+    31	class Table:
+    32	    """One source table an entity is loaded from."""
+    33	
+    34	    table: str
+    35	    primary_keys: tuple[str, ...]
+    36	    ingestion_strategy: str
+    37	    effective_timestamp_expression: str
+    38	    expressions: tuple[str, ...]
+    39	
+    40	
+    41	@dataclass(frozen=True, slots=True)
+    42	class Mapping:
+    43	    """How one entity is loaded."""
+    44	
+    45	    path: Path
+    46	    entity_id: str
+    47	    tables: tuple[Table, ...]
+    48	
+    49	
+    50	def read_mapping(path: Path) -> Mapping:
+    51	    document = yaml.safe_load(path.read_text())
+    52	    tables = [
+    53	        Table(
+    54	            table=str(table["table"]),
+    55	            primary_keys=tuple(table.get("primary_keys", [])),
+    56	            ingestion_strategy=str(table.get("ingestion_strategy", "")),
+    57	            effective_timestamp_expression=str(
+    58	                table.get("entity_effective_timestamp_expression", "")
+    59	            ),
+    60	            expressions=tuple(
+    61	                str(attribute["transformation_expression"])
+    62	                for attribute in table.get("attributes", [])
+    63	            ),
+    64	        )
+    65	        for group in document["mapping_groups"]
+    66	        for table in group["tables"]
+    67	    ]
+    68	    return Mapping(path=path, entity_id=str(document["entity_id"]), tables=tuple(tables))
+    69	
+    70	
+    71	def check_mapping(mapping: Mapping) -> None:
+    72	    """Refuse what M1-M5 and M7 refuse, naming the rule that refused it.
+    73	
+    74	    M6 is about relationships and lands with the first one. M2 is checked for cardinality
+    75	    here; its key-shape clause -- a concat without a separator collapses 'A1' + '23' and
+    76	    'A12' + '3' into one key -- is review-only until there is a composite key to check.
+    77	    """
+    78	    where = mapping.path.name
+    79	    for table in mapping.tables:
+    80	        if not table.table.startswith(f"{Schema.DAS_STAGED}."):
+    81	            raise MappingError(
+    82	                f"{where}: M1 -- a mapping reads a {Schema.DAS_STAGED} object and nothing "
+    83	                f"else, never {table.table!r}. Reading the raw layer skips the contract's "
+    84	                f"casts, and a join here is business logic in the wrong layer."
+    85	            )
+    86	        if len(table.primary_keys) != 1:
+    87	            raise MappingError(
+    88	                f"{where}: M2 -- exactly one primary key. {list(table.primary_keys)} is read "
+    89	                f"as that many alternate identifiers, not as a composite key, and that mode "
+    90	                f"cannot be undone once loaded."
+    91	            )
+    92	        if table.ingestion_strategy != REQUIRED_STRATEGY:
+    93	            raise MappingError(
+    94	                f"{where}: M3 -- {REQUIRED_STRATEGY}, not {table.ingestion_strategy!r}. "
+    95	                f"FULL against a source holding more than one row per key inserts a "
+    96	                f"duplicate on every run, forever, and every presentation view hides it."
+    97	            )
+    98	        if table.effective_timestamp_expression != REQUIRED_CLOCK:
+    99	            raise MappingError(
+   100	                f"{where}: M4 -- a version is dated by {REQUIRED_CLOCK}, not "
+   101	                f"{table.effective_timestamp_expression!r}. The effective time of a fact is "
+   102	                f"when the system observed it; anything else dates it by something that is "
+   103	                f"not about the fact."
+   104	            )
+   105	        for expression in table.expressions:
+   106	            if _REACHING.search(expression) or _AGGREGATE.search(expression):
+   107	                raise MappingError(
+   108	                    f"{where}: M5 -- {expression!r} reaches beyond its row. An expression "
+   109	                    f"that does is a join, and every join comes from a declared relationship."
+   110	                )
+   111	        if not table.expressions:
+   112	            raise MappingError(
+   113	                f"{where}: M7 -- every mapped table carries at least one attribute. The "
+   114	                f"engine refuses an entity with none, at deploy rather than at review."
+   115	            )
+=============== src/adss/checks.py ===============
+     1	"""What the built warehouse must contain, asserted against the real build.
+     2	
+     3	Never against a stub: a check that passes against a fabricated warehouse tells you nothing
+     4	about the one that was built. Conventions section 6.
+     5	
+     6	No SQL is written here and no source is named here. Every statement is a generated file, so
+     7	the linter sees it and so the machinery works for a source it has never met.
+     8	"""
+     9	
+    10	from __future__ import annotations
+    11	
+    12	from dataclasses import dataclass
+    13	
+    14	import duckdb
+    15	
+    16	from adss.contract import read_contract
+    17	from adss.model import read_model
+    18	from adss.project import Project
+    19	from adss.question import Status, read_questions, without_comments
+    20	from adss.uss import bridge_columns, read_uss
+    21	
+    22	
+    23	@dataclass(frozen=True, slots=True)
+    24	class Finding:
+    25	    """One thing that is true or is not. A failing check names what it looked at."""
+    26	
+    27	    check: str
+    28	    passed: bool
+    29	    detail: str
+    30	
+    31	
+    32	def _rows(connection: duckdb.DuckDBPyConnection, sql: str) -> list[tuple[object, ...]]:
+    33	    return [tuple(row) for row in connection.execute(without_comments(sql)).fetchall()]
+    34	
+    35	
+    36	def _zero(connection: duckdb.DuckDBPyConnection, sql: str) -> tuple[bool, str]:
+    37	    rows = _rows(connection, sql)
+    38	    value = rows[0][0] if rows and rows[0] else None
+    39	    return value == 0, f"{value}"
+    40	
+    41	
+    42	def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[Finding]:
+    43	    findings: list[Finding] = []
+    44	
+    45	    model = read_model(project.model)
+    46	    uss = read_uss(project.uss, model)
+    47	    described = [name for name, *_ in connection.execute("DESCRIBE dar__uss._bridge").fetchall()]
+    48	    expected = list(bridge_columns(model, uss))
+    49	    findings.append(
+    50	        Finding(
+    51	            "the bridge matches its published column contract",
+    52	            described == expected,
+    53	            f"built {described}, contract {expected}",
+    54	        )
+    55	    )
+    56	
+    57	    # Every generated data check, over every contract. Growing the layer grows the checks.
+    58	    for path in sorted(project.checks_sql.glob("*.sql")):
+    59	        passed, detail = _zero(connection, path.read_text())
+    60	        findings.append(
+    61	            Finding(f"{path.stem}: nothing disagrees", passed, f"{detail} disagreements")
+    62	        )
+    63	
+    64	    # The engine behaviours the generated layer is built on. If the vendor changes any of
+    65	    # them, this says so rather than the star schema quietly emptying.
+    66	    for entity in model.entities:
+    67	        for suffix in ("focal", "idfr"):
+    68	            rows = connection.execute(f'SELECT count(*) FROM dab."{entity.id}_{suffix}"').fetchone()
+    69	            findings.append(
+    70	                Finding(
+    71	                    f"dab.{entity.id}_{suffix} is still empty, as the generator assumes",
+    72	                    rows == (0,),
+    73	                    f"{rows} rows -- if this is no longer 0 the generator should read it",
+    74	                )
+    75	            )
+    76	        with_rel = [
+    77	            name
+    78	            for name, *_ in connection.execute(
+    79	                f'DESCRIBE dab."view_{entity.id}_with_rel"'
+    80	            ).fetchall()
+    81	        ]
+    82	        plain = [
+    83	            name for name, *_ in connection.execute(f'DESCRIBE dab."view_{entity.id}"').fetchall()
+    84	        ]
+    85	        findings.append(
+    86	            Finding(
+    87	                f"dab.view_{entity.id}_with_rel still carries no relationship key",
+    88	                with_rel == plain,
+    89	                f"with_rel {with_rel} vs plain {plain}",
+    90	            )
+    91	        )
+    92	
+    93	    # The description table is where an ingestion-strategy defect would be visible, and the
+    94	    # only place: every presentation view hides it.
+    95	    for entity in model.entities:
+    96	        described_rows = connection.execute(
+    97	            f'SELECT count(*), count(DISTINCT ("{entity.id}_key", type_key, eff_tmstp)) '
+    98	            f'FROM dab."{entity.id}_desc"'
+    99	        ).fetchone()
+   100	        total, distinct = described_rows if described_rows else (None, None)
+   101	        findings.append(
+   102	            Finding(
+   103	                f"dab.{entity.id}_desc holds no duplicate versions",
+   104	                total == distinct,
+   105	                f"{total} rows, {distinct} distinct -- a growing gap is FULL ingestion "
+   106	                f"duplicating silently",
+   107	            )
+   108	        )
+   109	
+   110	    for question in read_questions(project.questions):
+   111	        if question.status in (Status.DRAFT, Status.SUPERSEDED):
+   112	            findings.append(
+   113	                Finding(
+   114	                    f"{question.id}: not asked ({question.status})",
+   115	                    True,
+   116	                    "a draft is not finished and a superseded question is not asked any more; "
+   117	                    "running either would fail the build on something nobody is answering",
+   118	                )
+   119	            )
+   120	            continue
+   121	        control = _rows(connection, question.staged_sql)
+   122	        answer = _rows(connection, question.uss_sql)
+   123	        findings.append(
+   124	            Finding(
+   125	                f"{question.id}: the source and the star schema agree",
+   126	                control == answer,
+   127	                f"{len(control)} control rows, {len(answer)} answer rows"
+   128	                + (
+   129	                    "" if control == answer else f"; first difference {_first_gap(control, answer)}"
+   130	                ),
+   131	            )
+   132	        )
+   133	    return findings
+   134	
+   135	
+   136	def contracts_of(project: Project) -> tuple[str, ...]:
+   137	    """Every contract this project declares. Used to generate the checks above."""
+   138	    return tuple(read_contract(path).table for path in project.contract_paths())
+   139	
+   140	
+   141	def _first_gap(control: list[tuple[object, ...]], answer: list[tuple[object, ...]]) -> str:
+   142	    for index, (left, right) in enumerate(zip(control, answer, strict=False)):
+   143	        if left != right:
+   144	            return f"row {index}: source {left} vs star {right}"
+   145	    return f"lengths differ: {len(control)} vs {len(answer)}"
+=============== src/adss/question.py ===============
+     1	"""A business question: the specification, the acceptance test and what a page renders.
+     2	
+     3	It is a data file rather than code, which is what keeps the vocabulary of one business out
+     4	of the machinery that runs it. The runner discovers questions and asserts over them; it
+     5	names nothing. ADR 0005.
+     6	"""
+     7	
+     8	from __future__ import annotations
+     9	
+    10	import re
+    11	from dataclasses import dataclass
+    12	from enum import StrEnum
+    13	from pathlib import Path
+    14	
+    15	import yaml
+    16	
+    17	FRONT_MATTER = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.DOTALL)
+    18	TOKEN = re.compile(r"\{\{([^}]+)\}\}")
+    19	
+    20	STAGED = "staged.sql"
+    21	USS = "uss.sql"
+    22	
+    23	
+    24	class QuestionError(Exception):
+    25	    """A question that cannot be answered as written."""
+    26	
+    27	
+    28	class Status(StrEnum):
+    29	    DRAFT = "draft"
+    30	    RED = "red"
+    31	    GREEN = "green"
+    32	    SUPERSEDED = "superseded"
+    33	
+    34	
+    35	@dataclass(frozen=True, slots=True)
+    36	class Question:
+    37	    directory: Path
+    38	    id: str
+    39	    status: Status
+    40	    persona: str
+    41	    question: str
+    42	    dimensions: tuple[str, ...]
+    43	    defines: tuple[str, ...]
+    44	    staged_sql: str
+    45	    uss_sql: str
+    46	    body: str
+    47	
+    48	    @property
+    49	    def tokens(self) -> tuple[str, ...]:
+    50	        return tuple(str(match).strip() for match in TOKEN.findall(self.body))
+    51	
+    52	
+    53	def without_comments(sql: str) -> str:
+    54	    """The SQL, without its commentary. A comment explaining a rule does not break it."""
+    55	    return "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--"))
+    56	
+    57	
+    58	def read_question(directory: Path) -> Question:
+    59	    text = (directory / "question.md").read_text()
+    60	    parsed = FRONT_MATTER.match(text)
+    61	    if parsed is None:
+    62	        raise QuestionError(f"{directory}: question.md has no front matter")
+    63	    front = yaml.safe_load(parsed.group(1))
+    64	    return Question(
+    65	        directory=directory,
+    66	        id=str(front["id"]),
+    67	        status=Status(str(front["status"])),
+    68	        persona=str(front["persona"]),
+    69	        question=str(front["question"]),
+    70	        dimensions=tuple(str(d) for d in front["dimensions"]),
+    71	        defines=tuple(str(d) for d in front["defines"]),
+    72	        staged_sql=(directory / STAGED).read_text(),
+    73	        uss_sql=(directory / USS).read_text(),
+    74	        body=parsed.group(2),
+    75	    )
+    76	
+    77	
+    78	def read_questions(root: Path) -> tuple[Question, ...]:
+    79	    return tuple(
+    80	        read_question(directory)
+    81	        for directory in sorted(root.iterdir())
+    82	        if (directory / "question.md").is_file()
+    83	    )
+    84	
+    85	
+    86	def check_question(question: Question, defined: dict[str, str]) -> None:
+    87	    """Refuse a question that cannot be answered, or answered honestly."""
+    88	    for token in question.tokens:
+    89	        if token not in defined:
+    90	            raise QuestionError(
+    91	                f"{question.id}: {{{{{token}}}}} resolves to nothing. A question references "
+    92	                f"definitions and never restates one, so a token with no definition behind "
+    93	                f"it is a gap in the model -- fill it there first."
+    94	            )
+    95	    missing = [name for name in question.defines if name not in defined]
+    96	    if missing:
+    97	        raise QuestionError(f"{question.id}: declares {missing}, which nothing defines")
+    98	
+    99	    control = without_comments(question.staged_sql).lower()
+   100	    for forbidden in ("dab.", "dab__", "dar__uss"):
+   101	        if forbidden in control:
+   102	            raise QuestionError(
+   103	                f"{question.id}: the control query mentions {forbidden!r}. It must compute "
+   104	                f"the answer independently, or agreement between the two proves nothing."
+   105	            )
+   106	    if "das__staged." not in control or "__current" not in control:
+   107	        raise QuestionError(
+   108	            f"{question.id}: the control query must read a das__staged __current view. "
+   109	            f"Reading the raw layer or the lake skips the contract's casts, which is what "
+   110	            f"makes agreement mean anything."
+   111	        )
+   112	
+   113	    answer = without_comments(question.uss_sql).lower()
+   114	    if "dar__uss" not in answer:
+   115	        raise QuestionError(f"{question.id}: the answer query does not read the star schema")
+   116	    for forbidden in ("das__", "dab.", "dab__", "read_parquet"):
+   117	        if forbidden in answer:
+   118	            raise QuestionError(
+   119	                f"{question.id}: the answer query mentions {forbidden!r}. A destination reads "
+   120	                f"the star schema and nothing else -- the page runs this query verbatim, so a "
+   121	                f"reach past it would render, pass, and be exactly the invisible dependency "
+   122	                f"the flow rules exist to prevent."
+   123	            )
+   124	
+   125	    for body, side in ((control, "control"), (answer, "answer")):
+   126	        if "order by" not in body:
+   127	            raise QuestionError(
+   128	                f"{question.id}: the {side} query has no ORDER BY. The two answers are "
+   129	                f"compared row by row, so without one an identical pair can differ by the "
+   130	                f"order the engine happened to return, and someone goes looking for a data "
+   131	                f"bug that is not there."
+   132	            )
+   133	
+   134	    # Only the answer query. The control expresses the same dimension in the source's own
+   135	    # words -- that difference is what makes it independent rather than a transcription.
+   136	    for dimension in question.dimensions:
+   137	        if dimension.rsplit(".", 1)[-1].lower() not in answer:
+   138	            raise QuestionError(
+   139	                f"{question.id}: declares the dimension {dimension!r}, which the answer query "
+   140	                f"does not mention. The front matter is what a reader trusts."
+   141	            )

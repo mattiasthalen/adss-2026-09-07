@@ -1,0 +1,498 @@
+{
+ "slug": "daana-cli-0-7-0-release",
+ "title": "daana-cli 0.7.0: foundation rework, ~2\u00d7 faster, full-refresh, M:N relationships and more!",
+ "thesis": "A release post for daana-cli 0.7.0, framed as a \"foundation rework\" of the DAB engine. It removes the local Postgres sidecar so everything runs inside a single Go binary, moves batch lifecycle tracking from local CSV files into a warehouse `batch_history` table, adds `--full-refresh` scoped to workflow/entity/attribute, relaxes YAML naming to any casing while lowercasing all framework-generated columns and table suffixes, and rewrites many-to-many relationship views from pair-oriented to set-oriented. Several of these are breaking changes to the exact contract a DAR layer reads: lowercase framework columns, set-semantics on `view_<source>_has_<target>`, value-run compaction on `view_<entity>_hist`, and BigQuery partitioning/clustering tuned for a `WHERE ver_tmstp > last_run_tmstp` incremental DAR build. The post explicitly endorses the DAS \u2192 DAB \u2192 DAR three-layer setup as the thing that keeps a DAB rebuild from being visible to BI.",
+ "relevance": "high",
+ "mandates": [
+  {
+   "claim": "The post names the recommended architecture as a three-layer setup, DAS \u2192 DAB \u2192 DAR, and says that under it only the DAB layer rebuilds during the 10-15 minute drop-and-redeploy, with DAR and downstream BI consumers noticing nothing as long as the rebuild completes within their refresh interval; 'If you query DAB directly from BI, plan a window accordingly.'",
+   "layer": "cross-cutting",
+   "implication": "DAR must be a materialized layer that survives a DAB drop-and-redeploy, and BI must be pointed at DAR, not at DAB tables/views. Pointing BI at DAB forfeits the no-downtime property and forces a scheduled maintenance window. DAR refresh interval must be longer than ~15 minutes for the rebuild to be invisible."
+  },
+  {
+   "claim": "All Daana-generated column names (`eff_tmstp`, `ver_tmstp`, `type_key`, `data_key`, `inst_key`, `row_st`, `inst_row_key`, `popln_tmstp`) and table suffixes (`_idfr`, `_desc`, `_x`) now use lowercase. This is called out as a breaking change for downstream consumers.",
+   "layer": "DAR",
+   "implication": "Every generated USS/DAR query, view, and column reference must address framework columns and suffixes in lowercase. Any DAR generator template carrying UPPERCASE framework names must be audited and updated before redeploying."
+  },
+  {
+   "claim": "On BigQuery, `_desc` and `_x` tables are partitioned via `PARTITION BY RANGE_BUCKET(type_key, ...)` and cluster keys are restructured to favor `ver_tmstp` (system load time) over `eff_tmstp` (business time). The post states this 'enables incremental DAR / data-mart builds via the `WHERE ver_tmstp > last_run_tmstp` pattern as a clustered range scan.'",
+   "layer": "DAR",
+   "implication": "The DAR incremental build predicate should be `WHERE ver_tmstp > last_run_tmstp`, not a predicate on `eff_tmstp`. Filtering DAR increments on business time defeats the clustering and scans more bytes. The DAR layer must persist a `last_run_tmstp` watermark of its own."
+  },
+  {
+   "claim": "`view_<source>_has_<target>` now returns the active member set per source entity at the latest effective timestamp. The previous pair-oriented partitioning returned one row per source/target pair; the new partitioning ties all members of the latest set together so the view returns them as one set. Customers running INCREMENTAL pipelines on M:N relationships may see different row counts than before, and the new counts are the correct ones.",
+   "layer": "DAR",
+   "implication": "DAR bridge tables built from `view_<source>_has_<target>` get set semantics, not pair semantics. Any DAR row-count reconciliation or test baseline taken from a pre-0.7.0 build is invalid. Do not assume one row per source/target pair."
+  },
+  {
+   "claim": "Under INCREMENTAL, relationship pipelines no longer write `row_st = 'N'` rows for set transitions; set membership changes are detected by the set-oriented view at query time rather than by row-level closer/opener emission. FULL_LOG continues to soft-delete rows for source-row disappearance.",
+   "layer": "DAR",
+   "implication": "DAR logic must not detect relationship membership changes by reading `row_st = 'N'` rows out of `_x` tables under INCREMENTAL \u2014 those rows are no longer emitted. Read the set-oriented view instead. The behavior differs between INCREMENTAL and FULL_LOG, so the DAR generator cannot assume one uniform relationship-change mechanism."
+  },
+  {
+   "claim": "`view_<entity>_hist` returns one row per value-run: entity history views apply gaps-and-islands compaction, consecutive observations of the same attribute tuple collapse into one row anchored at the earliest observed effective timestamp for that value-run. `COUNT(*)`, `AVG`, and `SUM` over the view now treat each value-state as one observation rather than each ingest event. 'Audit consumers that need every observation should query `<entity>_desc` directly.'",
+   "layer": "DAR",
+   "implication": "Choose the DAR source per use case: `view_<entity>_hist` for value-state analytics (SCD-style change history), `<entity>_desc` for audit/ingest-event-level grain. Aggregates over `_hist` count value-states, not ingests \u2014 a DAR fact built on `_hist` cannot answer 'how many times was this loaded'."
+  },
+  {
+   "claim": "`--full-refresh` operates at three scopes: full workflow (`daana-cli execute --full-refresh`), a single entity (`--entity X`), or one attribute (`--attribute Y`). '`--entity` requires `--full-refresh`. `--attribute` requires `--entity`. Names are validated via the same SSOT used by the linter.'",
+   "layer": "tooling",
+   "implication": "Operational runbooks can rebuild a slice without dropping the DWH. The flag dependency chain is strict \u2014 `--entity` alone or `--attribute` alone is invalid. Entity/attribute names passed on the CLI must match the model SSOT the linter uses."
+  },
+  {
+   "claim": "Entity IDs, workflow IDs, attribute names, and relationship names accept any casing (lowercase, UPPERCASE, Mixed_Case, mixedCase); the checker and compiler previously enforced UPPER_SNAKE_CASE. 'Names must still be valid SQL identifiers: letters, digits, underscores. Hyphens are no longer accepted.' Model YAML names are preserved exactly as written; cross-reference lookups are case-insensitive at compile time; compiled output uses the model's canonical casing.",
+   "layer": "DAB",
+   "implication": "Names in DAB YAML may use any house casing convention, but hyphens are forbidden and only letters/digits/underscores are legal. Cross-references between YAML files need not match casing. The DAR generator must read the model's canonical casing (as written in YAML) to predict compiled object names \u2014 it cannot assume UPPER_SNAKE_CASE."
+  },
+  {
+   "claim": "The lint warnings `entity-name-casing`, `attribute-type-casing`, and `relationship-name-casing` were removed.",
+   "layer": "process",
+   "implication": "The linter no longer enforces a naming-casing house style. Any casing convention for the DAB model must be enforced by team convention or external CI checks, not by daana-cli."
+  },
+  {
+   "claim": "Everything now runs inside the Go binary itself. The local Postgres sidecar is gone \u2014 no external database, no Docker port, no second process. `install` no longer has a `local` subcommand (`install remote` is now just `install`), `daana-cli reset` is gone, and the legacy execution-mode flag is gone; the in-process path is the only path.",
+   "layer": "tooling",
+   "implication": "Provisioning for the DAB layer is a single executable \u2014 no Docker sidecar, no port allocation, no local database service in CI. Any scripts calling `install local`, `install remote`, `daana-cli reset`, or the execution-mode flag must be rewritten."
+  },
+  {
+   "claim": "Every pipeline execution is tracked in a `batch_history` table in the warehouse with a status lifecycle `Running` \u2192 `Complete` / `Failed`. 'Failed pipelines don't advance the watermark.' Stale runs from crashes are auto-recovered via DW reconciliation. The old local CSV batch tracking (`~/.daana/batch/`) is replaced by this, and it works from CI/CD, containers, and across team members.",
+   "layer": "DAB",
+   "implication": "Batch state is warehouse-resident, so the same DAB workflow can be executed from a laptop, CI/CD, or a teammate's machine without transferring local state. Do not depend on or migrate `~/.daana/batch/`. Watermark advancement is safe on failure \u2014 a failed run does not silently skip data."
+  },
+  {
+   "claim": "`--force` on execute overrides stale run detection when a previous execution appears stuck from a crash, and `batch_stale_timeout` in workflow advanced settings is a configurable timeout (default 8h) for stale run detection; pipelines running longer than this are auto-recovered on the next execution.",
+   "layer": "DAB",
+   "implication": "Long-running DAB workflows need `batch_stale_timeout` tuned above their real runtime or they will be auto-recovered mid-flight. CI orchestration needs a documented `--force` escape hatch for crashed runs."
+  },
+  {
+   "claim": "Per-table `batch_expression` in mapping YAML overrides the workflow-level batch expression on individual tables when source tables use different timestamp columns or require custom SQL.",
+   "layer": "DAS",
+   "implication": "A dlt-landed DAS schema with heterogeneous load/update timestamp columns per table does not need one uniform column \u2014 set `batch_expression` per mapping table. But it must be set per table wherever the DAS timestamp column diverges from the workflow default."
+  },
+  {
+   "claim": "DATE source columns no longer fail batch filtering: the generated filter casts the column to `TIMESTAMP` and wraps batch values in `TIMESTAMP()`. Cross-project `batch_expression` validation now runs correctly when the source project differs from the target project.",
+   "layer": "DAS",
+   "implication": "DAS landing tables may expose DATE-typed batch columns without a pre-cast, and on BigQuery the DAS project may differ from the DAB target project."
+  },
+  {
+   "claim": "Relationship-only mapping tables are now supported \u2014 mapping tables can declare relationships without any attributes; previously such tables were rejected with an empty-attributes validation error.",
+   "layer": "DAS",
+   "implication": "dlt-generated junction/child tables that carry only foreign keys can be mapped directly as pure relationship sources, with no synthetic attribute needed to satisfy validation."
+  },
+  {
+   "claim": "A new `TypeTextDDL` atom provides unlimited-length string columns, mapping to `text` (PostgreSQL), `STRING` (BigQuery / Snowflake), `CLOB` (Oracle), `VARCHAR(MAX)` (MSSQL). 'Use for free-text fields where a fixed length is impractical.'",
+   "layer": "DAB",
+   "implication": "Free-text DAS columns (JSON blobs, descriptions, notes landed by dlt) map to `TypeTextDDL` rather than an arbitrarily large fixed-length type."
+  },
+  {
+   "claim": "MSSQL and Oracle dialects fail fast with a clear 'not yet supported' error at config load, factory time, preflight, and every other entry point; previously they fell through silently to the PostgreSQL executor, producing wrong-syntax SQL and unpredictable corruption. They remain in the connection-profile schema under a `PlannedDialects` list so profiles can be authored in advance. Tested environments are latest PostgreSQL and current GCP-default BigQuery.",
+   "layer": "cross-cutting",
+   "implication": "Target warehouse for a DAB/DAR build must be PostgreSQL or BigQuery. MSSQL/Oracle connection profiles can be written now but will not run. Snowflake appears in the type mapping and truncate handling but is not listed among tested environments."
+  },
+  {
+   "claim": "Existing BigQuery customers should drop and redeploy their data warehouse to benefit from the partitioning changes; PostgreSQL is unchanged. The upgrade from any pre-0.7.0 build is a standard drop-and-redeploy: update the binary/image, drop the metadata schema and the data warehouse schema, then `daana-cli install` \u2192 `daana-cli deploy` \u2192 `daana-cli execute`, taking roughly 10-15 minutes for a full DWH, and 'Runs are idempotent.'",
+   "layer": "process",
+   "implication": "The DAB bootstrap/redeploy sequence is exactly install \u2192 deploy \u2192 execute against an empty metadata schema and empty DWH schema. Automation can safely re-run it. BigQuery deployments must be rebuilt to pick up partitioning; PostgreSQL deployments need not be for that reason."
+  },
+  {
+   "claim": "'State preservation: drop-and-redeploy doesn't touch your YAML. Models, mappings, workflows, connection profiles - the source of truth lives in your version-controlled YAML, and the new build regenerates everything from it.'",
+   "layer": "process",
+   "implication": "All DAB definitions \u2014 models, mappings, workflows, connection profiles \u2014 must live in version-controlled YAML; the warehouse holds no authoritative state that a rebuild would lose. Nothing may be hand-edited in the warehouse."
+  },
+  {
+   "claim": "The deploy sequence is now 5 phases: Staging DDL \u2192 Entity DDL \u2192 Populate metadata staging \u2192 Execute metadata pipeline \u2192 Function DDL. Function DDL runs last so semantic views embed `type_key` values read from the metadata tables rather than sequential counters.",
+   "layer": "DAB",
+   "implication": "`type_key` values are derived from metadata tables at deploy time, not from a stable sequential counter. DAR must not hardcode `type_key` literals or assume they are stable across deploys \u2014 read them from the metadata tables or the semantic views."
+  },
+  {
+   "claim": "Entity key columns in metadata tables widened to `VARCHAR(256)` (previously `BIGINT`); `type_key`, `data_key`, `inst_key`, and the batch-lifecycle keys remain `BIGINT`. See ADR-109 for the rationale.",
+   "layer": "DAB",
+   "implication": "DAR join/column typing must treat entity key columns as VARCHAR(256) strings and the four listed keys as BIGINT. Any DAR schema that declared entity keys as integers must change."
+  },
+  {
+   "claim": "Pre-DAANA-97 binaries silently broke INCREMENTAL relationship processing on any model change after deploy; customers who previously ran `deploy` without a clean install may have orphan relationships in their `_x` tables, with the symptom 'data looks fine, but relationships don't update.' `daana-cli execute --full-refresh --entity X` per affected entity is the less invasive recovery path if you want to avoid a full drop-and-redeploy.",
+   "layer": "process",
+   "implication": "A `deploy` after a model change is not sufficient on pre-0.7.0 builds; on 0.7.0, orphan `_x` rows have a documented per-entity recovery. Relationship staleness is a real failure mode to test for, not a theoretical one."
+  },
+  {
+   "claim": "The engine validates generated index / table / schema names against PostgreSQL's 63-character limit, with a clear error and suggested fix. The test harness auto-discovers source schemas, so typos in mapping `source_table` references are caught with a validation error showing the closest match.",
+   "layer": "DAB",
+   "implication": "Entity/attribute naming must stay short enough that generated index/table/schema names fit in 63 characters on PostgreSQL. `source_table` values are validated against the real DAS schema, so DAS must be reachable/discoverable at validation time."
+  },
+  {
+   "claim": "Parallel workers default was raised from 4 to 8, the metadata pipeline now runs in parallel across those 8 workers (metadata loading on BigQuery is 3-4\u00d7 faster), and PROCINST key caching eliminates roughly 10 minutes of redundant pipeline-SQL regeneration per execute on BigQuery.",
+   "layer": "tooling",
+   "implication": "Default concurrency against the target warehouse is 8 workers \u2014 size warehouse connection limits / BigQuery slot expectations accordingly."
+  },
+  {
+   "claim": "Late-arrival rows for TYPE_TABLE attributes are now captured at their own effective time; previously late arrivals could be silently dropped because the truedelta compared the earliest source row against the target's chronologically-latest row regardless of timestamp, and rows with matching values were marked NOCHANGE and never inserted. INCREMENTAL truedelta is aligned with FULL_LOG for exact-tuple modeling, and within-batch transitions now emit historical rows correctly.",
+   "layer": "DAB",
+   "implication": "A DAS source that can deliver out-of-order/late rows (a common dlt reality) is now handled under INCREMENTAL for TYPE_TABLE attributes. Row counts in history for such sources will legitimately differ from pre-0.7.0 baselines."
+  },
+  {
+   "claim": "Dialect-aware `TRUNCATE TABLE`: BigQuery and Snowflake get per-table truncate statements; PostgreSQL keeps multi-table truncate.",
+   "layer": "tooling",
+   "implication": "No action for model authors, but any custom teardown tooling written alongside DAB must not issue PostgreSQL-style multi-table TRUNCATE against BigQuery/Snowflake."
+  },
+  {
+   "claim": "Transient BigQuery errors are retried via a new `bqretry` SSOT package; `jobBackendError` and `jobInternalError` are classified as transient and retried with exponential backoff across executors, metadata read, preflight, query, table-exists, and storage-write API paths.",
+   "layer": "tooling",
+   "implication": "BigQuery transient-error retry is handled inside daana-cli for those two error classes \u2014 do not layer an outer retry loop that would duplicate work; orchestration retries should target hard failures only."
+  }
+ ],
+ "artifacts": [
+  {
+   "name": "daana-cli install",
+   "kind": "cli-command",
+   "detail": "Was `install remote`; `install remote` is now just `install`. The `local` subcommand no longer exists. First step of the migration sequence."
+  },
+  {
+   "name": "daana-cli deploy",
+   "kind": "cli-command",
+   "detail": "Second step of migration sequence: `daana-cli install` \u2192 `daana-cli deploy` \u2192 `daana-cli execute`. Now a 5-phase sequence (see deploy phases artifact)."
+  },
+  {
+   "name": "daana-cli execute",
+   "kind": "cli-command",
+   "detail": "Third step of migration sequence. Runs pipelines; tracked in `batch_history`."
+  },
+  {
+   "name": "daana-cli reset",
+   "kind": "cli-command",
+   "detail": "REMOVED. \"It only ever existed to reset the sidecar.\""
+  },
+  {
+   "name": "daana-cli execute --full-refresh",
+   "kind": "cli-command",
+   "detail": "\"# Rebuild the entire workflow\" \u2014 rebuilds the full workflow from scratch. Same semantic as dbt's and Dataform's `--full-refresh`."
+  },
+  {
+   "name": "daana-cli execute --full-refresh --entity CUSTOMER",
+   "kind": "cli-command",
+   "detail": "\"# Rebuild a single entity\" \u2014 verbatim example from the post."
+  },
+  {
+   "name": "daana-cli execute --full-refresh --entity CUSTOMER --attribute customer_email",
+   "kind": "cli-command",
+   "detail": "\"# Rebuild a single attribute on an entity\" \u2014 verbatim example from the post."
+  },
+  {
+   "name": "--entity",
+   "kind": "cli-flag",
+   "detail": "Scopes `--full-refresh` to one entity. \"`--entity` requires `--full-refresh`.\" Names validated via the same SSOT used by the linter."
+  },
+  {
+   "name": "--attribute",
+   "kind": "cli-flag",
+   "detail": "Scopes `--full-refresh` to one attribute. \"`--attribute` requires `--entity`.\" Names validated via the same SSOT used by the linter."
+  },
+  {
+   "name": "--force",
+   "kind": "cli-flag",
+   "detail": "On `execute`. Overrides stale run detection when a previous execution appears stuck from a crash."
+  },
+  {
+   "name": "legacy execution-mode flag",
+   "kind": "cli-flag",
+   "detail": "REMOVED. \"the in-process path is now the only path.\""
+  },
+  {
+   "name": "daana-cli execute --full-refresh --entity X",
+   "kind": "cli-command",
+   "detail": "Documented recovery path for orphan relationships in `_x` tables (symptom: \"data looks fine, but relationships don't update\"), run per affected entity, \"the less invasive recovery path if you want to avoid a full drop-and-redeploy.\""
+  },
+  {
+   "name": "eff_tmstp",
+   "kind": "column",
+   "detail": "Framework-generated column, now lowercase. Business time / effective timestamp. No longer favored in BigQuery cluster keys."
+  },
+  {
+   "name": "ver_tmstp",
+   "kind": "column",
+   "detail": "Framework-generated column, now lowercase. System load time. Now favored in BigQuery cluster keys; basis of the incremental DAR predicate."
+  },
+  {
+   "name": "type_key",
+   "kind": "column",
+   "detail": "Framework-generated column, now lowercase. Remains `BIGINT` in metadata tables. BigQuery `_desc`/`_x` partition key via RANGE_BUCKET. Embedded into semantic views by Function DDL, read from metadata tables rather than sequential counters."
+  },
+  {
+   "name": "data_key",
+   "kind": "column",
+   "detail": "Framework-generated column, now lowercase. Remains `BIGINT` in metadata tables."
+  },
+  {
+   "name": "inst_key",
+   "kind": "column",
+   "detail": "Framework-generated column, now lowercase. Remains `BIGINT` in metadata tables."
+  },
+  {
+   "name": "row_st",
+   "kind": "column",
+   "detail": "Framework-generated column, now lowercase. Row status. `row_st = 'N'` rows are no longer written for set transitions under INCREMENTAL relationship pipelines."
+  },
+  {
+   "name": "inst_row_key",
+   "kind": "column",
+   "detail": "Framework-generated column, now lowercase."
+  },
+  {
+   "name": "popln_tmstp",
+   "kind": "column",
+   "detail": "Framework-generated column, now lowercase."
+  },
+  {
+   "name": "_idfr",
+   "kind": "table-suffix",
+   "detail": "Framework table suffix, now lowercase."
+  },
+  {
+   "name": "_desc",
+   "kind": "table-suffix",
+   "detail": "Framework table suffix, now lowercase. On BigQuery now partitioned via `PARTITION BY RANGE_BUCKET(type_key, ...)`. `<entity>_desc` is the audit-grain table to query when every observation is needed."
+  },
+  {
+   "name": "_x",
+   "kind": "table-suffix",
+   "detail": "Framework table suffix, now lowercase. Relationship (cross) tables. On BigQuery now partitioned via `PARTITION BY RANGE_BUCKET(type_key, ...)`. Can hold orphan relationships from pre-DAANA-97 deploys."
+  },
+  {
+   "name": "view_<source>_has_<target>",
+   "kind": "view",
+   "detail": "Relationship view. \"now returns the active member set per source entity at the latest effective timestamp.\" Set-oriented partitioning replaced pair-oriented; previously one row per source/target pair, now all members of the latest set tied together and returned as one set."
+  },
+  {
+   "name": "view_<entity>_hist",
+   "kind": "view",
+   "detail": "Entity history view. \"returns one row per value-run\" via gaps-and-islands compaction; consecutive observations of the same attribute tuple collapse into one row anchored at the earliest observed effective timestamp for that value-run."
+  },
+  {
+   "name": "<entity>_desc",
+   "kind": "table",
+   "detail": "Queried directly by \"Audit consumers that need every observation\" \u2014 the per-ingest-event grain, as opposed to the compacted `view_<entity>_hist`."
+  },
+  {
+   "name": "batch_history",
+   "kind": "table",
+   "detail": "Warehouse table tracking every pipeline execution with status lifecycle `Running` \u2192 `Complete` / `Failed`. Replaces the old local CSV batch tracking. Works from CI/CD, containers, and across team members."
+  },
+  {
+   "name": "Running / Complete / Failed",
+   "kind": "status-value",
+   "detail": "The `batch_history` status lifecycle: `Running` \u2192 `Complete` / `Failed`. Failed pipelines don't advance the watermark."
+  },
+  {
+   "name": "~/.daana/batch/",
+   "kind": "path",
+   "detail": "Old local CSV batch tracking directory. REPLACED by the `batch_history` table."
+  },
+  {
+   "name": "batch_expression",
+   "kind": "yaml-key",
+   "detail": "Exists at workflow level; 0.7.0 adds \"Per-table `batch_expression` in mapping YAML\" to \"override the workflow-level batch expression on individual tables when source tables use different timestamp columns or require custom SQL.\" Cross-project validation now runs correctly when the source project differs from the target project."
+  },
+  {
+   "name": "batch_stale_timeout",
+   "kind": "yaml-key",
+   "detail": "\"in workflow advanced settings - configurable timeout (default 8h) for stale run detection. Pipelines running longer than this are auto-recovered on the next execution.\""
+  },
+  {
+   "name": "source_table",
+   "kind": "yaml-key",
+   "detail": "Mapping YAML key referencing a source table. Test harness auto-discovers source schemas; typos are \"caught with a validation error showing the closest match.\""
+  },
+  {
+   "name": "PlannedDialects",
+   "kind": "config",
+   "detail": "List in the connection-profile schema holding MSSQL and Oracle \"so profiles can be authored in advance.\" Those dialects fail fast at runtime with a clear \"not yet supported\" error."
+  },
+  {
+   "name": "TypeTextDDL",
+   "kind": "type-mapping",
+   "detail": "New atom for unlimited-length string columns. Maps to `text` (PostgreSQL), `STRING` (BigQuery / Snowflake), `CLOB` (Oracle), `VARCHAR(MAX)` (MSSQL). \"Use for free-text fields where a fixed length is impractical.\""
+  },
+  {
+   "name": "PARTITION BY RANGE_BUCKET(type_key, ...)",
+   "kind": "sql-construct",
+   "detail": "BigQuery partitioning now applied to `_desc` and `_x` tables. Verbatim from the post."
+  },
+  {
+   "name": "WHERE ver_tmstp > last_run_tmstp",
+   "kind": "sql-construct",
+   "detail": "The pattern the post names for \"incremental DAR / data-mart builds\", executing \"as a clustered range scan\" because cluster keys now favor `ver_tmstp` over `eff_tmstp`."
+  },
+  {
+   "name": "row_st = 'N'",
+   "kind": "sql-construct",
+   "detail": "No longer written by INCREMENTAL relationship pipelines for set transitions. FULL_LOG continues to soft-delete rows for source-row disappearance."
+  },
+  {
+   "name": "COUNT(*), AVG, SUM",
+   "kind": "sql-construct",
+   "detail": "Over `view_<entity>_hist` these \"now treat each value-state as one observation rather than each ingest event.\""
+  },
+  {
+   "name": "TRUNCATE TABLE",
+   "kind": "sql-construct",
+   "detail": "Now dialect-aware: BigQuery and Snowflake get per-table truncate statements; PostgreSQL keeps multi-table truncate."
+  },
+  {
+   "name": "TIMESTAMP() / CAST to TIMESTAMP",
+   "kind": "sql-construct",
+   "detail": "For DATE source columns, \"The generated filter casts the column to `TIMESTAMP` and wraps batch values in `TIMESTAMP()`.\""
+  },
+  {
+   "name": "VARCHAR(256)",
+   "kind": "type-mapping",
+   "detail": "Entity key columns in metadata tables widened to `VARCHAR(256)` (previously `BIGINT`). See ADR-109."
+  },
+  {
+   "name": "BIGINT",
+   "kind": "type-mapping",
+   "detail": "`type_key`, `data_key`, `inst_key`, and the batch-lifecycle keys remain `BIGINT` in metadata tables."
+  },
+  {
+   "name": "Staging DDL \u2192 Entity DDL \u2192 Populate metadata staging \u2192 Execute metadata pipeline \u2192 Function DDL",
+   "kind": "deploy-phase",
+   "detail": "\"The deploy sequence is now 5 phases\". \"Function DDL runs last so semantic views embed `type_key` values read from the metadata tables rather than sequential counters.\""
+  },
+  {
+   "name": "entity-name-casing",
+   "kind": "lint-rule",
+   "detail": "REMOVED lint warning."
+  },
+  {
+   "name": "attribute-type-casing",
+   "kind": "lint-rule",
+   "detail": "REMOVED lint warning."
+  },
+  {
+   "name": "relationship-name-casing",
+   "kind": "lint-rule",
+   "detail": "REMOVED lint warning."
+  },
+  {
+   "name": "letters, digits, underscores",
+   "kind": "naming-rule",
+   "detail": "\"Names must still be valid SQL identifiers: letters, digits, underscores. Hyphens are no longer accepted.\" Applies to entity IDs, workflow IDs, attribute names, relationship names."
+  },
+  {
+   "name": "lowercase, UPPERCASE, Mixed_Case, mixedCase",
+   "kind": "naming-rule",
+   "detail": "All four casings now accepted for entity IDs, workflow IDs, attribute names, and relationship names (previously UPPER_SNAKE_CASE was enforced). \"Model YAML names are preserved exactly as written; cross-reference lookups are case-insensitive at compile time; compiled output uses the model's canonical casing.\" \"Framework-generated columns standardize to lowercase.\""
+  },
+  {
+   "name": "63-character limit",
+   "kind": "identifier-limit",
+   "detail": "\"PostgreSQL identifier length guard - the engine validates generated index / table / schema names against PostgreSQL's 63-character limit, with a clear error and suggested fix.\""
+  },
+  {
+   "name": "bqretry",
+   "kind": "package",
+   "detail": "New SSOT package. Classifies `jobBackendError` and `jobInternalError` as transient and retries with exponential backoff \"across executors, metadata read, preflight, query, table-exists, and storage-write API paths.\""
+  },
+  {
+   "name": "jobBackendError",
+   "kind": "error-class",
+   "detail": "BigQuery error classified as transient and retried by `bqretry`."
+  },
+  {
+   "name": "jobInternalError",
+   "kind": "error-class",
+   "detail": "BigQuery error classified as transient and retried by `bqretry`."
+  },
+  {
+   "name": "INCREMENTAL",
+   "kind": "ingestion-strategy",
+   "detail": "Ingestion strategy. Relationship pipelines under it use forward-only emission (no `row_st = 'N'` for set transitions). Truedelta now aligned with FULL_LOG for exact-tuple modeling; within-batch transitions emit historical rows correctly. Late-arrival TYPE_TABLE rows captured at their own effective time."
+  },
+  {
+   "name": "FULL_LOG",
+   "kind": "ingestion-strategy",
+   "detail": "Ingestion strategy. \"continues to soft-delete rows for source-row disappearance.\" INCREMENTAL truedelta is now aligned with it."
+  },
+  {
+   "name": "TYPE_TABLE",
+   "kind": "attribute-kind",
+   "detail": "Attribute kind whose late-arrival rows \"are now captured at their own effective time\"; previously they could be silently dropped, marked NOCHANGE and never inserted."
+  },
+  {
+   "name": "NOCHANGE",
+   "kind": "internal-state",
+   "detail": "State that previously caused late-arriving rows with matching values to be dropped."
+  },
+  {
+   "name": "truedelta",
+   "kind": "internal-mechanism",
+   "detail": "The change-detection mechanism; previously \"compared the earliest source row against the target's chronologically-latest row regardless of timestamp.\" Now aligned between INCREMENTAL and FULL_LOG."
+  },
+  {
+   "name": "PROCINST key caching",
+   "kind": "internal-mechanism",
+   "detail": "\"Eliminates roughly 10 minutes of redundant pipeline-SQL regeneration per execute on BigQuery.\""
+  },
+  {
+   "name": "M:N X-table reader",
+   "kind": "internal-mechanism",
+   "detail": "\"rewritten with fingerprint-based set-change detection.\""
+  },
+  {
+   "name": "parallel workers = 8",
+   "kind": "config",
+   "detail": "\"Parallel workers default raised from 4 to 8.\" Metadata pipeline now runs across the 8 workers; metadata loading on BigQuery is 3-4\u00d7 faster."
+  },
+  {
+   "name": "DAS \u2192 DAB \u2192 DAR",
+   "kind": "layer",
+   "detail": "\"the recommended three-layer setup\". \"only the DAB layer rebuilds during the 10-15 minutes. DAR and downstream BI consumers don't notice anything as long as the rebuild completes within their refresh interval.\""
+  },
+  {
+   "name": "DAANA-97",
+   "kind": "tracking-id",
+   "detail": "Metadata pipeline redesign. \"Pre-DAANA-97 binaries silently broke INCREMENTAL relationship processing on any model change after deploy.\""
+  },
+  {
+   "name": "DAANA-131",
+   "kind": "tracking-id",
+   "detail": "Tracks the three INCREMENTAL correctness fixes: late arrivals, history views, M:N."
+  },
+  {
+   "name": "ADR-109",
+   "kind": "tracking-id",
+   "detail": "Rationale for widening entity key columns in metadata tables to `VARCHAR(256)`."
+  },
+  {
+   "name": "docs.daana.dev",
+   "kind": "doc-site",
+   "detail": "Rebuilt in 0.7.0: local search, redesigned tutorial flow, new pages on advanced mapping patterns, expanded glossary, unified brand presentation; CI validates link integrity on every prebuild."
+  },
+  {
+   "name": "drop the metadata schema and the data warehouse schema",
+   "kind": "migration-step",
+   "detail": "Migration sequence: update the daana-cli image / binary; drop the metadata schema and the data warehouse schema; `daana-cli install` \u2192 `daana-cli deploy` \u2192 `daana-cli execute`. \"roughly 10-15 minutes for a full DWH. Runs are idempotent.\""
+  }
+ ],
+ "quotes": [
+  "With the recommended three-layer setup (DAS \u2192 DAB \u2192 DAR), only the DAB layer rebuilds during the 10-15 minutes. DAR and downstream BI consumers don't notice anything as long as the rebuild completes within their refresh interval. If you query DAB directly from BI, plan a window accordingly.",
+  "This reduces bytes scanned on analytical queries and enables incremental DAR / data-mart builds via the `WHERE ver_tmstp > last_run_tmstp` pattern as a clustered range scan.",
+  "All Daana-generated column names (`eff_tmstp`, `ver_tmstp`, `type_key`, `data_key`, `inst_key`, `row_st`, `inst_row_key`, `popln_tmstp`) and table suffixes (`_idfr`, `_desc`, `_x`) now use lowercase, following modern SQL convention.",
+  "`view_<source>_has_<target>` now returns the active member set per source entity at the latest effective timestamp. The previous pair-oriented partitioning returned one row per source/target pair; the new partitioning ties all members of the latest set together so the view returns them as one set.",
+  "`COUNT(*)`, `AVG`, and `SUM` over the view now treat each value-state as one observation rather than each ingest event. Audit consumers that need every observation should query `<entity>_desc` directly.",
+  "Names must still be valid SQL identifiers: letters, digits, underscores. Hyphens are no longer accepted. Model YAML names are preserved exactly as written; cross-reference lookups are case-insensitive at compile time; compiled output uses the model's canonical casing.",
+  "`--entity` requires `--full-refresh`. `--attribute` requires `--entity`. Names are validated via the same SSOT used by the linter.",
+  "Every pipeline execution is now tracked in a `batch_history` table with a status lifecycle: `Running` \u2192 `Complete` / `Failed`. Failed pipelines don't advance the watermark."
+ ],
+ "openQuestions": [
+  "The post says the maintenance window \"depends on your architecture\" \u2014 you must decide whether BI reads DAR (invisible rebuild) or queries DAB directly (plan a window). It does not say how DAR should be materialized or refreshed to achieve this.",
+  "The linter no longer enforces UPPER_SNAKE_CASE and the three casing lint rules were removed, so a house naming convention for entity IDs, workflow IDs, attribute names and relationship names is now an open team choice (only constraint: letters, digits, underscores; no hyphens).",
+  "INCREMENTAL vs FULL_LOG is left as a per-pipeline choice, and the two now have materially different relationship semantics (forward-only emission with query-time set detection vs. soft-delete on source-row disappearance). The post does not say which to pick.",
+  "Whether DAR reads `view_<entity>_hist` (one row per value-run, compacted) or `<entity>_desc` (every observation) is an explicit consumer-side choice the post surfaces but does not decide.",
+  "Recovery from orphan relationships in `_x` tables is a stated choice between a full drop-and-redeploy and `daana-cli execute --full-refresh --entity X` per affected entity.",
+  "`batch_stale_timeout` defaults to 8h and is described as configurable in workflow advanced settings; the correct value for a given workflow's real runtime is left to the operator.",
+  "Per-table `batch_expression` overrides are offered for sources with different timestamp columns or custom SQL, but the post gives no rule for when a DAS source warrants an override versus using the workflow-level expression.",
+  "Snowflake's support level is unresolved: it appears in the `TypeTextDDL` mapping and in dialect-aware `TRUNCATE TABLE`, but the tested environments listed are only PostgreSQL and BigQuery, and only MSSQL/Oracle are named under `PlannedDialects`.",
+  "PostgreSQL's 63-character generated-identifier limit is enforced, but the post does not document how entity/attribute/relationship names compose into generated index/table/schema names, so a safe name-length budget must be determined empirically.",
+  "Nothing in the post describes DAR/Unified Star Schema generation itself \u2014 it only fixes the DAB read contract (lowercase framework columns, set-oriented relationship views, value-run history views, `ver_tmstp` clustering, VARCHAR(256) entity keys) that a DAR generator must consume.",
+  "`type_key` values are read from metadata tables at Function DDL time rather than being sequential counters; the post does not state whether those values are stable across redeploys, which matters if DAR persists them."
+ ]
+}

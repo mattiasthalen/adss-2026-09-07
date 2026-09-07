@@ -1,0 +1,406 @@
+
+======================================================================
+SPIKE SPIKE 1 — dlt landing a whole OData payload as one JSON column per record into append-only parquet, read back through DuckDB views (DAS layer: forgiving ingestion / strict unpacking) :: works-with-caveats
+======================================================================
+HEADLINE: A dlt resource with `columns={"payload": {"data_type": "json"}}` lands each source record as exactly one JSON column with zero child tables and zero column inference — but dlt silently renames the dataset `das__raw` to `das_raw` unless you pass `enable_dataset_name_normalization=False`, and DuckDB silently drops columns across an evolving parquet glob unless you pass `union_by_name => true`.
+
+VERSIONS: dlt 1.30.0 (installed as dlt[duckdb,filesystem,parquet]), duckdb 1.5.5 (Python package), pyarrow 25.0.1, fsspec 2026.7.0, s3fs 2026.7.0, requests 2.34.2, orjson 3.12.0, sqlglot 30.18.0, Python 3.11.15, uv 0.8.17
+
+FINDINGS:
+  [observed] `uv add "dlt[filesystem,duckdb,parquet]" duckdb` works with no system-wide install and no .dlt config directory needed. dlt 1.30.0, duckdb 1.5.5, pyarrow 25.0.1.
+      $ uv add "dlt[filesystem,duckdb,parquet]" duckdb
+       + fsspec==2026.7.0
+       + pyarrow==25.0.1
+       + s3fs==2026.7.0
+       ...
+      $ uv run python -c "import dlt, duckdb, pyarrow; ..."
+      dlt 1.30.0
+      duckdb 1.5.5
+      pyarrow 25.0.1
+      
+      $ ls -a   # after 5 successful pipeline runs
+      .  ..  .git  .gitignore  .python-version  .venv  README.md  _lake  _lake2  _lake3  ... pyproject.toml  uv.lock
+      $ ls -a .dlt
+      ls: cannot access '.dlt': No such file or directory
+  [observed] APPROACH B WINS: `@dlt.resource(columns={"payload": {"data_type": "json"}})` yielding a real dict under `payload` keeps the whole record in ONE column of dlt type `json`. No columns are inferred from inside it.
+      --- orders_b_jsonhint ---
+        payload                  json
+        _src_url                 text
+        _extracted_at            timestamp
+        _page_index              bigint
+        _dlt_load_id             text
+        _dlt_id                  text
+  [observed] Approach B survives NESTED objects and arrays with no child tables. A record containing {"Nested":{"a":1,"b":{"c":2}},"Arr":[{"x":1},{"x":2}]} produced no `probe_b_jsonhint__arr` table.
+      === TABLES CREATED === ['_dlt_loads', '_dlt_pipeline_state', '_dlt_version', 'probe_a_jsonstr', 'probe_b_jsonhint', 'probe_c_nest0']
+      --- probe_b_jsonhint --- {'payload': 'json', '_src_entity': 'text', '_dlt_load_id': 'text', '_dlt_id': 'text'}
+      
+      -- roundtrip from DuckDB:
+      SELECT payload ->> '$.Id' id, payload -> '$.Nested.b.c' deep, json_array_length(payload,'$.Arr') arrlen ...
+      │ 1  │ 2 │ 2 │ {"Id":1,"Nested":{"a":1,"b":{"c":2}},"Arr":[{"x":1},{"x":2}],"Only1":"present"} │
+      │ 2  │ 8 │ 0 │ {"Id":2,"Nested":{"a":9,"b":{"c":8}},"Arr":[],"NewFieldLater":true}             │
+  [observed] APPROACH A also works: pre-serialising with json.dumps() gives a `text` column that DuckDB's JSON operators read identically. It is physically indistinguishable from B in parquet.
+      --- orders_a_jsonstr ---
+        payload                  text
+      
+      -- parquet_schema() on both files:
+      ┌─────────┬─────────┬────────────┬────────────────┬──────────────┐
+      │    v    │  name   │    type    │ converted_type │ logical_type │
+      ├─────────┼─────────┼────────────┼────────────────┼──────────────┤
+      │ A       │ payload │ BYTE_ARRAY │ UTF8           │ StringType() │
+      │ B       │ payload │ BYTE_ARRAY │ UTF8           │ StringType() │
+      └─────────┴─────────┴────────────┴────────────────┴──────────────┘
+  [observed] APPROACH C FAILS the requirement: `max_table_nesting=0` does NOT stop normalisation. Top-level keys are still split into snake_cased typed columns; it only collapses NESTED values into json strings instead of child tables.
+      --- orders_c_nest0 ---
+        order_id                 bigint
+        customer_id              text
+        employee_id              bigint
+        order_date               text
+        freight                  double
+        ...
+        ship_region              text     <-- appended LAST: absent from first records, added by schema evolution
+      
+      --- probe_c_nest0 --- {'id': 'bigint', 'nested': 'json', 'arr': 'json', 'only1': 'text', '_dlt_load_id': 'text', '_dlt_id': 'text', 'new_field_later': 'bool'}
+  [observed] 120 real Northwind Orders records (2 pages x $top=60 with $skip) landed to local filesystem parquet. The API reports @odata.count=830 total.
+      $ curl ".../Orders?$count=true&$top=2"
+      {"@odata.context":"...#Orders","@odata.count":830,"value":[{"OrderId":10248,...}]}
+      
+      -- after two pipeline runs:
+      │    _dlt_load_id    │              das_run_id              │ rows  │ last_page │
+      │ 1788808160.6964235 │ 1a386e46-4045-4c94-b7ba-678677b9bce0 │   120 │         1 │
+      │ 1788808163.0261497 │ 9e119db3-9ba2-4693-ba71-91d520d39d3b │   120 │         1 │
+  [observed] Default filesystem layout is <bucket_url>/<dataset>/<table>/<load_id>.<file_id>.parquet — one parquet file per table per load, plus an `init` marker and three _dlt_* bookkeeping folders.
+      $ find _lake3 -type f | sort
+      _lake3/das__raw/_dlt_loads/das_ingest__1788808160.6964235.jsonl
+      _lake3/das__raw/_dlt_loads/das_ingest__1788808163.0261497.jsonl
+      _lake3/das__raw/_dlt_pipeline_state/das_ingest__1788808160.6964235__8a8996b9....jsonl
+      _lake3/das__raw/_dlt_version/das_ingest__1788808161.9497797__8a8996b9....jsonl
+      _lake3/das__raw/init
+      _lake3/das__raw/orders/1788808160.6964235.ec3a294455.parquet
+      _lake3/das__raw/orders/1788808163.0261497.091ef72a25.parquet
+  [observed] DESCRIBE of the landed parquet from DuckDB: payload is VARCHAR, dlt `timestamp` becomes TIMESTAMP WITH TIME ZONE, `bigint` becomes BIGINT.
+      $ DESCRIBE SELECT * FROM read_parquet('.../orders_a_jsonstr/*.parquet')
+      │ payload          │ VARCHAR                  │
+      │ _src_system      │ VARCHAR                  │
+      │ _src_entity      │ VARCHAR                  │
+      │ _src_url         │ VARCHAR                  │
+      │ _extracted_at    │ TIMESTAMP WITH TIME ZONE │
+      │ _page_index      │ BIGINT                   │
+      │ _src_total_count │ BIGINT                   │
+      │ _payload_hash    │ VARCHAR                  │
+      │ _dlt_load_id     │ VARCHAR                  │
+      │ _dlt_id          │ VARCHAR                  │
+  [observed] dlt adds EXACTLY TWO metadata columns to a root table: `_dlt_load_id` and `_dlt_id`. Nothing else. They are NOT sufficient for 'which load, from where, when'.
+      COLUMNS: {'payload': 'json', 'das_source_system': 'text', ..., '_dlt_load_id': 'text', '_dlt_id': 'text'}
+      TABLES: ['_dlt_loads', '_dlt_pipeline_state', '_dlt_version', 'orders']
+  [observed] `_dlt_load_id` is only a unix-timestamp-ish string; the load's completion time and schema name live in a SEPARATE `_dlt_loads/*.jsonl` file — written as JSONL even when loader_file_format='parquet'. It is joinable but requires read_json_auto.
+      $ cat _lake/das_raw/_dlt_loads/*.jsonl
+      {"load_id":"1788808038.4446907","schema_name":"das_raw","status":0,"inserted_at":"2026-09-07T19:07:20.149618+00:00","schema_version_hash":"3OHo10rOiRa8CBYFQqqjRWFXcZmSvrWoOxFEpo6LF7Y="}
+      
+      -- join works:
+      SELECT s._dlt_load_id, l.inserted_at, count(*) FROM das__staged.orders s
+      JOIN read_json_auto('_lake3/das__raw/_dlt_loads/*.jsonl') l ON l.load_id = s._dlt_load_id GROUP BY 1,2;
+      │ 1788808160.6964235 │ 2026-09-07 19:09:21.957398 │   120 │
+      │ 1788808163.0261497 │ 2026-09-07 19:09:24.2284   │   120 │
+  [observed] `_dlt_id` is a per-row-instance surrogate, NOT a stable record identity. The same source record (OrderId 10248) got a different _dlt_id in each load. Content identity must come from your own hash column.
+      │ 10248 │ VINET │ ... │ 1788808038.4446907 │ b6aVmzfAxRVPDA │
+      │ 10248 │ VINET │ ... │ 1788808057.5555441 │ z8O+0F4oaJbS5A │
+      
+      -- and the content hash IS stable:
+      │ all_rows │ distinct_orders │ loads │ distinct_payloads │
+      │      240 │             120 │     2 │               120 │
+  [observed] write_disposition='append' leaves earlier files intact. Two runs of the identical pipeline produced two parquet files per table and two rows in _dlt_loads; nothing was overwritten.
+      === LAYOUT AFTER LOAD 2 ===
+      _lake/das_raw/orders_a_jsonstr/1788808038.4446907.3b770a2868.parquet
+      _lake/das_raw/orders_a_jsonstr/1788808057.5555441.c5abc5e28f.parquet
+      _lake/das_raw/orders_b_jsonhint/1788808038.4446907.09359f6016.parquet
+      _lake/das_raw/orders_b_jsonhint/1788808057.5555441.5e83db8ab1.parquet
+      
+      ==================== LOADS PRESENT ====================
+      │ 1788808038.4446907 │    60 │ 2026-09-07 19:07:18.938984+00 │
+      │ 1788808057.5555441 │    60 │ 2026-09-07 19:07:38.061821+00 │
+  [observed] CRITICAL: dataset_name='das__raw' is silently normalised to 'das_raw' (double underscore collapsed). Passing enable_dataset_name_normalization=False on the destination preserves the literal 'das__raw' folder.
+      -- default:
+      |dlt|client.py|_normalize_identifier:364|Due to normalization dataset name got changed from 'das__raw' to 'das_raw which will be used to create db schemas or folders. ... We suggest that you use dataset names that do not need to be normalized or disable dataset name normalization via `enable_dataset_name_normalization` on destination configuration.
+      $ find _lake -type f | head -1
+      _lake/das_raw/_dlt_loads/das_raw__1788808038.4446907.jsonl
+      
+      -- with enable_dataset_name_normalization=False:
+      1 load package(s) were loaded to destination filesystem and into dataset das__raw
+      $ find _lake2 -type f | sort
+      _lake2/das__raw/probe_a_jsonstr/178880
+  [observed] CRITICAL: a plain read_parquet glob over an append-only lake SILENTLY DROPS columns added in later loads — no error, just missing data. `union_by_name => true` fixes it.
+      -- load 2 added _new_prov_col. Plain glob:
+      SELECT * FROM read_parquet('.../probe_a_jsonstr/*.parquet')
+      │ payload │ _src_entity │ _dlt_load_id │ _dlt_id │      <-- _new_prov_col ABSENT, 3 rows returned, no error
+      
+      -- with union_by_name:
+      SELECT * FROM read_parquet('.../probe_a_jsonstr/*.parquet', union_by_name => true)
+      │ payload │ _src_entity │ _dlt_load_id │ _dlt_id │ _new_prov_col │
+      │ {"Id": 1, ...} │ Probe │ 1788808114.2206264 │ e6EAQCnsZXGpKA │ NULL │
+      │ {"Id": 3}      │ Probe │ 1788808135.4990737 │ zp4ZUCgyYhgUnw │ v2   │
+  [observed] DuckDB JSON operators work directly on the VARCHAR payload column with an implicit cast — no explicit ::JSON needed. `->>` yields VARCHAR (then CAST), `->` yields JSON, plus json_keys / json_array_length / json_extract.
+      CAST(payload ->> '$.OrderId' AS BIGINT) AS order_id
+      │ order_id │ customer_id │ employee_id │ order_date │ shipped_date │    freight    │ ship_country │
+      │  int64   │   varchar   │    int32    │    date    │     date     │ decimal(18,4) │   varchar    │
+      │    10248 │ VINET       │           5 │ 1996-07-04 │ 1996-07-16   │       32.3800 │ France       │
+      
+      SELECT json_keys(payload) FROM ... LIMIT 1
+      [CustomerId, EmployeeId, Freight, OrderDate, OrderId, RequiredDate, ShipAddress, ShipCity, ShipCountry, ShipName, ShipPostalCode, ShipRegion, ShipVia, ShippedDate]
+  [observed] The strict layer recovers precision the forgiving layer would have lost: freight is DOUBLE when dlt infers it (approach C), but DECIMAL(18,4) when cast explicitly out of the JSON column. This is a concrete argument for the two-layer design.
+      -- inferred by dlt (approach C):
+      │ freight          │ DOUBLE      │
+      -- cast in das__staged:
+      │ freight          │ DECIMAL(18,4)            │
+      
+      SELECT ship_country, count(*) n, round(sum(freight),2) freight ... 
+      │ Germany      │    20 │       1861.32 │
+      │ Brazil       │    18 │        541.98 │
+  [observed] Hive-style date partitioning works via the filesystem `layout` parameter, but the placeholder names are {YYYY}/{MM}/{DD}, not {year}/{month}/{day}.
+      -- with {year}-{month}-{day}:
+      dlt.destinations.exceptions.InvalidFilesystemLayout: ... expected placeholders: `{'H', 'm', 'HH', 'DD', 'dd', 'SSSS', 'D', 'load_id', 'ss', 'Y', 'file_id', 'S', 'schema_name', 'dddd', 'load_package_timestamp', 'ext', 'Q', 'd', 'ddd', 'timestamp_ms', 'MM', 'table_name', 'MMMM', 'load_package_timestamp_ms', 'mm', 'YY', 'YYYY', 'M', 'MMM', 'timestamp', 's', 'SS', 'curr_date', 'SSS'}` Missing placeholders: `['year', 'month', 'day']`
+      
+      -- with {YYYY}-{MM}-{DD}:
+      _lake4/das__raw/orders/load_date=2026-09-07/1788808222.1399796.c99c34d553.parquet
+  [observed] Your own provenance columns pass through untouched, including names with leading underscores and a non-normalised prefix like `das_`. Timestamps land as dlt `timestamp` -> parquet -> DuckDB TIMESTAMP WITH TIME ZONE.
+      COLUMNS: {'payload': 'json', 'das_source_system': 'text', 'das_source_entity': 'text', 'das_request_url': 'text', 'das_http_status': 'bigint', 'das_extracted_at': 'timestamp', 'das_run_id': 'text', 'das_page_number': 'bigint', 'das_page_offset': 'bigint', 'das_record_hash': 'text', 'das_source_count': 'bigint', '_dlt_load_id': 'text', '_dlt_id': 'text'}
+
+GOTCHAS:
+  - dataset_name='das__raw' is SILENTLY renamed to 'das_raw' (dlt collapses the double underscore). Only a WARNING log line tells you. Fix: dlt.destinations.filesystem(bucket_url=..., enable_dataset_name_normalization=False). If DAS/DAB/DAR all use double-underscore schema names, every dlt destination in the project needs this flag.
+  - DuckDB read_parquet over a glob defaults to the FIRST file's schema and silently drops columns present only in later files — no error, no warning, just missing data. In an append-only lake where you may add a provenance column, always pass union_by_name => true.
+  - max_table_nesting=0 is NOT the answer to 'do not normalise'. It only stops child tables; top-level keys still become snake_cased typed columns. Only the payload+data_type='json' hint (or pre-serialising with json.dumps) gives one column.
+  - dlt's `json` data_type is NOT a parquet JSON logical type. parquet_schema() shows BYTE_ARRAY / UTF8 / StringType() — byte-identical to a text column. Anything downstream reading the parquet sees a VARCHAR, so the strict layer must cast, always.
+  - _dlt_id is regenerated per load. The same source record has a different _dlt_id in every run (10248 was b6aVmzfAxRVPDA then z8O+0F4oaJbS5A). Never use it as a business or record key — add your own content hash.
+  - _dlt_loads, _dlt_pipeline_state and _dlt_version are written as .jsonl even when loader_file_format='parquet'. To get a load's completion timestamp you must read_json_auto() the JSONL, not read_parquet(). Better: put das_extracted_at on every row so das__staged never needs that join.
+  - dlt inferred freight as DOUBLE when it normalised the record (approach C). Money silently becomes floating point. The strict layer casting to DECIMAL(18,4) out of the JSON string is the fix — another reason not to let dlt infer.
+  - Schema evolution is real and late: ship_region only appeared as a column AFTER the first records that had it null, and it landed at the END of the column list. Column ORDER in the parquet is not stable across loads — never rely on positional access.
+  - Filesystem `layout` placeholders are arrow-style tokens ({YYYY}, {MM}, {DD}, {load_id}, {file_id}, {ext}, {table_name}, {schema_name}, {curr_date}) — {year}/{month}/{day} raise InvalidFilesystemLayout. The exception text conveniently lists the full valid set.
+  - Relative paths inside a DuckDB view's read_parquet() resolve against the DuckDB process's cwd at QUERY time, not at CREATE VIEW time. A view created from the pipeline directory will break when marimo opens the same warehouse.duckdb from elsewhere. Use absolute paths, or a DuckDB variable/macro for the lake root.
+  - Two identical runs produce 240 rows for 120 distinct orders. Append-only is correct for DAS but das__staged as written duplicates rows — a dedup/latest-version step (QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY das_extracted_at DESC)) is needed before DAB consumes it.
+
+OPEN:
+  - Deduplication strategy between das__raw and das__staged was NOT designed or tested. Two runs gave 240 rows / 120 distinct orders. Does DAB want the full append history, or a latest-version view? This changes whether das__staged is a plain cast view or a QUALIFY/ROW_NUMBER view.
+  - Whether enable_dataset_name_normalization=False also disables TABLE name normalisation was not tested — every table name I used was already snake_case. If a source entity is named 'OrderDetails' it may still normalise to 'order_details'; verify before relying on literal names.
+  - Not tested: whether DuckDB views over the parquet glob can live inside the SAME warehouse.duckdb that daana-cli installs into, and whether daana-cli's `install`/`deploy` tolerates extra user-created schemas (das__raw, das__staged) in that file.
+  - Not tested at scale: 120 rows only. Memory/throughput behaviour with the full 830 Orders (or a large entity) and the cost of DuckDB scanning hundreds of small per-load parquet files was not measured. Small-file accumulation is the obvious risk of one file per load per table.
+  - Not tested: incremental extraction (dlt's `dlt.sources.incremental`) against OData — I paginated manually. Whether a cursor on OrderDate/ModifiedDate coexists cleanly with the opaque single-JSON-column design is unverified.
+  - Not tested: reading the parquet lake through DuckDB from a remote/object-store bucket_url (httpfs/s3fs). Only local filesystem was exercised, even though s3fs 2026.7.0 was installed.
+  - Not tested: what happens when the OData API returns a non-200 or a malformed page mid-pagination — whether the load package is marked failed and whether partial pages are left in the lake.
+
+======================================================================
+SPIKE SPIKE 2 — daana-cli deploy + execute against DuckDB, reading das__staged VIEWS as mapping sources, and the historization it produces :: works-with-caveats
+======================================================================
+HEADLINE: The whole daana loop (install/check/deploy/execute) works on DuckDB reading das__staged VIEWS, and `entity_effective_timestamp_expression: <load_ts>` historizes exactly as the build needs — but `ingestion_strategy: FULL` silently corrupts the `_desc` base table by one duplicate row per execute when the source view has more than one row per primary key, and ANY other open connection to the .duckdb file (even read-only) makes execute fail with the misleading error "daana framework is not installed on the remote database".
+
+VERSIONS: duckdb (Python package) == 1.5.5, CPython 3.11.15 (selected by uv), uv-created venv at ./.venv, daana-cli at /home/user/adss-fable-poc/bin/linux-amd64/daana-cli — version NOT captured (`daana-cli version` is not a valid command; I did not run `-v`), focal-cli — invoked internally by daana-cli (seen in debug log as `command=focal-cli`), version not captured
+
+FINDINGS:
+  [observed] All four daana-cli commands succeed against a DuckDB connection profile where every mapping source is a VIEW in schema das__staged. install, check workflow, deploy, execute all exit 0.
+      $ daana-cli install --no-tui
+      🔧 Installing Daana Framework...
+        → Remote Install (0/3)
+          • remote_schemas
+          • remote_metadata_tables
+          • remote_metadata_sync
+        ✓ Completed remote installation (3 phases)
+      ✓ Installation completed successfully!
+      INSTALL_EXIT=0
+      
+      $ daana-cli check workflow --no-tui
+      Workflow: BOOK_RETAILER_WORKFLOW
+        Workflow ID: 1424339281
+        Model: ✓
+      Entity Coverage:
+        - CUSTOMER: mapped ✓
+        - ORDER: mapped ✓
+      ✓ Workflow valid
+      CHECK_EXIT=0
+      
+      $ daana-cli deploy --no-tui
+        → Deploy (0/5)
+          • staging_ddl
+          • entity_ddl
+          • metadata_s
+  [observed] Reading a VIEW as a mapping source is a non-issue. das__staged.customers / customer_addresses / loyalty_memberships / sales_orders were all created as VIEWs over das__raw.*_raw base tables, and daana consumed them with no complaint and no special configuration.
+      seed.py output, information_schema.tables:
+      [('das__raw','customer_addresses_raw','BASE TABLE'), ('das__raw','customers_raw','BASE TABLE'), ('das__raw','loyalty_memberships_raw','BASE TABLE'), ('das__raw','sales_orders_raw','BASE TABLE'), ('das__staged','customer_addresses','VIEW'), ('das__staged','customers','VIEW'), ('das__staged','loyalty_memberships','VIEW'), ('das__staged','sales_orders','VIEW')]
+      
+      mapping used verbatim:
+            - connection: dev
+              table: das__staged.customers
+              primary_keys: [customer_id]
+              ingestion_strategy: FULL_LOG
+              entity_effective_timestamp_expression: das_load_ts
+  [observed] Object names PRESERVE the entity-id casing from model.yaml. Entity id CUSTOMER produced view_CUSTOMER, CUSTOMER_focal, ORDER_CUSTOMER_x — not the lowercase view_customer the PostgreSQL run produced (PG folds unquoted identifiers to lowercase; DuckDB is case-preserving).
+      SELECT table_name FROM information_schema.tables WHERE table_schema='dab' ORDER BY 1:
+      ['CUSTOMER_desc', 'CUSTOMER_focal', 'CUSTOMER_idfr', 'ORDER_CUSTOMER_x', 'ORDER_desc', 'ORDER_focal', 'ORDER_idfr', 'v_CUSTOMER_desc', 'v_ORDER_IS_PLACED_BY_CUSTOMER', 'v_ORDER_desc', 'view_CUSTOMER', 'view_CUSTOMER_hist', 'view_CUSTOMER_with_rel', 'view_ORDER', 'view_ORDER_IS_PLACED_BY_CUSTOMER', 'view_ORDER_hist', 'view_ORDER_with_rel']
+  [observed] The casing does not hurt consumers: DuckDB resolves identifiers case-insensitively, so a marimo/DAR layer may write dab.view_customer in lowercase, or double-quote either casing, and all resolve to the same object.
+      --- case-insensitive resolution test ---
+        dab.view_customer            -> OK rows=3
+        dab.VIEW_CUSTOMER            -> OK rows=3
+        dab."view_CUSTOMER"          -> OK rows=3
+        dab."view_customer"          -> OK rows=3
+  [observed] The view names/shapes match the PostgreSQL run's pattern (view_<entity>, view_<entity>_hist, view_<entity>_with_rel, view_<src>_<rel>_<tgt>, plus base tables <entity>_focal/_desc/_idfr and <src>_<tgt>_x) — only the casing differs.
+      DESCRIBE dab.view_customer:
+      CUSTOMER_key VARCHAR | customer_id VARCHAR | customer_name VARCHAR | customer_status VARCHAR | customer_city VARCHAR | customer_state VARCHAR | customer_loyalty_tier VARCHAR
+      
+      DESCRIBE dab.view_customer_hist:
+      CUSTOMER_key VARCHAR | eff_tmstp TIMESTAMP | customer_id | customer_name | customer_status | customer_city | customer_state | customer_loyalty_tier
+      
+      DESCRIBE dab.view_ORDER_IS_PLACED_BY_CUSTOMER:
+      ORDER_key VARCHAR | CUSTOMER_key VARCHAR | type_key BIGINT | eff_tmstp TIMESTAMP | ver_tmstp TIMESTAMP
+      
+      SELECT * FROM dab.view_ORDER_IS_PLACED_BY_CUSTOMER:
+      O102 | C003 | 17 | 2026-01-04 09:00:00 | 2026-09-07 
+  [observed] HISTORIZATION WORKS EXACTLY AS THE BUILD NEEDS. With entity_effective_timestamp_expression: das_load_ts, eff_tmstp in view_<entity>_hist IS the DAS load timestamp verbatim. After loading a changed value for C001 with a later load timestamp, view_CUSTOMER shows only the NEW version and view_CUSTOMER_hist keeps BOTH versions.
+      BEFORE (one load, das_load_ts 2026-01-10 08:00:00):
+      === dab.view_CUSTOMER_hist ===
+      C001 | 2026-01-10 08:00:00 | C001 | Ada Lovelace | Active | London | LDN | Gold
+      C002 | 2026-01-10 08:00:00 | ...
+      C003 | 2026-01-10 08:00:00 | ...
+      [3 rows]
+      
+      AFTER appending C001 status Active->Churned, city London->Cambridge, state LDN->CAM (das_load_ts 2026-02-15 09:00:00) and re-running execute:
+      === dab.view_CUSTOMER ===
+      C001 | C001 | Ada Lovelace | Churned | Cambridge | CAM | Platinum
+      C002 | C002 | Alan Turing | Active | Wilmslow | CHS | Silver
+      C003 | C003 | Grace Hopper | Suspended | Arlington | VA | Bronze
+      [3 rows]
+      
+      === dab
+  [observed] The hist view does true point-in-time reconstruction ACROSS source tables and strategies: attributes that did not change are carried forward into the new version row, and attributes sourced from a different table with a different ingestion_strategy line up on the same eff_tmstp. Only genuinely changed attribute values get a new _desc row (customer_name and customer_id got none).
+      CUSTOMER_desc for C001 after the change (type_key 6=city, 7=customer_id, 8=loyalty_tier, 9=name, 10=state, 11=status):
+      C001 | 6  | 1 | 2026-01-10 08:00:00 | Y | London
+      C001 | 6  | 1 | 2026-02-15 09:00:00 | Y | Cambridge
+      C001 | 7  | 1 | 2026-01-10 08:00:00 | Y | C001
+      C001 | 8  | 1 | 2026-01-10 08:00:00 | Y | Gold
+      C001 | 8  | 1 | 2026-02-15 09:00:00 | Y | Platinum
+      C001 | 9  | 1 | 2026-01-10 08:00:00 | Y | Ada Lovelace
+      C001 | 10 | 1 | 2026-01-10 08:00:00 | Y | LDN
+      C001 | 10 | 1 | 2026-02-15 09:00:00 | Y | CAM
+      C001 | 11 | 1 | 2026-01-10 08:00:00 | Y | Active
+      C001 | 11 | 1 | 2026-02-15 09:00:00 | Y | Churned
+      
+      (customer_name /
+  [observed] FULL_LOG is IDEMPOTENT. Re-running execute with no source change, and re-running execute against a view holding TWO rows for the same primary key, both leave the _desc base table byte-stable.
+      Run 2 (no data change at all, source view had 1 row per key):
+       CUSTOMER_desc rowcount: 18   (unchanged from run 1's 18)
+      
+      Runs 7 and 8 (customers=FULL_LOG, source view holds 2 rows for C001):
+      --- EXECUTE run7 --- ✓ Workflow executed successfully!
+       CUSTOMER_desc total: 25 | C001 status rows: 5 | hist: 4
+      --- EXECUTE run8 --- ✓ Workflow executed successfully!
+       CUSTOMER_desc total: 25 | C001 status rows: 5 | hist: 4
+  [observed] FULL IS NOT IDEMPOTENT against a multi-row-per-primary-key source view. It inserts exactly ONE duplicate _desc row per execute — same key, same type_key, same seq_nbr, same eff_tmstp, same value, row_st='Y'. Growth is unbounded and the presentation views MASK it completely, so it is invisible unless you count the base table.
+      customers mapping switched to ingestion_strategy: FULL while das__staged.customers held 2 rows for C001 (append-style). deploy + repeated execute:
+      
+      run4: CUSTOMER_desc total rows: 23
+      run5: CUSTOMER_desc total rows: 24
+       C001 type_key=11 (customer_status) rows: [(2026-01-10 08:00, 'Active','Y'), (2026-01-10 08:00,'Active','Y'), (2026-01-10 08:00,'Active','Y'), (2026-02-15 09:00,'Churned','Y')]
+       view_CUSTOMER_hist rows: 4
+       view_CUSTOMER rows: 3
+      run6: CUSTOMER_desc total rows: 25
+       C001 type_key=11 rows: [(2026-01-10 08:00,'Active','Y') x4, (2026-02-15 09:00,'Churned','Y')]
+       view_CUSTOMER_hist rows: 4
+       view_CUSTOMER rows: 3
+      
+      
+  [observed] FULL is correct and safe when the source view holds exactly ONE row per primary key (true snapshot semantics). The loyalty_memberships mapping stayed on FULL throughout; I changed C001's tier in place (UPDATE, not append) with a later das_load_ts, and it produced a correctly dated new version with no duplication.
+      das__staged.loyalty_memberships after the in-place update (1 row per key):
+      [('C001','Platinum',2024-01-01, 2026-02-15 09:00), ('C002','Silver',2024-02-01, 2026-01-10 08:00), ('C003','Bronze',2024-03-01, 2026-01-10 08:00)]
+      
+      Resulting CUSTOMER_desc rows for C001 type_key=8 (loyalty_tier), stable across every subsequent run:
+      C001 | 8 | 1 | 2026-01-10 08:00:00 | Y | Gold
+      C001 | 8 | 1 | 2026-02-15 09:00:00 | Y | Platinum
+  [observed] DEALBREAKER-CLASS CONCURRENCY BUG: if any other process holds the .duckdb file open — read-write OR READ-ONLY — daana-cli execute fails, and the error it reports is completely wrong: 'daana framework is not installed on the remote database'. The real lock error is swallowed and is NOT recoverable even at --log-level debug.
+      ########## A: another process holds RW connection ##########
+      HOLDER open (rw), rows: 3
+      🔧 Executing Workflow...
+      ✗ Executing Workflow failed
+      Error: daana framework is not installed on the remote database
+      Run 'daana-cli install' first to set up the framework,
+      then 'daana-cli deploy' to deploy your workflow before executing
+      Error: exit status 1
+      EXIT=1
+      
+      ########## B: another process holds READ-ONLY connection ##########
+      HOLDER open (ro), rows: 3
+      🔧 Executing Workflow...
+      ✗ Executing Workflow failed
+      Error: daana framework is not installed on the remote database
+      Error: exit status 1
+      EXIT=1
+      
+      ###
+  [observed] The failure is transient, not corrupting: once the other connection is released, execute succeeds again immediately with no repair step.
+      ########## C: file free again -> recovers? ##########
+      ✓ Workflow executed successfully!
+  [observed] On DuckDB the presentation views are thin wrappers over DuckDB TABLE MACROS, which do NOT appear in information_schema.tables. Any inventory/health-check code for the DAB layer must also query duckdb_functions().
+      SELECT sql FROM duckdb_views() WHERE view_name='view_CUSTOMER':
+      CREATE VIEW dab.view_CUSTOMER AS SELECT * FROM dab.f_customer();
+      
+      SELECT schema_name, function_name, function_type FROM duckdb_functions() WHERE schema_name IN ('dab','dab__stage','dab__meta'):
+         ('dab', 'f_CUSTOMER', 'table_macro')
+         ('dab', 'f_CUSTOMER_WITH_REL', 'table_macro')
+         ('dab', 'f_ORDER', 'table_macro')
+         ('dab', 'f_ORDER_CUSTOMER_x', 'table_macro')
+         ('dab', 'f_ORDER_WITH_REL', 'table_macro')
+  [observed] On DuckDB the <entity>_focal and <entity>_idfr base tables are CREATED BUT NEVER POPULATED. All data lives in <entity>_desc and the relationship <src>_<tgt>_x table. The views work correctly anyway, and <entity>_key is the natural business key value ('C001', 'O100'), not a surrogate.
+      CUSTOMER_focal     0
+      CUSTOMER_idfr      0
+      CUSTOMER_desc      25
+      ORDER_focal        0
+      ORDER_idfr         0
+      ORDER_desc         12
+      ORDER_CUSTOMER_x   3
+      
+      CUSTOMER_idfr: []
+      CUSTOMER_focal rows: []
+      
+      (yet SELECT * FROM dab.view_CUSTOMER returns the correct 3 rows with correct current values, and the execute log still reports the phase 'execute_idfr_pipelines' as succeeding)
+  [observed] view_<entity>_with_rel does NOT expose any relationship key columns — its column list is identical to view_<entity>. Do not plan the DAR/USS build on with_rel carrying the foreign keys; use view_<src>_<rel>_<tgt> for those.
+      DESCRIBE dab.view_ORDER_with_rel:
+      ORDER_key VARCHAR | order_id VARCHAR | order_status VARCHAR | order_purchase_ts TIMESTAMP | order_value_amount DECIMAL(28,8) | order_value_currency VARCHAR
+      [6 rows]
+      
+      SELECT * FROM dab.view_ORDER_with_rel:
+      O102 | O102 | SHIPPED | 2026-01-04 09:00:00 | 220.25000000 | EUR
+      O101 | O101 | PENDING | 2026-01-03 09:00:00 | 75.00000000 | USD
+      O100 | O100 | SHIPPED | 2026-01-02 09:00:00 | 120.50000000 | USD
+      
+      (no CUSTOMER_key column; compare view_ORDER_IS_PLACED_BY_CUSTOMER which does have ORDER_key + CUSTOMER_key)
+  [observed] Numeric attributes are widened to DECIMAL(28,8) regardless of the source column type. My source column was DECIMAL(12,2).
+      source DDL: total_amount DECIMAL(12,2)
+      DESCRIBE dab.view_ORDER_with_rel -> order_value_amount | DECIMAL(28,8)
+      SELECT * -> 220.25000000, 75.00000000, 120.50000000
+  [observed] TRANSACTIONAL strategy with batch_expression works on DuckDB unchanged (used for the ORDER entity throughout), and relationship rows are produced correctly and idempotently.
+      order-mapping.yaml used verbatim from the PG example except the table name:
+              table: das__staged.sales_orders
+              ingestion_strategy: TRANSACTIONAL
+              batch_expression: ingested_at
+              entity_effective_timestamp_expression: order_date
+      
+      ORDER_CUSTOMER_x rowcount: 3 after run 3, still 3 after runs 4-8.
+  [observed] I invented ~3 rows per table with matching column names rather than porting the PostgreSQL DDL. Column names were taken from the PG example's transformation_expressions (customer_id, first_name, last_name, account_status; city, state; tier_level; order_id, order_status, order_date, total_amount, currency, customer_id, ingested_at) plus one added das_load_ts column on every view.
+      seed.py verified output:
+      [('C001','Ada','Lovelace','Active', datetime(2025,12,1,10,0), datetime(2026,1,10,8,0)), ('C002','Alan','Turing','Active', ...), ('C003','Grace','Hopper','Suspended', ...)]
+
+GOTCHAS:
+  - THE BIG ONE — never use `ingestion_strategy: FULL` against a das__staged view that can hold more than one row per primary key. Each execute silently inserts one extra duplicate row into <entity>_desc (22 -> 23 -> 24 -> 25 across three runs in my test), forever, and NONE of the presentation views show it: view_CUSTOMER stayed at 3 rows and view_CUSTOMER_hist at 4 rows the whole time. Since the DAS design is dlt landing parquet, an append/merge write disposition makes das__staged append-style by construction. Use FULL_LOG as the default; reserve FULL for views you can prove are exactly one row per key (dlt `replace` disposition). Switching back to FULL_LOG stops the bleeding but does NOT clean up rows already leaked — you must truncate <entity>_desc and re-execute.
+  - ANY other open connection to the .duckdb file makes `daana-cli execute` fail, INCLUDING a read-only one, and the error message is a lie: 'daana framework is not installed on the remote database. Run daana-cli install first...'. The real DuckDB lock error is swallowed and does not appear even at --log-level debug. In this architecture the marimo app reading dar__uss, a dlt pipeline, or a stray `duckdb` REPL will all trigger it. The build needs an explicit single-writer discipline (a lock file, or a supervisor that stops readers before running the DAB step), and whoever operates it must be told that this error means 'the file is busy', not 'run install'.
+  - Object names on DuckDB PRESERVE the model.yaml entity-id casing: view_CUSTOMER, CUSTOMER_focal, ORDER_CUSTOMER_x — not the lowercase view_customer PostgreSQL produced. Any DAR/USS generator that hardcodes lowercase names from the PG run will still work (DuckDB resolves case-insensitively, verified all four of view_customer / VIEW_CUSTOMER / "view_CUSTOMER" / "view_customer"), but code that string-matches names out of information_schema WILL break. Either lowercase model.yaml entity ids, or normalize when reading the catalog.
+  - <entity>_focal and <entity>_idfr are created but stay EMPTY on DuckDB (0 rows for both CUSTOMER and ORDER) even though execute reports the 'execute_idfr_pipelines' phase as succeeding. All data is in <entity>_desc + <src>_<tgt>_x. If the DAR/USS generator was designed against the PostgreSQL run and joins to _focal or _idfr, it will produce empty results on DuckDB. Build DAR on the view_* layer only.
+  - The presentation views are `SELECT * FROM dab.f_CUSTOMER()` — DuckDB TABLE MACROS. Macros do NOT appear in information_schema.tables or information_schema.routines-style catalog queries you might write by habit; you need duckdb_functions(). Any 'is DAB deployed?' health check that only looks at information_schema.tables will see the views but miss the macros they depend on.
+  - view_<entity>_with_rel carries NO relationship key columns — its column list is byte-identical to view_<entity>. The name suggests it denormalizes the foreign keys; it does not. Get relationship keys from view_<src>_<rel>_<tgt> (ORDER_key, CUSTOMER_key, type_key, eff_tmstp, ver_tmstp).
+  - Every numeric attribute comes back as DECIMAL(28,8) regardless of source type (my DECIMAL(12,2) became 220.25000000). marimo/plotting code downstream should format explicitly rather than trusting the source scale.
+  - `daana-cli version` is not a command (Error: unknown command "version"). The version flag is `-v` / `--version`. Trivial, but it will waste a minute in CI.
+  - The daana-cli --help text lists 'Multi-database support (PostgreSQL, BigQuery, Snowflake, Oracle, SQL Server)' — DuckDB is NOT advertised. It works fully, but this is unadvertised/possibly-untested territory, which is consistent with the FULL duplication bug and the empty _focal/_idfr tables. Do not expect DuckDB parity to be maintained by the vendor.
+  - deploy is re-runnable after editing a mapping (I changed ingestion_strategy and re-deployed four times, always exit 0). execute is re-runnable and idempotent under FULL_LOG and under TRANSACTIONAL, and only non-idempotent under FULL-on-multi-row-source.
+
+OPEN:
+  - Whether <entity>_focal and <entity>_idfr are populated on the PostgreSQL run. I only observed DuckDB (both empty). If PG populates them, this is a DuckDB-specific defect worth reporting to the vendor and worth guarding in the DAR generator; if PG is also empty, they are simply vestigial and DAR should ignore them.
+  - What FULL vs FULL_LOG do on a DELETE — i.e. a key that disappears from the das__staged view on a later load. I ran out of time-box before testing this. This is the remaining strategy difference the build depends on: does FULL tombstone/close the row (row_st flips from 'Y'), or does the entity stay in view_<entity> forever? The _desc table has row_st, sta_tmstp and end_tmstp columns that are all currently 'Y'/NULL/NULL, so the machinery for it exists — but I did not exercise it.
+  - Whether the FULL duplication is triggered specifically by multiple rows per primary key, or by the mid-stream switch from FULL_LOG to FULL. I inferred the former because the duplicate appeared only on attributes sourced from the multi-row customers view (type_key 11) and never on the single-row loyalty view (type_key 8, also FULL), and because it recurred +1 per run long after the strategy switch. I did not run a clean FULL-from-scratch-on-a-multi-row-view test to prove it.
+  - Whether daana-cli can be pointed at a DuckDB file via an ATTACHed database or a read_only connection, which would sidestep the single-writer problem. I only tested the plain `database: ./warehouse.duckdb` form.
+  - Whether the relative path in `database: ./warehouse.duckdb` is resolved against the CWD or against the connections.yaml location. I always ran from the project directory, so the two coincided.
+  - The exact daana-cli / focal-cli version. `daana-cli version` is not a valid command and I did not spend a call on `-v`.
+  - Whether concurrent daana-cli invocations (two entities in parallel) would deadlock. The 'bounded parallelism' in the help text is intra-process; I did not test two daana-cli processes at once, but given that even a read-only holder breaks it, they will almost certainly conflict.
