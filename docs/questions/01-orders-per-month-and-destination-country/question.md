@@ -57,6 +57,15 @@ construction in the generated layer, and the control query mirrors that with
 `WHERE o.order_date IS NOT NULL`. A null destination country would be kept as its own group
 by both — the generator never invents a member, and the control does not either.
 
+## Delivered
+
+![The answer as it was accepted](answer.png)
+
+The presentation this question was accepted on, as it stood at that commit. The blueprint
+asks that what was delivered and when is recorded; the picture beside the question is that
+record, and it is why a later reader can tell whether the answer they are looking at now is
+the one somebody acted on.
+
 ## Answers
 
 Two queries, in `staged.sql` and `uss.sql`. The first computes the answer straight from what
