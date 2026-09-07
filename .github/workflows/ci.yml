@@ -1,0 +1,34 @@
+name: ci
+
+# Every commit passes the gate on its own, because bisect is only worth anything if every
+# point in history is a working system (docs/conventions.md section 7).
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Sync the locked environment
+        run: uv sync --all-groups --frozen
+
+      # Hooks are all `repo: local` running from this venv, so what CI runs is pinned by
+      # uv.lock rather than by a remote tag that can move under us.
+      - name: Run the gate
+        run: uv run pre-commit run --all-files --show-diff-on-failure

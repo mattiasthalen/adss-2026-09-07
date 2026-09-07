@@ -1,0 +1,61 @@
+[project]
+name = "adss"
+version = "0.1.0"
+description = "An Analytical Data Storage System: DAS, DAB, DAR, and the destinations that read them"
+readme = "README.md"
+authors = [{ name = "Mattias Thalen" }]
+requires-python = ">=3.12"
+dependencies = [
+    "altair>=6.2.2",
+    "dlt[filesystem,parquet]>=1.30.0",
+    "duckdb>=1.5.5",
+    "marimo>=0.24.0",
+    "polars>=1.44.1",
+    "pyarrow>=25.0.1",
+    "pyyaml>=6.0.3",
+    "typer>=0.27.2",
+]
+
+[project.scripts]
+adss = "adss.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.8.17,<0.9.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "playwright>=1.62.0",
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+    "ruff>=0.16.6",
+    "sqlfluff>=4.3.0",
+    "ty>=0.0.78",
+    "yamllint>=1.38.0",
+]
+
+# --------------------------------------------------------------------------
+# ruff is the Python style. See docs/conventions.md section 5 for the reason.
+# ANN is not optional: ty does not flag a fully unannotated def, and ANN does.
+# --------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ANN", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN201"]
+
+[tool.ty.environment]
+python-version = "3.12"
+root = ["./src", "./tests"]
+
+[tool.ty.rules]
+possibly-unresolved-reference = "error"
+unused-ignore-comment = "error"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
