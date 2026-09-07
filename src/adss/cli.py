@@ -27,7 +27,7 @@ from adss.das import (
     staged_view_sql,
 )
 from adss.destination import shoot
-from adss.engine import Engine
+from adss.engine import Engine, is_installed, metadata_schema
 from adss.landing import land
 from adss.model import read_model
 from adss.names import Schema
@@ -205,8 +205,16 @@ def das_unpack(
 
 @dab.command("install")
 def dab_install() -> None:
-    """Put the modelling framework into the warehouse. Once per warehouse."""
+    """Put the modelling framework into the warehouse. Once per warehouse, and idempotent.
+
+    The engine refuses a second install and says to drop its schemas, which is right for a
+    person and wrong for a build: a build has to be runnable twice.
+    """
     project = Project.discover()
+    schema = metadata_schema(project.connections)
+    if is_installed(project.warehouse, schema):
+        typer.echo(f"the modelling framework is already in {schema}")
+        return
     _engine(project).run("install", "--connection", "dev")
     typer.echo("installed the modelling framework")
 

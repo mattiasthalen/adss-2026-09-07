@@ -94,6 +94,10 @@ class Project:
         return self.root / ".browsers"
 
     @property
+    def connections(self) -> Path:
+        return self.dab / "connections.yaml"
+
+    @property
     def engine_binary(self) -> Path:
         return self.root / "bin" / "linux-amd64" / "daana-cli"
 
