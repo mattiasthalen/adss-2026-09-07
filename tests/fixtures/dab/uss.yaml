@@ -15,3 +15,11 @@ uss:
       date_attribute: FINISHED_ON
       measures:
         - {id: FINISHED_PARENTS_COUNT, definition: How many finished., aggregate: count}
+    - id: OCCURRED
+      entity: CHILD
+      definition: A child occurred.
+      kind: transaction
+      date_attribute: OCCURRED_ON
+      measures:
+        - {id: OCCURRED_CHILDREN_COUNT, definition: How many occurred., aggregate: count}
+        - {id: WEIGHT_CHILDREN_UNITS, definition: What they weighed., aggregate: sum, attribute: CHILD_WEIGHT}

@@ -14,3 +14,32 @@ model:
         - {id: PARENT_LABEL, name: PARENT_LABEL, definition: Its label., type: STRING, effective_timestamp: true}
         - {id: PARENT_SIZE, name: PARENT_SIZE, definition: Its size., type: NUMBER, effective_timestamp: true}
         - {id: FINISHED_ON, name: FINISHED_ON, definition: When it finished., type: END_TIMESTAMP}
+
+    - id: CHILD
+      name: CHILD
+      definition: A thing that points at other things.
+      description: One child.
+      attributes:
+        - {id: CHILD_NUMBER, name: CHILD_NUMBER, definition: Its number., type: STRING, effective_timestamp: false}
+        - {id: OCCURRED_ON, name: OCCURRED_ON, definition: When it occurred., type: START_TIMESTAMP}
+        - {id: CHILD_WEIGHT, name: CHILD_WEIGHT, definition: What it weighs., type: NUMBER, effective_timestamp: true}
+
+    - id: NEIGHBOUR
+      name: NEIGHBOUR
+      definition: A thing that is only ever pointed at.
+      description: One neighbour. It has no event of its own, so nothing about it is measured.
+      attributes:
+        - {id: NEIGHBOUR_NUMBER, name: NEIGHBOUR_NUMBER, definition: Its number., type: STRING, effective_timestamp: false}
+        - {id: NEIGHBOUR_LABEL, name: NEIGHBOUR_LABEL, definition: Its label., type: STRING, effective_timestamp: true}
+
+  relationships:
+    - name: POINTS_AT
+      definition: A child points at a parent.
+      description: The edge a key inherits along.
+      source_entity_id: CHILD
+      target_entity_id: PARENT
+    - name: SITS_BESIDE
+      definition: A child sits beside a neighbour.
+      description: A second edge from the same entity, to one that has no event of its own.
+      source_entity_id: CHILD
+      target_entity_id: NEIGHBOUR

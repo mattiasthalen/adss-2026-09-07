@@ -19,3 +19,12 @@ uss:
             The number of orders placed. One for each order, counted on the day the business
             accepted it, regardless of what was on it or whether it was ever delivered.
           aggregate: count
+
+        - id: FREIGHT_ORDERS_AMOUNT
+          definition: >-
+            What the business paid to have placed orders carried, attributed to the day it
+            accepted each one. It is a cost of fulfilment, so it is additive over any set of
+            orders and over any period -- but only over orders, since one order carries one
+            freight charge however many items are on it.
+          aggregate: sum
+          attribute: FREIGHT_CHARGE

@@ -73,15 +73,40 @@ class Entity:
 
 
 @dataclass(frozen=True, slots=True)
+class Relationship:
+    """A many-to-one edge, along which a key inherits and a measure does not.
+
+    That it is many-to-one is not stated here, because the modelling language has nowhere to
+    state it: `cardinality` is rejected and `type` is dropped on compile. It is inferred from
+    the mapping's shape and pinned by a data check. ADR 0006.
+    """
+
+    name: str
+    source_entity_id: str
+    target_entity_id: str
+    definition: str
+
+    @property
+    def id(self) -> str:
+        """`<SRC>_<NAME>_<TGT>`, which is how every object the engine builds is named."""
+        return f"{self.source_entity_id}_{self.name}_{self.target_entity_id}"
+
+
+@dataclass(frozen=True, slots=True)
 class Model:
     path: Path
     entities: tuple[Entity, ...]
+    relationships: tuple[Relationship, ...] = ()
 
     def entity(self, entity_id: str) -> Entity:
         for entity in self.entities:
             if entity.id == entity_id:
                 return entity
         raise KeyError(f"{self.path} has no entity {entity_id!r}")
+
+    def edges_from(self, entity_id: str) -> tuple[Relationship, ...]:
+        """The edges this entity inherits along, in model order."""
+        return tuple(r for r in self.relationships if r.source_entity_id == entity_id)
 
     def definitions(self) -> dict[str, str]:
         """Every definition, by the token that refers to it. Copied, never composed."""
@@ -90,6 +115,8 @@ class Model:
             found[entity.id] = entity.definition
             for attribute in entity.attributes:
                 found[f"{entity.id}.{attribute.id}"] = attribute.definition
+        for relationship in self.relationships:
+            found[relationship.id] = relationship.definition
         return found
 
 
@@ -110,4 +137,13 @@ def read_model(path: Path) -> Model:
         )
         for entity in document["entities"]
     )
-    return Model(path=path, entities=entities)
+    relationships = tuple(
+        Relationship(
+            name=str(declared["name"]),
+            source_entity_id=str(declared["source_entity_id"]),
+            target_entity_id=str(declared["target_entity_id"]),
+            definition=str(declared["definition"]),
+        )
+        for declared in document.get("relationships", ())
+    )
+    return Model(path=path, entities=entities, relationships=relationships)
