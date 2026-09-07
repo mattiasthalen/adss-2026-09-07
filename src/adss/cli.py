@@ -18,6 +18,7 @@ from adss import __version__
 from adss.checks import run_checks
 from adss.contract import read_contract
 from adss.das import current_view_sql, lake_dir, raw_view_sql, staged_view_sql
+from adss.destination import shoot
 from adss.engine import Engine
 from adss.landing import land
 from adss.model import read_model
@@ -246,3 +247,11 @@ def build(
     dar_generate(check=False)
     dar_build()
     typer.echo("built")
+
+
+@app.command("shoot")
+def shoot_destination() -> None:
+    """Photograph the destination, for the pull request the slice is accepted in."""
+    project = Project.discover()
+    image = shoot(project.destination, project.screenshots, project.browser_cache)
+    typer.echo(f"{image} ({image.stat().st_size:,} bytes)")

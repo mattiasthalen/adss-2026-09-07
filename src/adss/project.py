@@ -74,6 +74,18 @@ class Project:
         return self.root / "dar" / "uss"
 
     @property
+    def destination(self) -> Path:
+        return self.root / "destinations" / "app.py"
+
+    @property
+    def screenshots(self) -> Path:
+        return self.root / ".screenshots"
+
+    @property
+    def browser_cache(self) -> Path:
+        return self.root / ".browsers"
+
+    @property
     def engine_binary(self) -> Path:
         return self.root / "bin" / "linux-amd64" / "daana-cli"
 
