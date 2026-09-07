@@ -13,6 +13,7 @@ from adss.uss import (
     bridge_sql,
     calendar_sql,
     definitions,
+    entity_ids,
     peripheral_sql,
     read_uss,
 )
@@ -36,6 +37,11 @@ def branches(sql: str) -> list[str]:
     return parts
 
 
+def branch_of(sql: str, event: str) -> str:
+    """One branch of the union, by the stage it reads."""
+    return next(part for part in branches(sql) if f"'{event}' AS _event" in part)
+
+
 def aliases(select: str, column: str) -> int:
     return len(re.findall(rf" AS {re.escape(column)}(?=[,\n])", select))
 
@@ -49,9 +55,13 @@ def test_the_bridge_column_contract_is_an_order_not_a_set():
         "_is_current",
         "_observed_at",
         "parent_key",
+        "child_key",
+        "neighbour_key",
         "_measure__parent__happened_parents_count",
         "_measure__parent__size_parents_units",
         "_measure__parent__finished_parents_count",
+        "_measure__child__occurred_children_count",
+        "_measure__child__weight_children_units",
     )
 
 
@@ -59,7 +69,7 @@ def test_a_count_measure_is_one_per_row_and_a_sum_measure_is_its_attribute():
     sql = bridge()
     assert "cast(1 AS BIGINT) AS _measure__parent__happened_parents_count" in sql
     assert (
-        'cast(happened."PARENT_SIZE" AS DECIMAL(28, 8)) AS _measure__parent__size_parents_units'
+        'cast(revision."PARENT_SIZE" AS DECIMAL(28, 8)) AS _measure__parent__size_parents_units'
         in sql
     )
 
@@ -72,7 +82,7 @@ def test_an_event_reads_the_history_view_and_keeps_the_latest_version():
 
 
 def test_an_entity_with_no_date_for_the_event_has_no_row_for_it():
-    assert 'happened."HAPPENED_ON" IS NOT NULL' in bridge(), (
+    assert 'revision."HAPPENED_ON" IS NOT NULL' in bridge(), (
         "an event that did not happen must be absent by construction, not by a filter "
         "somebody has to remember"
     )
@@ -129,7 +139,7 @@ def test_every_branch_emits_the_contract_columns_in_the_contract_order():
     model, uss = plan()
     expected = list(bridge_columns(model, uss))
     parts = branches(bridge())
-    assert len(parts) == 2, "two declared events are two branches"
+    assert len(parts) == 3, "three declared events are three branches"
     for branch in parts:
         select = branch[: branch.rindex("FROM")]
         assert re.findall(r" AS ([a-z_0-9]+)(?=[,\n])", select) == expected
@@ -154,7 +164,7 @@ def test_the_key_columns_follow_the_model_order_not_the_declaration_order():
     """
     model, uss = plan()
     reversed_events = Uss(path=uss.path, events=tuple(reversed(uss.events)))
-    assert bridge_columns(model, uss)[:6] == bridge_columns(model, reversed_events)[:6]
+    assert bridge_columns(model, uss)[:8] == bridge_columns(model, reversed_events)[:8]
 
 
 def test_an_event_kind_the_generator_does_not_build_is_refused_rather_than_faked():
@@ -171,3 +181,78 @@ def test_a_definition_is_carried_verbatim_and_never_composed():
     )
     assert carried["PARENT.events.HAPPENED"] == uss.events[0].definition
     assert carried["PARENT.measures.HAPPENED_PARENTS_COUNT"] == uss.events[0].measures[0].definition
+
+
+def test_a_stage_carries_the_key_of_everything_it_inherits_from():
+    """The edge runs one way. A child inherits its parent's key; a parent inherits nothing."""
+    model, uss = plan()
+    assert entity_ids(model, uss) == ("PARENT", "CHILD", "NEIGHBOUR"), (
+        "an entity reached only by inheritance is still in the bridge, and still in model order"
+    )
+    occurred, happened = branch_of(bridge(), "occurred"), branch_of(bridge(), "happened")
+    assert "AS parent_key" in occurred and "AS neighbour_key" in occurred
+    assert "cast(NULL AS VARCHAR) AS child_key" in happened, (
+        "the edge runs child to parent, so a parent stage has no child to name"
+    )
+    assert "cast(NULL AS VARCHAR) AS neighbour_key" in happened
+
+
+def test_an_inherited_key_is_the_one_in_force_when_the_row_was_observed():
+    """Not the current one. The engine's own relationship view gives the current one, which
+    re-points a child's whole history at whichever parent it points at now. ADR 0006."""
+    sql = bridge()
+    assert "<= " in sql and "_observed_at" in sql
+    assert re.search(r"\.eff_tmstp\s*<=\s*\w+\._observed_at", sql), (
+        "the pair is taken as of the observation time of the row that inherits it"
+    )
+
+
+def test_a_row_that_inherits_nothing_keeps_its_row():
+    """A child with no parent has no pair row at all -- absence is the only evidence. An
+    inner join would silently drop it and change a count that is already published."""
+    sql = bridge()
+    assert "LEFT JOIN" in sql
+    assert "INNER JOIN" not in sql, "an inherited key is joined LEFT or a row disappears"
+
+
+def test_the_pairs_are_ranked_deterministically_and_can_never_fan_out():
+    """The engine's macro uses rank(), which returns both rows for a child whose source named
+    two parents at one instant -- and two bridge rows double that child's measures."""
+    sql = bridge()
+    assert "row_number() OVER (" in sql
+    assert not re.search(r"(?<!row_number\(\) OVER \()\brank\s*\(", sql), "rank() ties"
+    assert "ver_tmstp DESC" in sql, "a closing row shares its predecessor's eff_tmstp"
+
+
+def test_only_open_pairs_are_read():
+    assert "row_st = 'Y'" in bridge()
+
+
+def test_the_relationship_is_matched_by_name_and_never_by_number():
+    """type_key is not stable across models -- it differed between two probes of the same
+    shape -- and the pair table is named for the entity pair, so two edges share one table."""
+    sql = bridge()
+    assert "rel_name = 'CHILD_POINTS_AT_PARENT'" in sql
+    assert "rel_name = 'CHILD_SITS_BESIDE_NEIGHBOUR'" in sql
+    assert "type_key" not in sql
+
+
+def test_the_pairs_come_from_the_object_that_carries_the_relationship_name():
+    sql = bridge()
+    assert 'dab."v_CHILD_POINTS_AT_PARENT"' in sql
+    assert 'dab."view_CHILD_POINTS_AT_PARENT"' not in sql, (
+        "the ranked view is the current one, and its rank() can return two rows"
+    )
+    assert "_with_rel" not in sql, (
+        "on a relationship's target side that view fans out: it carries the source entity's "
+        "own attributes, one row per child"
+    )
+
+
+def test_an_entity_reached_only_by_inheritance_still_gets_a_peripheral():
+    """Otherwise the bridge carries a key that joins to nothing, which is how a dimension
+    that exists in the model becomes unusable in the layer built from it."""
+    model, _ = plan()
+    sql = peripheral_sql(model, "NEIGHBOUR")
+    assert "CREATE OR REPLACE TABLE dar__uss.neighbour" in sql
+    assert "AS neighbour_label" in sql

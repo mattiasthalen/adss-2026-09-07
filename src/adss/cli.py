@@ -16,7 +16,7 @@ from typing import Annotated
 import typer
 
 from adss import __version__
-from adss.checks import run_checks
+from adss.checks import relationship_checks, run_checks
 from adss.contract import read_contract
 from adss.das import (
     clock_check_sql,
@@ -35,7 +35,7 @@ from adss.platform import exclusive, install, reading
 from adss.project import Project
 from adss.source import over_http, record, replay
 from adss.sqlformat import formatted
-from adss.uss import bridge_sql, calendar_sql, peripheral_sql, read_uss
+from adss.uss import bridge_sql, calendar_sql, entity_ids, peripheral_sql, read_uss
 
 app = typer.Typer(
     name="adss",
@@ -178,11 +178,12 @@ def das_unpack(
             check.write_text(laid_out)
             typer.echo(f"wrote {check.relative_to(project.root)}")
 
+    written_checks |= {project.checks_sql / name for name in _generated_checks(project)}
     for orphan in sorted(project.checks_sql.glob("*.sql")):
         if orphan in written_checks:
             continue
         if check_only:
-            typer.echo(f"{orphan.relative_to(project.root)} belongs to no contract")
+            typer.echo(f"{orphan.relative_to(project.root)} belongs to nothing declared")
             stale = True
         else:
             orphan.unlink()
@@ -239,11 +240,20 @@ def _generate(project: Project) -> dict[str, str]:
     """The whole generated layer, as file name to SQL. Nothing here is hand-written."""
     model = read_model(project.model)
     uss = read_uss(project.uss, model)
-    entity_ids = list(dict.fromkeys(event.entity_id for event in uss.events))
-    generated = {f"{model.entity(e).object_name}.sql": peripheral_sql(model, e) for e in entity_ids}
+    named = entity_ids(model, uss)
+    generated = {f"{model.entity(e).object_name}.sql": peripheral_sql(model, e) for e in named}
     generated["_bridge.sql"] = bridge_sql(model, uss)
     generated["_calendar.sql"] = calendar_sql()
     return {name: formatted(sql, project.sqlfluff_config) for name, sql in generated.items()}
+
+
+def _generated_checks(project: Project) -> dict[str, str]:
+    """The checks the model generates, as file name to SQL. The contracts generate the rest."""
+    model = read_model(project.model)
+    return {
+        f"{name}.sql": formatted(sql, project.sqlfluff_config)
+        for name, sql in relationship_checks(model).items()
+    }
 
 
 @dar.command("generate")
@@ -255,9 +265,11 @@ def dar_generate(
     """Write the star schema's SQL from the model and its declarations."""
     project = Project.discover()
     project.dar_sql.mkdir(parents=True, exist_ok=True)
+    project.checks_sql.mkdir(parents=True, exist_ok=True)
     stale = False
-    for name, sql in _generate(project).items():
-        written = project.dar_sql / name
+    everything = {project.dar_sql / n: s for n, s in _generate(project).items()}
+    everything |= {project.checks_sql / n: s for n, s in _generated_checks(project).items()}
+    for written, sql in everything.items():
         if check:
             current = written.read_text() if written.exists() else ""
             if current != sql:

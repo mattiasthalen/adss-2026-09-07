@@ -18,7 +18,7 @@ from pathlib import Path
 
 import yaml
 
-from adss.model import Entity, Model
+from adss.model import Entity, Model, Relationship
 from adss.names import Relation, Schema, crossing
 
 BRIDGE = Relation(Schema.DAR_USS, "_bridge")
@@ -157,14 +157,15 @@ def _refuse_measures_of_things_that_are_not_numbers(uss: Uss, model: Model) -> N
                 )
 
 
-def _stage_cte(model: Model, event: Event) -> str:
-    """One stage: the latest version of each entity in which the event is dated."""
+def _version_cte(model: Model, event: Event) -> str:
+    """The version of each entity this event is measured on: the latest in which it is dated."""
     entity = model.entity(event.entity_id)
     date = crossing(event.date_attribute_id)
+    held = "revision"
     lines = [
-        f"    {event.name}.{crossing(entity.source_key)} AS {entity.key_column}",
-        f"    {event.name}.eff_tmstp AS _observed_at",
-        f"    cast({event.name}.{date} AS DATE) AS _event_date",
+        f"    {held}.{crossing(entity.source_key)} AS {entity.key_column}",
+        f"    {held}.eff_tmstp AS _observed_at",
+        f"    cast({held}.{date} AS DATE) AS _event_date",
     ]
     for measure in event.measures:
         column = f"_measure__{entity.object_name}__{measure.id.lower()}"
@@ -172,25 +173,95 @@ def _stage_cte(model: Model, event: Event) -> str:
             value = f"cast(1 AS {COUNT_TYPE})"
         else:
             attribute = crossing(str(measure.attribute_id))
-            value = f"cast({event.name}.{attribute} AS {SUM_TYPE})"
+            value = f"cast({held}.{attribute} AS {SUM_TYPE})"
         lines.append(f"    {value} AS {column}")
     selected = ",\n".join(lines)
     return (
-        f"{event.name} AS (\n"
+        f"{event.name}__version AS (\n"
         f"SELECT\n{selected}\n"
-        f'FROM dab."view_{entity.id}_hist" AS {event.name}\n'
-        f"WHERE {event.name}.{date} IS NOT NULL\n"
+        f'FROM dab."view_{entity.id}_hist" AS {held}\n'
+        f"WHERE {held}.{date} IS NOT NULL\n"
         f"QUALIFY row_number() OVER (\n"
-        f"    PARTITION BY {event.name}.{crossing(entity.source_key)}\n"
-        f"    ORDER BY {event.name}.eff_tmstp DESC\n"
+        f"    PARTITION BY {held}.{crossing(entity.source_key)}\n"
+        f"    ORDER BY {held}.eff_tmstp DESC\n"
         f") = 1\n"
         f")"
+    )
+
+
+def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
+    """One inherited key: the pair in force when the inheriting row was observed. ADR 0006.
+
+    Read from `v_<SRC>_<NAME>_<TGT>`, which is the raw pairs plus the relationship's name, and
+    ranked here rather than by the engine. The engine's own ranked view answers a different
+    question -- who the parent is *now* -- and answers it with `rank()`, which returns two rows
+    for a child whose source named two parents at one instant. Two rows here would double that
+    child's measures, so the ranking is `row_number()` and the tie is refused by a data check.
+    """
+    source = model.entity(edge.source_entity_id)
+    target = model.entity(edge.target_entity_id)
+    held = edge.id.lower()
+    return (
+        f"{event.name}__{held} AS (\n"
+        f"SELECT\n"
+        f"    revision.{source.key_column} AS {source.key_column},\n"
+        f"    pair.{crossing(target.source_key)} AS {target.key_column}\n"
+        f"FROM {event.name}__version AS revision\n"
+        f'LEFT JOIN dab."v_{edge.id}" AS pair\n'
+        f"    ON pair.{crossing(source.source_key)} = revision.{source.key_column}\n"
+        f"    AND pair.rel_name = '{edge.id}'\n"
+        f"    AND pair.row_st = 'Y'\n"
+        f"    AND pair.eff_tmstp <= revision._observed_at\n"
+        f"QUALIFY row_number() OVER (\n"
+        f"    PARTITION BY revision.{source.key_column}\n"
+        f"    ORDER BY\n"
+        f"        pair.eff_tmstp DESC,\n"
+        f"        pair.ver_tmstp DESC,\n"
+        f"        pair.{crossing(target.source_key)}\n"
+        f") = 1\n"
+        f")"
+    )
+
+
+def _stage_cte(model: Model, event: Event) -> str:
+    """One stage: the entity's version, with the key of everything it inherits from."""
+    entity = model.entity(event.entity_id)
+    edges = model.edges_from(entity.id)
+    lines = [
+        f"    revision.{entity.key_column} AS {entity.key_column}",
+        "    revision._observed_at AS _observed_at",
+        "    revision._event_date AS _event_date",
+    ]
+    lines += [
+        f"    {edge.id.lower()}.{model.entity(edge.target_entity_id).key_column} "
+        f"AS {model.entity(edge.target_entity_id).key_column}"
+        for edge in edges
+    ]
+    lines += [
+        f"    revision._measure__{entity.object_name}__{measure.id.lower()} "
+        f"AS _measure__{entity.object_name}__{measure.id.lower()}"
+        for measure in event.measures
+    ]
+    # One row per inheriting row in each of these, so none of the joins can fan out. LEFT
+    # anyway: the row that inherits nothing is kept by the join inside the CTE, and an inner
+    # join here would undo that one level up.
+    joins = "".join(
+        f"\nLEFT JOIN {event.name}__{edge.id.lower()} AS {edge.id.lower()}\n"
+        f"    ON {edge.id.lower()}.{entity.key_column} = revision.{entity.key_column}"
+        for edge in edges
+    )
+    selected = ",\n".join(lines)
+    return (
+        f"{event.name} AS (\nSELECT\n{selected}\nFROM {event.name}__version AS revision{joins}\n)"
     )
 
 
 def _branch(model: Model, uss: Uss, event: Event, keys: tuple[str, ...]) -> str:
     """One branch of the union: this stage's own columns, and a typed NULL for the rest."""
     entity = model.entity(event.entity_id)
+    carried = {entity.key_column} | {
+        model.entity(edge.target_entity_id).key_column for edge in model.edges_from(entity.id)
+    }
     lines = [
         f"    '{entity.object_name}' AS _stage",
         f"    '{event.name}' AS _event",
@@ -199,7 +270,7 @@ def _branch(model: Model, uss: Uss, event: Event, keys: tuple[str, ...]) -> str:
         f"    {event.name}._observed_at AS _observed_at",
     ]
     for key in keys:
-        value = f"{event.name}.{key}" if key == entity.key_column else "cast(NULL AS VARCHAR)"
+        value = f"{event.name}.{key}" if key in carried else "cast(NULL AS VARCHAR)"
         lines.append(f"    {value} AS {key}")
     owned = {column for candidate, _, column in uss.measure_columns() if candidate is event}
     for _, measure, column in uss.measure_columns():
@@ -208,15 +279,26 @@ def _branch(model: Model, uss: Uss, event: Event, keys: tuple[str, ...]) -> str:
     return "SELECT\n" + ",\n".join(lines) + f"\nFROM {event.name} AS {event.name}"
 
 
+def entity_ids(model: Model, uss: Uss) -> tuple[str, ...]:
+    """Every entity the bridge names, in MODEL order: the ones with events, and the ones they
+    inherit from. An entity reached only by inheritance still needs a peripheral, or the bridge
+    carries a key that joins to nothing.
+    """
+    touched = {event.entity_id for event in uss.events}
+    touched |= {
+        edge.target_entity_id for event in uss.events for edge in model.edges_from(event.entity_id)
+    }
+    return tuple(entity.id for entity in model.entities if entity.id in touched)
+
+
 def entity_keys(model: Model, uss: Uss) -> tuple[str, ...]:
-    """One key column per entity the declarations touch, in MODEL order.
+    """One key column per entity the bridge names, in MODEL order.
 
     Model order, not event order: reordering two events in the sidecar is not a model change,
     and it must not rearrange a contract that consumers are written against. The check cannot
     catch that on its own, because it derives what it expects from this same function.
     """
-    touched = {event.entity_id for event in uss.events}
-    return tuple(entity.key_column for entity in model.entities if entity.id in touched)
+    return tuple(model.entity(entity_id).key_column for entity_id in entity_ids(model, uss))
 
 
 def bridge_columns(model: Model, uss: Uss) -> tuple[str, ...]:
@@ -229,7 +311,15 @@ def bridge_columns(model: Model, uss: Uss) -> tuple[str, ...]:
 def bridge_sql(model: Model, uss: Uss) -> str:
     """One row per measurement event, over every stage the declarations name."""
     keys = entity_keys(model, uss)
-    ctes = ",\n\n".join(_stage_cte(model, event) for event in uss.events)
+    ctes = ",\n\n".join(
+        cte
+        for event in uss.events
+        for cte in (
+            _version_cte(model, event),
+            *(_inherit_cte(model, event, edge) for edge in model.edges_from(event.entity_id)),
+            _stage_cte(model, event),
+        )
+    )
     branches = "\n\nUNION ALL\n\n".join(_branch(model, uss, event, keys) for event in uss.events)
     return f"{_GENERATED}\nCREATE OR REPLACE TABLE {BRIDGE.sql} AS\nWITH {ctes}\n\n{branches};\n"
 
