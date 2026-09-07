@@ -41,6 +41,10 @@ Field by field:
 
 ## Review
 
-The register is read at the start of every slice, and each open entry is checked against its exit
-condition. An entry whose exit condition has been met and which is still open is a defect in the
+The register is read at the start of every slice. Each open entry is checked against its exit
+condition **and against whether its argument is still being carried on assertion** — D-0001's
+justification rests on a walk over many-to-one edges, which slice 1's single entity does not
+exercise at all. An entry should also be re-read the moment a second consumer appears, not only
+when isolation is demanded, because by then the shared structure will already have shaped both
+readers. An entry whose exit condition has been met and which is still open is a defect in the
 same way a failing test is: the system is no longer doing what its own documentation says.
