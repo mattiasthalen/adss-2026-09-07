@@ -33,6 +33,7 @@ from adss.model import read_model
 from adss.names import Schema
 from adss.platform import exclusive, install, reading
 from adss.project import Project
+from adss.question import read_questions
 from adss.source import over_http, record, replay
 from adss.sqlformat import formatted
 from adss.uss import bridge_sql, calendar_sql, entity_ids, peripheral_sql, read_uss
@@ -333,7 +334,19 @@ def build(
 
 @app.command("shoot")
 def shoot_destination() -> None:
-    """Photograph the destination, for the pull request the slice is accepted in."""
+    """Photograph the destination, one image per question, beside the question it answers.
+
+    The picture is the record of what was delivered, so it belongs next to what was asked
+    rather than in a directory of screenshots nobody browses.
+    """
     project = Project.discover()
-    image = shoot(project.destination, project.screenshots, project.browser_cache)
-    typer.echo(f"{image} ({image.stat().st_size:,} bytes)")
+    for question in read_questions(project.questions):
+        image = shoot(
+            project.destination,
+            project.screenshots,
+            project.browser_cache,
+            question=question.id,
+        )
+        beside = question.directory / "answer.png"
+        beside.write_bytes(image.read_bytes())
+        typer.echo(f"{beside.relative_to(project.root)} ({image.stat().st_size:,} bytes)")
