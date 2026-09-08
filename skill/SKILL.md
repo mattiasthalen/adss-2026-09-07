@@ -24,6 +24,6 @@ per slice. Vertical, thin end to end, widened one at a time.
 - Write a file once, then run it and read it by path.
 - MADR at the decision, never batched. Its confirmation names a check
   that exists.
-- A fix to a slice below lands on the branch below.
+- Fix a slice on its own branch, then bring it forward.
 - Red and green in a single conventional commit
 - Code review and security review before I see it

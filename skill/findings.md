@@ -321,7 +321,7 @@ the exact thing the branch README got wrong about this run.
 - `Always`: the agent line generalises to "A path and a conclusion, never the
   artefact. Screenshots included." It already said this for agents. The main thread
   did it to itself, twice, for 661 KB.
-- `Always` gains "A fix to a slice below lands on the branch below." `058faa6`, the
+- `Always` gains "Fix a slice on its own branch, then bring it forward." `058faa6`, the
   fix that made the build idempotent, sits on slice 2's branch and never reached
   slice 1's. Slice 1's pull request still stands with a build that fails on its
   second run.
@@ -414,6 +414,10 @@ What stays from the design, because it is earned independently:
 
 * **The next slice starts when the last one's PR is ready for review and green.**
   Without a definition, "don't wait for me between slices" has no trigger.
-* **A fix to a slice below lands on the branch below.** `058faa6`, the fix that made
-  slice 1's build idempotent, sits on slice 2's branch. Slice 1's pull request is
-  still standing with a build that fails on its second run.
+* **Fix a slice on its own branch, then bring it forward.** `058faa6`, the fix that
+  made slice 1's build idempotent, sits on slice 2's branch. Slice 1's pull request
+  is still standing with a build that fails on its second run, and its reviewers
+  cannot see the fix. The defect belongs to slice 1, so the commit belongs on slice
+  1's branch and the stack above it picks the fix up. This was first written as "a
+  fix to a slice below lands on the branch below", which reads as the opposite as
+  easily as it reads as this.
