@@ -84,6 +84,17 @@ lag is negative and none is missing on a shipped order. Both queries would carry
 through `sum`, which skips it — so a shipped order with no accepted date would be counted and
 not waited-for, in both answers alike.
 
+**What the absence rests on, exactly.** "Has not shipped" is *the DAB attribute is null*, and
+nothing more. That is structural with respect to this system — the filter is generated from the
+event's `date_attribute`, so nobody can forget it — but not with respect to the source. An empty
+string fails loudly at the cast, which is fine. A **sentinel date** would not fail at all: it
+produces a shipment event, and both of this question's queries agree on it, because both derive
+from the same sentinel. Its one signature is a lag that is negative or absurd, and nothing here
+checks for that; the paragraph above is prose, not a check. Verified by substituting `1900-01-01`
+for the 21 nulls in a scratch copy — 830 shipped rows, both queries agreeing, every gate green.
+It is recorded rather than guarded because a check would have to know what a plausible lag is,
+which is a business fact this model does not yet state.
+
 ## Delivered
 
 ![The answer as it was accepted](answer.png)
