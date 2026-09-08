@@ -133,12 +133,15 @@ def clock_check_sql(contract: Contract) -> str:
 def key_check_sql(contract: Contract) -> str:
     """One row per key in the current view, however many loads the change log holds."""
     current = Relation(Schema.DAS_STAGED, f"{contract.table}__current")
-    # Parenthesised: count(DISTINCT a, b) is not a function DuckDB has, so a composite key
-    # would emit a check that cannot run -- and an unrunnable check aborts the whole run
-    # before any finding is printed.
+    # ROW(), not bare parentheses. count(DISTINCT a, b) is not a function DuckDB has, so a
+    # composite key needs its parts made into one value -- and grouping parentheses do not
+    # survive: the formatter removes them as redundant, which turns a working check back into
+    # one that cannot run. It is a function call now, which the formatter has no licence to
+    # unwrap. An unrunnable check aborts the whole run before a finding is printed.
     keys = ", ".join(f"latest.{key}" for key in contract.primary_keys)
+    counted = f"ROW({keys})" if len(contract.primary_keys) > 1 else keys
     return (
         f"{_GENERATED.format(table=contract.table)}\n"
-        f"SELECT count(*) - count(DISTINCT ({keys})) AS duplicates\n"
+        f"SELECT count(*) - count(DISTINCT {counted}) AS duplicates\n"
         f"FROM {current.sql} AS latest;\n"
     )
