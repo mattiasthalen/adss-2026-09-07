@@ -395,3 +395,25 @@ they are what the next person will otherwise re-derive.
 Two lines, 70% of a slice's build. Neither is something the model does unprompted:
 it made 45 pytest calls carrying 3.5 KB of source each, and 42 separate cat, sed and
 grep calls over files it had just written.
+
+
+# Parked: the ticket design
+
+A parent issue for the plan, a child issue per slice, and Always snapshotted into
+the parent were designed and then cut. The goal is one autonomous session, and this
+run already proves that works: `session_019rspwWhmXfxoTvKg5jmNWh` built all four
+slices, 21:52 to 04:56, straight through a compaction. Tickets solve a problem that
+one session does not have.
+
+What they would buy, if a session ever has to be resumed after its container dies:
+the plan survives, and the rules that were in force survive with it. The plan file
+at `/root/.claude/plans/` survives compaction but not the container. Nothing else
+in this run held the arc.
+
+What stays from the design, because it is earned independently:
+
+* **The next slice starts when the last one's PR is ready for review and green.**
+  Without a definition, "don't wait for me between slices" has no trigger.
+* **A fix to a slice below lands on the branch below.** `058faa6`, the fix that made
+  slice 1's build idempotent, sits on slice 2's branch. Slice 1's pull request is
+  still standing with a build that fails on its second run.
