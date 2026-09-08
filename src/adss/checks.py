@@ -337,7 +337,10 @@ def composed_key_check_names(
     mappings: Sequence[Mapping], contracts: Sequence[Contract]
 ) -> tuple[str, ...]:
     """What composed_key_checks would be called, without emitting or formatting any of it."""
-    return tuple(f"{entity}__composed_key.sql" for entity, _, _ in _composed(mappings, contracts))
+    return tuple(
+        f"{entity}__{contract.table}__composed_key.sql"
+        for entity, _, contract in _composed(mappings, contracts)
+    )
 
 
 def composed_key_checks(
@@ -358,7 +361,10 @@ def composed_key_checks(
         current = Relation(Schema.DAS_STAGED, f"{contract.table}__current")
         parts = ", ".join(contract.primary_keys)
         composed = table.primary_keys[0]
-        generated[f"{entity}__composed_key"] = (
+        # Named for the entity AND the table. Keyed on the entity alone, an entity
+        # loaded from two composite tables kept only the last check and reported
+        # nothing missing -- and `adss check` printed PASS for the one that survived.
+        generated[f"{entity}__{contract.table}__composed_key"] = (
             f"{_COMPOSED}\n"
             f"SELECT count(*) AS collisions\n"
             f"FROM (\n"

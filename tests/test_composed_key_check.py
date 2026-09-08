@@ -52,13 +52,34 @@ def scratch(tmp_path: Path) -> Iterator[Db]:
     connection.close()
 
 
+def test_an_entity_loaded_from_two_composite_tables_is_checked_twice():
+    """Keyed on the entity, the second check replaced the first and nothing said so.
+
+    One entity from two source tables is ordinary -- slice 6 assembles a customer from two
+    systems -- and a check that silently covers one of them is worse than no check, because
+    `adss check` still prints PASS.
+    """
+    other = read_contract(FIXTURES / "contracts" / "other_composite.yaml")
+    written = composed_key_checks(
+        [read_mapping(FIXTURES / "mappings" / "two_composite_tables.yaml")], [COMPOSITE, other]
+    )
+    assert set(written) == {
+        "parent__composite_key__composed_key",
+        "parent__other_composite__composed_key",
+    }
+    assert "das__staged.composite_key__current" in written["parent__composite_key__composed_key"]
+    assert (
+        "das__staged.other_composite__current" in written["parent__other_composite__composed_key"]
+    )
+
+
 def test_a_mapping_over_a_composite_source_key_is_checked_and_one_over_a_single_key_is_not():
     """Nothing to compare when the source key is one column: the mapping just names it."""
-    assert set(checks("composed_key")) == {"parent__composed_key"}
+    assert set(checks("composed_key")) == {"parent__composite_key__composed_key"}
     assert checks("good", SINGLE) == {}
     assert composed_key_check_names(
         [read_mapping(FIXTURES / "mappings" / "composed_key.yaml")], [COMPOSITE]
-    ) == ("parent__composed_key.sql",)
+    ) == ("parent__composite_key__composed_key.sql",)
 
 
 def test_parts_that_cannot_collide_are_not_a_collision(scratch: Db):
