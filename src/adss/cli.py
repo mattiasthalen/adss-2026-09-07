@@ -18,6 +18,8 @@ import typer
 from adss import __version__
 from adss.checks import (
     contracts_of,
+    measure_check_names,
+    measure_checks,
     relationship_check_names,
     relationship_checks,
     run_checks,
@@ -186,8 +188,11 @@ def das_unpack(
 
     # Names only: this is a DAS command, and it needs to know which files belong to the
     # other generator, not what they say.
+    model = read_model(project.model)
     written_checks |= {
-        project.checks_sql / name for name in relationship_check_names(read_model(project.model))
+        project.checks_sql / name
+        for name in relationship_check_names(model)
+        + measure_check_names(read_uss(project.uss, model))
     }
     for orphan in sorted(project.checks_sql.glob("*.sql")):
         if orphan in written_checks:
@@ -260,10 +265,9 @@ def _generate(project: Project) -> dict[str, str]:
 def _generated_checks(project: Project) -> dict[str, str]:
     """The checks the model generates, as file name to SQL. The contracts generate the rest."""
     model = read_model(project.model)
-    return {
-        f"{name}.sql": formatted(sql, project.sqlfluff_config)
-        for name, sql in relationship_checks(model).items()
-    }
+    uss = read_uss(project.uss, model)
+    written = relationship_checks(model) | measure_checks(uss)
+    return {f"{name}.sql": formatted(sql, project.sqlfluff_config) for name, sql in written.items()}
 
 
 @dar.command("generate")

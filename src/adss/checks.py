@@ -19,7 +19,7 @@ from adss.model import Model, read_model
 from adss.names import Relation, Schema, crossing
 from adss.project import Project
 from adss.question import Status, read_questions, without_comments
-from adss.uss import BRIDGE, bridge_columns, read_uss
+from adss.uss import BRIDGE, Uss, bridge_columns, read_uss
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,6 +285,48 @@ def relationship_checks(model: Model) -> dict[str, str]:
             f"    AND t.{target.key_column} IS NULL;\n"
         )
     return generated
+
+
+_MEASURE = "-- Generated from dab/uss.yaml. Do not edit; regenerate with `adss dar generate`."
+
+
+def measure_check_names(uss: Uss) -> tuple[str, ...]:
+    """What measure_checks would be called, without emitting or formatting any of it.
+
+    The contract side of `checks/` only needs the names, to leave these files alone -- the same
+    reason relationship_check_names exists, and the same cost: a DAS command now reads the
+    declarations to learn what it must not delete.
+    """
+    return tuple(
+        f"{column.removeprefix('_')}__isolated.sql" for _, _, column in uss.measure_columns()
+    )
+
+
+def measure_checks(uss: Uss) -> dict[str, str]:
+    """One check per measure: it is non-null on its own event's rows and on no other. ADR 0012.
+
+    This is the property D-0001 rests on, carried into every build. `tests/test_fan_out.py`
+    proves it with numbers on a warehouse it builds; this asserts the mechanism on the warehouse
+    that was actually built, where a wrong number would be believed.
+
+    By EVENT and not by stage. Two events on one entity share a stage, so a per-stage check would
+    let a parent's shipment measure sit on its placement row and report nothing -- and that is the
+    likelier defect, since every branch of the union comes off the same stage's CTE.
+
+    It counts leaks only. A measure that is null everywhere would pass here, and is not this
+    check's to catch: a bridge that lost its rows disagrees with the source, which is what
+    `adss questions check` compares on every build.
+    """
+    return {
+        f"{column.removeprefix('_')}__isolated": (
+            f"{_MEASURE}\n"
+            f"SELECT count(*) AS leaked\n"
+            f"FROM {BRIDGE.sql} AS b\n"
+            f"WHERE b._event != '{event.name}'\n"
+            f"    AND b.{column} IS NOT NULL;\n"
+        )
+        for event, _, column in uss.measure_columns()
+    }
 
 
 def _first_gap(control: list[tuple[object, ...]], answer: list[tuple[object, ...]]) -> str:

@@ -138,8 +138,12 @@ none, and 904.50 against 402.00 when five children are added to a parent whose s
 change. A fifth test — the peripheral trap below — passes under that mutation, which is correct:
 the mutation is in the bridge and the trap is not.
 
-A generated data check, one per measure, asserts it is null on every stage that does not own it —
-the mechanism rather than the number, on the real build.
+A generated data check, one per measure, asserts it is null on every row of every **event** that
+does not own it — the mechanism rather than the number, on the warehouse that was actually built.
+By event and not by stage: two events on one entity share a stage, so a per-stage check would let
+an order's shipment measure sit on its placement row and report nothing, and that is the likelier
+defect since every branch of the union comes off the same stage's CTE. `tests/test_measure_checks.py`
+runs each check against a bridge built to fail it, including that case.
 
 `tests/test_questions.py` asserts that an answer query aggregating a peripheral's column is
 refused, and that the same aggregate over a `_measure__` column is accepted.
