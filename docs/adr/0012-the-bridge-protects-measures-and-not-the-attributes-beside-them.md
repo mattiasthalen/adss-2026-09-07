@@ -146,7 +146,25 @@ defect since every branch of the union comes off the same stage's CTE. `tests/te
 runs each check against a bridge built to fail it, including that case.
 
 `tests/test_questions.py` asserts that an answer query aggregating a peripheral's column is
-refused, and that the same aggregate over a `_measure__` column is accepted.
+refused, and that the same aggregate over a `_measure__` column is accepted. Every question in
+this repository is run through the refusal, so the rule is enforced rather than published.
+
+**It is not the text rule the Consequences above anticipated.** The refusal reads the engine's own
+parse tree for the answer query and the engine's own list of aggregate functions, so a `cast()`
+around the sum, a sum written as a window, a subquery, and an aggregate nobody thought to list are
+all caught — three of which a text rule would have missed, and the third is why the list is not
+kept by hand. Four mutations of the refusal were run and all four fail the suite.
+
+It is stricter than the trap requires, in two places worth naming. `count(*)` over the bridge is
+refused, because it counts measurement events rather than the thing asked about — two events on
+one entity and it doubles. And an aggregate over a `DISTINCT` peripheral column cannot be
+multiplied by a fan-out and is refused anyway: narrowing the rule to the aggregates that can
+actually be wrong would be a rule nobody could apply without already knowing which those are.
+
+What still defeats it is narrower than the Consequences claim: not a subquery, but an answer that
+never writes an aggregate at all, or one that aliases a measure to a new name and aggregates the
+alias — which is refused too, so the honest statement is that the rule is over-strict at the edge
+rather than porous there.
 
 What is **not** confirmed: that no reader ever writes the bad query at a prompt. Nothing can
 confirm that, and the register now says so instead of implying otherwise.

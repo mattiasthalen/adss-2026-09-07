@@ -6,7 +6,7 @@ import pytest
 
 from adss.model import read_model
 from adss.project import Project
-from adss.question import QuestionError, check_question, read_question, read_questions
+from adss.question import MEASURE, QuestionError, check_question, read_question, read_questions
 from adss.uss import definitions, read_uss
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -140,3 +140,96 @@ def test_an_id_that_would_not_survive_being_a_file_name_is_refused(tmp_path: Pat
         )
         with pytest.raises(QuestionError, match="usable question id"):
             read_question(directory)
+
+
+def variant(tmp_path: Path, name: str, **files: str) -> Path:
+    """The neutral question with some of its files replaced. Every refusal below needs one."""
+    directory = tmp_path / name
+    directory.mkdir()
+    for stem in ("question.md", "staged.sql", "uss.sql"):
+        (directory / stem).write_text(
+            files.get(stem.replace(".", "_"), (NEUTRAL / stem).read_text())
+        )
+    return directory
+
+
+def answering(sql: str) -> str:
+    return f"SELECT cal.month_label AS month_label, {sql} FROM dar__uss._bridge AS b ORDER BY 1"
+
+
+def test_an_answer_query_that_aggregates_a_peripherals_column_is_refused(tmp_path: Path):
+    """ADR 0012. The bridge protects the measure column and not the attribute beside it.
+
+    One join and one sum, which is the shape every question here already writes -- and over a
+    bridge with two rows per order it returns twice the truth with nothing to show for it.
+    """
+    directory = variant(tmp_path, "01-trapped", uss_sql=answering("sum(p.parent_size) AS n"))
+    with pytest.raises(QuestionError, match="parent_size"):
+        check_question(read_question(directory), neutral_definitions())
+
+
+def test_the_same_aggregate_over_a_measure_column_is_accepted(tmp_path: Path):
+    """The rule has to leave the good query alone, or it is a rule against answering."""
+    directory = variant(
+        tmp_path, "01-fine", uss_sql=answering("sum(b._measure__parent__size_parents_units) AS n")
+    )
+    check_question(read_question(directory), neutral_definitions())
+
+
+def test_a_cast_around_the_aggregate_does_not_hide_it(tmp_path: Path):
+    """Every answer query in this repository wraps its sum in a cast, so a check that reads
+    only the top of the expression would pass all of them and catch none."""
+    directory = variant(
+        tmp_path, "01-cast", uss_sql=answering("cast(sum(p.parent_size) AS DOUBLE) AS n")
+    )
+    with pytest.raises(QuestionError, match="parent_size"):
+        check_question(read_question(directory), neutral_definitions())
+
+
+def test_a_windowed_aggregate_over_a_peripherals_column_is_refused(tmp_path: Path):
+    """A sum over a window multiplies exactly as a grouped one does."""
+    directory = variant(tmp_path, "01-window", uss_sql=answering("sum(p.parent_size) OVER () AS n"))
+    with pytest.raises(QuestionError, match="parent_size"):
+        check_question(read_question(directory), neutral_definitions())
+
+
+def test_counting_the_bridges_rows_is_refused(tmp_path: Path):
+    """count(*) counts measurement events, which is not the number anybody meant to ask for.
+
+    Two events on one entity and the count doubles; a finer stage and it changes grain. The
+    measure exists so the question does not have to know which.
+    """
+    directory = variant(tmp_path, "01-counting", uss_sql=answering("count(*) AS n"))
+    with pytest.raises(QuestionError, match="counts measurement events"):
+        check_question(read_question(directory), neutral_definitions())
+
+
+def test_the_control_query_may_aggregate_whatever_it_likes(tmp_path: Path):
+    """It reads the source, where there is no bridge and no measure to aggregate instead."""
+    directory = variant(
+        tmp_path,
+        "01-source",
+        staged_sql=(
+            "SELECT strftime(p.parent_on, '%Y-%m') AS month_label, sum(p.parent_size) AS n "
+            "FROM das__staged.parent__current AS p GROUP BY 1 ORDER BY month_label"
+        ),
+    )
+    check_question(read_question(directory), neutral_definitions())
+
+
+def test_an_answer_query_the_engine_cannot_parse_is_refused(tmp_path: Path):
+    """Otherwise it is refused at build time, after the page has been written against it."""
+    directory = variant(tmp_path, "01-garbled", uss_sql="SELECT FROM dar__uss ORDER BY )(")
+    with pytest.raises(QuestionError, match="does not parse"):
+        check_question(read_question(directory), neutral_definitions())
+
+
+def test_every_measure_column_starts_with_the_prefix_the_refusal_looks_for():
+    """The refusal carries the prefix as a literal, beside the layer names it already carries.
+
+    A rename in the generator would otherwise leave it refusing every answer in the repository,
+    or -- worse -- accepting an aggregate over anything at all.
+    """
+    model = read_model(PROJECT.model)
+    for _, _, column in read_uss(PROJECT.uss, model).measure_columns():
+        assert column.startswith(MEASURE), column
