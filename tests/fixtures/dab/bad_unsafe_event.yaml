@@ -1,0 +1,11 @@
+# An event id that closes the string literal a generated check puts it in, and comments out
+# the rest -- so the check reports nothing wrong for ever.
+uss:
+  events:
+    - id: HAPPENED' AND 1 = 0 --
+      entity: PARENT
+      definition: An event whose id is not a name.
+      kind: transaction
+      date_attribute: HAPPENED_ON
+      measures:
+        - {id: HAPPENED_PARENTS_COUNT, definition: How many happened., aggregate: count}

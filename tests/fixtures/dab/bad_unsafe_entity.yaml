@@ -1,0 +1,13 @@
+# An entity id that becomes a path when a generated check is written to a file.
+model:
+  id: NEUTRAL
+  name: NEUTRAL
+  definition: A model with an id that is not a name.
+  description: It exists so a test proves the reader refuses one.
+  entities:
+    - id: ../../../tmp/PWNED
+      name: PWNED
+      definition: A thing whose id is a path.
+      description: One of them.
+      attributes:
+        - {id: PWNED_NUMBER, name: PWNED_NUMBER, definition: Its number., type: STRING, effective_timestamp: false}

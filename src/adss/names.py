@@ -2,10 +2,32 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
 _RESERVED = frozenset({"order", "group", "select", "from", "where", "table", "index", "all"})
+
+# What an id this system will spell into SQL and into a file name may look like. A letter,
+# then letters, digits and underscores. Nothing else: an id becomes a quoted identifier, a
+# string literal inside a generated check, and the stem of a file under checks/ -- so a
+# quote makes a check pass silently for ever, and a slash writes the file somewhere else.
+IDENTIFIER = re.compile(r"\A[A-Za-z][A-Za-z0-9_]*\Z")
+
+
+def unsafe(value: str) -> bool:
+    """Whether spelling this id into SQL or a path would change what it means."""
+    return IDENTIFIER.match(value) is None
+
+
+def refuse_unsafe(kind: str, value: str) -> str:
+    """The sentence every reader raises with, so one rule is stated once."""
+    return (
+        f"{kind} {value!r} is not a name this system can spell. An id becomes a quoted "
+        f"identifier, a literal inside a generated check and the stem of a file under "
+        f"checks/ -- so a quote makes a check pass for ever and a slash writes the file "
+        f"outside the directory. A letter, then letters, digits and underscores."
+    )
 
 
 class Layer(StrEnum):

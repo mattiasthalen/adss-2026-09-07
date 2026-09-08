@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 from adss.model import Entity, Model, Relationship
-from adss.names import Relation, Schema, crossing
+from adss.names import Relation, Schema, crossing, refuse_unsafe, unsafe
 
 BRIDGE = Relation(Schema.DAR_USS, "_bridge")
 CALENDAR = Relation(Schema.DAR_USS, "_calendar")
@@ -93,12 +93,22 @@ class Uss:
         )
 
 
+def _named(measure_id: str) -> str:
+    if unsafe(measure_id):
+        raise UssError(refuse_unsafe("measure", measure_id))
+    return measure_id
+
+
 def read_uss(path: Path, model: Model | None = None) -> Uss:
     """Read the declarations, refusing anything that would generate but should not."""
     document = yaml.safe_load(path.read_text())["uss"]
     events: list[Event] = []
     for declared in document["events"]:
         event_id = str(declared["id"])
+        # An id reaches a generated check as a string literal and a file name, so a quote
+        # in it would make that check report nothing wrong for ever. names.py, ADR 0012.
+        if unsafe(event_id):
+            raise UssError(refuse_unsafe("event", event_id))
         if "definition" not in declared:
             raise UssError(
                 f"{path}: event {event_id} has no definition. A glossary copies these "
@@ -117,7 +127,7 @@ def read_uss(path: Path, model: Model | None = None) -> Uss:
                 )
             measures.append(
                 Measure(
-                    id=str(raw["id"]),
+                    id=_named(str(raw["id"])),
                     definition=str(raw["definition"]),
                     aggregate=aggregate,
                     attribute_id=attribute_id,
