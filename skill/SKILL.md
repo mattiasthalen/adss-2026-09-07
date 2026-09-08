@@ -25,5 +25,7 @@ per slice. Vertical, thin end to end, widened one at a time.
 - MADR at the decision, never batched. Its confirmation names a check
   that exists.
 - Fix a slice on its own branch, then bring it forward.
+- Draft PR from the first commit, so CI runs on a machine that isn't
+  this one.
 - Red and green in a single conventional commit
 - Code review and security review before I see it

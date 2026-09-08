@@ -421,3 +421,30 @@ What stays from the design, because it is earned independently:
   1's branch and the stack above it picks the fix up. This was first written as "a
   fix to a slice below lands on the branch below", which reads as the opposite as
   easily as it reads as this.
+
+
+# Draft PR from the first commit
+
+The pull request was opened at 22:13, after slice 1 was finished. The first commit
+of the slice was `75bbc38` at 20:34. So fourteen commits were made, and the whole
+slice built, with nothing ever running anywhere but this container.
+
+Three defects of one kind were waiting at the end of that, and all three are
+invisible to a local gate by construction:
+
+* `28a6065`, at 22:17. A CLI test asserting the literal substring `Usage: adss`.
+  Help output is styled per phrase, so where colour is enabled the bytes are
+  `Usage: <esc>adss` and the substring does not exist. CI enables colour; this
+  container does not. In the commit's own words, the test "had only ever been seen
+  to pass under the one condition that hid the bug."
+* Two more in `3d2fa7e`, at 21:52, found by the verification lens rather than by CI:
+  one hashed a 174 MB git-LFS object the gate job never pulls, one required a
+  browser directory nothing in the repository creates. Both meant "every commit
+  passes the gate" was false from a fresh checkout.
+
+A draft pull request opened on the first commit puts CI on commit one, where the
+first of those would have failed at 20:34 instead of 22:17. That is the whole
+argument: the local gate and CI are not two runs of the same thing, and this run
+proved it three times in one slice. It also makes the trigger in Always exact,
+since "ready for review and green" is then a state change on a pull request that
+already exists rather than one that has to be created to be ready.
