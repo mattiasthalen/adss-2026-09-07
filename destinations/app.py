@@ -15,12 +15,14 @@ def _():
     import polars as pl
 
     import adss.question as question_module
+    from adss.destination import as_text
     from adss.model import read_model
     from adss.project import Project
     from adss.uss import definitions, read_uss
 
     return (
         alt,
+        as_text,
         definitions,
         duckdb,
         mo,
@@ -663,7 +665,7 @@ def _(a4, mo, q4, shown):
 
 
 @app.cell
-def _(answers, asked, mo, pl, shown):
+def _(answers, as_text, asked, mo, pl, shown):
     q5 = asked[4] if len(asked) > 4 else asked[-1]
     a5 = answers[q5.id].with_columns(pl.col("revenue_order_lines_amount").cast(pl.Float64))
     # The recording stops inside the last quarter, so every panel falls off the same cliff at
@@ -696,7 +698,7 @@ def _(answers, asked, mo, pl, shown):
 
             over **{a5["order_quarter"].n_unique()}** quarters, from
             **{a5["order_quarter"].min()}** to **{a5["order_quarter"].max()}**. The largest is
-            **{category_biggest["product_category"]}** at
+            **{as_text(category_biggest["product_category"])}** at
             **{category_biggest["revenue_order_lines_amount"]:,.0f}**, which is a fact about
             size and not about which one to buy more of -- for that, read the shapes below
             rather than the heights. No currency is shown because nothing in the source

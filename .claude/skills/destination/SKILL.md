@@ -28,6 +28,12 @@ uv run adss shoot                          photograph it for a pull request
 - **It invents no fact.** No currency symbol where the model records no currency, no hardcoded
   count beside computed ones, no label the page was told rather than shown. Everything on the
   picture a slice is accepted on is derived from the answer, or it is not on the picture.
+- **A value out of the warehouse reaches the page as text, through `as_text`.** Markdown is HTML,
+  so a category name carrying a positioned `<div>` puts a different number on the accepted
+  picture — and nothing catches it: no cell raised, the file is a normal size, and both of the
+  question's queries still agree, because the same poisoned string sits on both sides of that
+  comparison. It is not script execution, which the frontend's sanitiser stops. It does not need
+  to be.
 
 ## Charts
 

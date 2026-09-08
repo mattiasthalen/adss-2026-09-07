@@ -82,3 +82,22 @@ def test_every_id_in_this_repository_is_one_this_system_can_spell():
             assert not unsafe(measure.id), measure.id
     for path in project.mapping_paths():
         assert not unsafe(read_mapping(path).entity_id), path
+
+
+def test_a_relationships_ends_are_names_this_system_can_spell_too():
+    """A relationship's id is composed from its source, its name and its target, and all three
+    reach generated SQL. Validating only the name left the rule with a hole: it produced an
+    unreadable KeyError further down rather than an injection, because an entity id with
+    metacharacters is refused where the entity is declared -- but a rule about ids should
+    cover the ids."""
+    import yaml
+
+    document = yaml.safe_load((DAB / "model.yaml").read_text())
+    document["model"]["relationships"][0]["source_entity_id"] = "CHILD' AND 1 = 0 --"
+    broken = DAB.parent / "unsafe_edge_end.yaml"
+    broken.write_text(yaml.safe_dump(document))
+    try:
+        with pytest.raises(ModelError, match="not a name this system can spell"):
+            read_model(broken)
+    finally:
+        broken.unlink()
