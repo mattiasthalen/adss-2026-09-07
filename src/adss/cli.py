@@ -20,6 +20,8 @@ from adss.checks import (
     composed_key_check_names,
     composed_key_checks,
     contracts_of,
+    inherited_date_check_names,
+    inherited_date_checks,
     measure_check_names,
     measure_checks,
     relationship_check_names,
@@ -196,6 +198,7 @@ def das_unpack(
         project.checks_sql / name
         for name in relationship_check_names(model)
         + measure_check_names(read_uss(project.uss, model))
+        + inherited_date_check_names(model, read_uss(project.uss, model))
         + composed_key_check_names(
             [read_mapping(path) for path in project.mapping_paths()],
             [read_contract(path) for path in project.contract_paths()],
@@ -276,7 +279,10 @@ def _generated_checks(project: Project) -> dict[str, str]:
     mappings = [read_mapping(path) for path in project.mapping_paths()]
     contracts = [read_contract(path) for path in project.contract_paths()]
     written = (
-        relationship_checks(model) | measure_checks(uss) | composed_key_checks(mappings, contracts)
+        relationship_checks(model)
+        | measure_checks(uss)
+        | inherited_date_checks(model, uss)
+        | composed_key_checks(mappings, contracts)
     )
     return {f"{name}.sql": formatted(sql, project.sqlfluff_config) for name, sql in written.items()}
 

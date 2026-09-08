@@ -120,6 +120,25 @@ entity; and that the date and the key come from the same CTE, so no bridge row c
 instants. The neutral fixture gains an event on `CHILD` dated by `PARENT.HAPPENED_ON`, which is
 the shape this record is about and which the fixture did not have.
 
-A data check asserts that every bridge row's `_event_date` for such a stage equals the inherited
-entity's own date for the key on that row — the property that would break silently if the two
-were ever resolved at different instants.
+A generated data check asserts that every bridge row of such a stage carries the same
+`_event_date` as the stage that **owns** that date, for the key on that row — 2,155 comparisons on
+the real build. It is independent rather than circular: the parent's own stage gets the date from
+its version CTE and the child's from its inherit CTE, so resolving the date at a different instant
+than the key, or against a different version of the parent, shows up here. Both of those are
+invisible in the warehouse otherwise. `tests/test_inherited_date_check.py` runs it against a
+bridge built to fail it.
+
+A check is generated only where the entity the date comes from has an event on that same
+attribute. Without one there is nothing independent to compare against, and a check that
+re-derives what it expects from the generator agrees with a broken generator.
+
+**This section previously claimed that check existed.** It did not: nothing in `src/adss/checks.py`
+emitted it and no such file was in `checks/`. A security review found the claim, and it is the
+third confirmation in this repository to name a check that could not do what it said — which is
+why the rule about running the mutation before writing the sentence now lives in the adss skill.
+
+What is **not** confirmed, and is recorded rather than claimed: a row dropped because its
+inherited date did not resolve. This decision makes such a row absent by construction, and an
+absent row disagrees with nothing. Checking that would need a count of the rows a stage *should*
+have, and nothing in the model states one — a line whose order has no date is legitimately absent,
+and no check can tell that from a line the generator lost.

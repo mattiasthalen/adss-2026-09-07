@@ -16,7 +16,7 @@ import duckdb
 
 from adss.contract import Contract, read_contract
 from adss.mapping import Mapping, Table
-from adss.model import Model, read_model
+from adss.model import Entity, Model, read_model
 from adss.names import Relation, Schema, crossing
 from adss.project import Project
 from adss.question import (
@@ -27,7 +27,7 @@ from adss.question import (
     read_questions,
     without_comments,
 )
-from adss.uss import BRIDGE, Uss, bridge_columns, definitions, read_uss
+from adss.uss import BRIDGE, Event, Uss, bridge_columns, definitions, read_uss
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,6 +379,70 @@ def composed_key_checks(
 
 
 _COMPOSED = "-- Generated from dab/mappings/. Do not edit; regenerate with `adss dar generate`."
+
+
+def _dated_elsewhere(model: Model, uss: Uss) -> list[tuple[Event, Event, Entity]]:
+    """Every event that inherits its date, paired with the event that owns that date.
+
+    Only where such an event exists. Without one there is nothing independent to compare the
+    inherited date against, and a check that re-derives what it expects from the generator
+    agrees with a broken generator -- which is the trap `entity_keys` already carries a note
+    about.
+    """
+    paired: list[tuple[Event, Event, Entity]] = []
+    for event in uss.events:
+        inherited, attribute_id = event.dated_by
+        if inherited is None:
+            continue
+        owner = next(
+            (
+                candidate
+                for candidate in uss.events
+                if candidate.entity_id == inherited and candidate.dated_by == (None, attribute_id)
+            ),
+            None,
+        )
+        if owner is not None:
+            paired.append((event, owner, model.entity(inherited)))
+    return paired
+
+
+def inherited_date_check_names(model: Model, uss: Uss) -> tuple[str, ...]:
+    """What inherited_date_checks would be called, without emitting or formatting any of it."""
+    return tuple(
+        f"{event.name}__inherited_date.sql" for event, _, _ in _dated_elsewhere(model, uss)
+    )
+
+
+def inherited_date_checks(model: Model, uss: Uss) -> dict[str, str]:
+    """One check per inherited date: it agrees with the stage that owns that date. ADR 0009.
+
+    The date and the key are resolved in one CTE at one instant, and the two ways that breaks --
+    resolving the date at a different instant than the key, or against a different version of the
+    parent -- are both invisible in the warehouse. The parent's own stage carries the same date
+    through a different code path, so comparing them is independent rather than circular.
+
+    What it does not see: a row dropped because its inherited date did not resolve. ADR 0009
+    makes such a row absent by construction, and an absent row disagrees with nothing. Nothing in
+    the model says how many rows a stage should have, so there is no honest count to check it
+    against; the record says so rather than implying this covers it.
+    """
+    generated: dict[str, str] = {}
+    for event, owner, entity in _dated_elsewhere(model, uss):
+        generated[f"{event.name}__inherited_date"] = (
+            f"{_INHERITED}\n"
+            f"SELECT count(*) AS disagreements\n"
+            f"FROM {BRIDGE.sql} AS inheriting\n"
+            f"INNER JOIN {BRIDGE.sql} AS dating\n"
+            f"    ON dating.{entity.key_column} = inheriting.{entity.key_column}\n"
+            f"    AND dating._event = '{owner.name}'\n"
+            f"WHERE inheriting._event = '{event.name}'\n"
+            f"    AND inheriting._event_date != dating._event_date;\n"
+        )
+    return generated
+
+
+_INHERITED = "-- Generated from dab/uss.yaml. Do not edit; regenerate with `adss dar generate`."
 
 
 _MEASURE = "-- Generated from dab/uss.yaml. Do not edit; regenerate with `adss dar generate`."
