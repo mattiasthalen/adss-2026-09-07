@@ -1,0 +1,767 @@
+diff --git a/checks/measure__order__freight_orders_amount__isolated.sql b/checks/measure__order__freight_orders_amount__isolated.sql
+new file mode 100644
+index 0000000..47d161a
+--- /dev/null
++++ b/checks/measure__order__freight_orders_amount__isolated.sql
+@@ -0,0 +1,6 @@
++-- Generated from dab/uss.yaml. Do not edit; regenerate with `adss dar generate`.
++SELECT count(*) AS leaked
++FROM dar__uss._bridge AS b
++WHERE
++    b._event != 'placed'
++    AND b._measure__order__freight_orders_amount IS NOT NULL;
+diff --git a/checks/measure__order__placed_orders_count__isolated.sql b/checks/measure__order__placed_orders_count__isolated.sql
+new file mode 100644
+index 0000000..a31baf6
+--- /dev/null
++++ b/checks/measure__order__placed_orders_count__isolated.sql
+@@ -0,0 +1,6 @@
++-- Generated from dab/uss.yaml. Do not edit; regenerate with `adss dar generate`.
++SELECT count(*) AS leaked
++FROM dar__uss._bridge AS b
++WHERE
++    b._event != 'placed'
++    AND b._measure__order__placed_orders_count IS NOT NULL;
+diff --git a/checks/measure__order__ship_lag_orders_days__isolated.sql b/checks/measure__order__ship_lag_orders_days__isolated.sql
+new file mode 100644
+index 0000000..4a2ff06
+--- /dev/null
++++ b/checks/measure__order__ship_lag_orders_days__isolated.sql
+@@ -0,0 +1,6 @@
++-- Generated from dab/uss.yaml. Do not edit; regenerate with `adss dar generate`.
++SELECT count(*) AS leaked
++FROM dar__uss._bridge AS b
++WHERE
++    b._event != 'shipped'
++    AND b._measure__order__ship_lag_orders_days IS NOT NULL;
+diff --git a/checks/measure__order__shipped_orders_count__isolated.sql b/checks/measure__order__shipped_orders_count__isolated.sql
+new file mode 100644
+index 0000000..c0aa01d
+--- /dev/null
++++ b/checks/measure__order__shipped_orders_count__isolated.sql
+@@ -0,0 +1,6 @@
++-- Generated from dab/uss.yaml. Do not edit; regenerate with `adss dar generate`.
++SELECT count(*) AS leaked
++FROM dar__uss._bridge AS b
++WHERE
++    b._event != 'shipped'
++    AND b._measure__order__shipped_orders_count IS NOT NULL;
+diff --git a/checks/measure__order_line__revenue_order_lines_amount__isolated.sql b/checks/measure__order_line__revenue_order_lines_amount__isolated.sql
+new file mode 100644
+index 0000000..4f2594b
+--- /dev/null
++++ b/checks/measure__order_line__revenue_order_lines_amount__isolated.sql
+@@ -0,0 +1,6 @@
++-- Generated from dab/uss.yaml. Do not edit; regenerate with `adss dar generate`.
++SELECT count(*) AS leaked
++FROM dar__uss._bridge AS b
++WHERE
++    b._event != 'ordered'
++    AND b._measure__order_line__revenue_order_lines_amount IS NOT NULL;
+diff --git a/checks/order_details__clock.sql b/checks/order_details__clock.sql
+new file mode 100644
+index 0000000..7c43122
+--- /dev/null
++++ b/checks/order_details__clock.sql
+@@ -0,0 +1,4 @@
++-- Generated from das/contracts/order_details.yaml. Do not edit; edit the contract.
++SELECT count(*) AS disagreements
++FROM das__staged.order_details AS staged
++WHERE staged.extracted_on <> cast(timezone('UTC', staged.extracted_at) AS DATE);
+diff --git a/checks/order_details__key.sql b/checks/order_details__key.sql
+new file mode 100644
+index 0000000..20c30ea
+--- /dev/null
++++ b/checks/order_details__key.sql
+@@ -0,0 +1,3 @@
++-- Generated from das/contracts/order_details.yaml. Do not edit; edit the contract.
++SELECT count(*) - count(DISTINCT row(latest.order_id, latest.product_id)) AS duplicates
++FROM das__staged.order_details__current AS latest;
+diff --git a/checks/order_line__composed_key.sql b/checks/order_line__composed_key.sql
+new file mode 100644
+index 0000000..fc0d1fc
+--- /dev/null
++++ b/checks/order_line__composed_key.sql
+@@ -0,0 +1,9 @@
++-- Generated from dab/mappings/. Do not edit; regenerate with `adss dar generate`.
++SELECT count(*) AS collisions
++FROM (
++    SELECT
++        count(DISTINCT row(order_id, product_id)) AS parts,
++        count(DISTINCT cast(order_id AS VARCHAR) || '-' || cast(product_id AS VARCHAR)) AS composed
++    FROM das__staged.order_details__current
++) AS counted
++WHERE counted.parts != counted.composed;
+diff --git a/checks/order_line_is_part_of_order__loaded.sql b/checks/order_line_is_part_of_order__loaded.sql
+new file mode 100644
+index 0000000..c469d88
+--- /dev/null
++++ b/checks/order_line_is_part_of_order__loaded.sql
+@@ -0,0 +1,10 @@
++-- Generated from dab/model.yaml. Do not edit; regenerate with `adss dar generate`.
++SELECT count(*) AS unloaded
++FROM (SELECT 1 AS declared) AS edge
++WHERE NOT EXISTS (
++    SELECT 1
++    FROM dab."v_ORDER_LINE_IS_PART_OF_ORDER" AS pair
++    WHERE
++        pair.rel_name = 'ORDER_LINE_IS_PART_OF_ORDER'
++        AND pair.row_st = 'Y'
++);
+diff --git a/checks/order_line_is_part_of_order__one_target.sql b/checks/order_line_is_part_of_order__one_target.sql
+new file mode 100644
+index 0000000..87aa643
+--- /dev/null
++++ b/checks/order_line_is_part_of_order__one_target.sql
+@@ -0,0 +1,13 @@
++-- Generated from dab/model.yaml. Do not edit; regenerate with `adss dar generate`.
++SELECT count(*) AS ambiguities
++FROM (
++    SELECT
++        pair."ORDER_LINE_key" AS source_key,
++        pair.eff_tmstp AS observed_at
++    FROM dab."v_ORDER_LINE_IS_PART_OF_ORDER" AS pair
++    WHERE
++        pair.rel_name = 'ORDER_LINE_IS_PART_OF_ORDER'
++        AND pair.row_st = 'Y'
++    GROUP BY pair."ORDER_LINE_key", pair.eff_tmstp
++    HAVING count(DISTINCT pair."ORDER_key") > 1
++) AS tied;
+diff --git a/checks/order_line_is_part_of_order__resolves.sql b/checks/order_line_is_part_of_order__resolves.sql
+new file mode 100644
+index 0000000..a54c110
+--- /dev/null
++++ b/checks/order_line_is_part_of_order__resolves.sql
+@@ -0,0 +1,9 @@
++-- Generated from dab/model.yaml. Do not edit; regenerate with `adss dar generate`.
++SELECT count(*) AS dangling
++FROM dar__uss._bridge AS b
++LEFT JOIN dar__uss."order" AS t
++    ON b.order_key = t.order_key
++WHERE
++    b._stage = 'order_line'
++    AND b.order_key IS NOT NULL
++    AND t.order_key IS NULL;
+diff --git a/dab/mappings/order-line-mapping.yaml b/dab/mappings/order-line-mapping.yaml
+new file mode 100644
+index 0000000..252edc6
+--- /dev/null
++++ b/dab/mappings/order-line-mapping.yaml
+@@ -0,0 +1,31 @@
++# How one entity is loaded from what the system recorded. This is the one artefact whose job
++# is to bind two vocabularies, so it names both -- but only in table, primary_keys and
++# transformation_expression. See docs/conventions.md section 1.4.
++entity_id: ORDER_LINE
++mapping_groups:
++  - name: default_mapping_group
++    tables:
++      - connection: dev
++        table: das__staged.order_details
++        # The first composite key here. One entry, joined with || and a separator: `concat`
++        # ignores nulls and would turn a missing half into a shorter key that collides with a
++        # real one. A generated check counts this against the source's own two columns.
++        # ADR 0010.
++        primary_keys: ["cast(order_id AS VARCHAR) || '-' || cast(product_id AS VARCHAR)"]
++        ingestion_strategy: FULL_LOG
++        entity_effective_timestamp_expression: extracted_at
++        attributes:
++          - id: LINE_NUMBER
++            transformation_expression: cast(order_id AS VARCHAR) || '-' || cast(product_id AS VARCHAR)
++          - {id: QUANTITY, transformation_expression: quantity}
++          - {id: AGREED_UNIT_PRICE, transformation_expression: unit_price}
++          - {id: DISCOUNT_RATE, transformation_expression: discount}
++          # Arithmetic over columns of this row, which M5 permits and ADR 0007 bounds.
++          - id: REVENUE
++            transformation_expression: quantity * unit_price * (1 - discount)
++    relationships:
++      - id: ORDER_LINE_IS_PART_OF_ORDER
++        source_table: das__staged.order_details
++        # Spelled exactly as order-mapping.yaml spells its own key -- a bare column.
++        # A cast here would produce a different VARCHAR and join to nothing.
++        target_transformation_expression: order_id
+diff --git a/dab/model.yaml b/dab/model.yaml
+index c465c10..e2ec863 100644
+--- a/dab/model.yaml
++++ b/dab/model.yaml
+@@ -118,6 +118,60 @@ model:
+           type: STRING
+           effective_timestamp: true
+ 
++    - id: ORDER_LINE
++      name: ORDER_LINE
++      definition: >-
++        One kind of goods on one order, in the quantity and at the price the business agreed
++        to supply it for.
++      description: >-
++        An order is made of these, and this is where what was actually bought is recorded --
++        the order itself says only who asked and where it goes. A line exists from the moment
++        the order does; there is no separate day on which one is added.
++      attributes:
++        - id: LINE_NUMBER
++          name: LINE_NUMBER
++          definition: The reference the business uses when it refers to one particular line.
++          description: >-
++            Composed rather than issued: nothing on an order form carries it. It identifies a
++            line inside this system and is not a number anybody outside it would recognise.
++          type: STRING
++          effective_timestamp: false
++
++        - id: QUANTITY
++          name: QUANTITY
++          definition: How many of the goods the business agreed to supply on this line.
++          description: Whole units. A line is never for none.
++          type: NUMBER
++          effective_timestamp: true
++
++        - id: AGREED_UNIT_PRICE
++          name: AGREED_UNIT_PRICE
++          definition: The price per unit the business agreed to on this line.
++          description: >-
++            What was agreed when the order was accepted, which is not what the goods cost
++            today and does not move when the price does. It is the price before any discount.
++          type: NUMBER
++          effective_timestamp: true
++
++        - id: DISCOUNT_RATE
++          name: DISCOUNT_RATE
++          definition: The proportion of the agreed price the business gave up on this line.
++          description: >-
++            A proportion, not a percentage and not an amount: 0.25 means a quarter off. Zero
++            on most lines. It applies to this line alone and never to the order.
++          type: NUMBER
++          effective_timestamp: true
++
++        - id: REVENUE
++          name: REVENUE
++          definition: What the business took for this line, after the discount it gave up.
++          description: >-
++            The quantity times the agreed price, less the discount on it. It is what was
++            earned by supplying this line, not what was collected -- nothing here records
++            payment. Nothing states the currency, as with every other amount in this model.
++          type: NUMBER
++          effective_timestamp: true
++
+   # No cardinality is declared, because the modelling language has nowhere to declare it: a
+   # `cardinality` field is rejected outright, and `type` accepts any string and is dropped on
+   # compile. Writing `type: "1:N"` here would read as a statement the engine never receives.
+@@ -131,3 +185,12 @@ model:
+         this records who asked for the goods, not who is billed or who receives them.
+       source_entity_id: ORDER
+       target_entity_id: CUSTOMER
++
++    - name: IS_PART_OF
++      definition: The order this line is one of the things asked for on.
++      description: >-
++        A line belongs to exactly one order and to the same one for its whole life. It is also
++        where the line gets its date: a line has no day of its own, and the day it was asked
++        for is the day the order was accepted. ADR 0009.
++      source_entity_id: ORDER_LINE
++      target_entity_id: ORDER
+diff --git a/dab/uss.yaml b/dab/uss.yaml
+index 7508ff9..88e809e 100644
+--- a/dab/uss.yaml
++++ b/dab/uss.yaml
+@@ -53,3 +53,21 @@ uss:
+             same set -- a division a question does, and never a number this system stores.
+           aggregate: sum
+           attribute: SHIP_LAG_DAYS
++
++    - id: ORDERED
++      entity: ORDER_LINE
++      definition: >-
++        A line was ordered: the business agreed to supply one kind of goods, in a quantity, at
++        a price. One per line, on the day the order carrying it was accepted -- a line has no
++        day of its own.
++      kind: transaction
++      # Inherited along IS_PART_OF, resolved with the key and at the same instant. ADR 0009.
++      date_attribute: ORDER.PLACED_ON
++      measures:
++        - id: REVENUE_ORDER_LINES_AMOUNT
++          definition: >-
++            What the business took, added up over lines. It is additive over any set of lines
++            and any period, because each line contributes what it earned exactly once -- and
++            it may not be added to anything measured per order, which is a different grain.
++          aggregate: sum
++          attribute: REVENUE
+diff --git a/dab/workflow.yaml b/dab/workflow.yaml
+index 57f8cec..177ba32 100644
+--- a/dab/workflow.yaml
++++ b/dab/workflow.yaml
+@@ -10,3 +10,4 @@ workflow:
+   mappings:
+     - ./mappings/order-mapping.yaml
+     - ./mappings/customer-mapping.yaml
++    - ./mappings/order-line-mapping.yaml
+diff --git a/dar/uss/_bridge.sql b/dar/uss/_bridge.sql
+index 773e39e..b3fba6f 100644
+--- a/dar/uss/_bridge.sql
++++ b/dar/uss/_bridge.sql
+@@ -100,6 +100,60 @@ shipped AS (
+         ON
+             revision.order_key = order_is_placed_by_customer.order_key
+             AND revision._observed_at = order_is_placed_by_customer._observed_at
++),
++
++ordered__version AS (
++    SELECT
++        revision."ORDER_LINE_key" AS order_line_key,
++        revision.eff_tmstp AS _observed_at,
++        cast(revision."REVENUE" AS DECIMAL(28, 8)) AS _measure__order_line__revenue_order_lines_amount
++    FROM dab."view_ORDER_LINE_hist" AS revision
++    QUALIFY row_number() OVER (
++        PARTITION BY revision."ORDER_LINE_key"
++        ORDER BY revision.eff_tmstp DESC
++    ) = 1
++),
++
++ordered__order_line_is_part_of_order AS (
++    SELECT
++        revision.order_line_key AS order_line_key,
++        revision._observed_at AS _observed_at,
++        pair."ORDER_key" AS order_key,
++        cast(dated."PLACED_ON" AS DATE) AS _event_date
++    FROM ordered__version AS revision
++    LEFT JOIN dab."v_ORDER_LINE_IS_PART_OF_ORDER" AS pair
++        ON
++            revision.order_line_key = pair."ORDER_LINE_key"
++            AND pair.rel_name = 'ORDER_LINE_IS_PART_OF_ORDER'
++            AND pair.row_st = 'Y'
++            AND revision._observed_at >= pair.eff_tmstp
++    LEFT JOIN dab."view_ORDER_hist" AS dated
++        ON
++            pair."ORDER_key" = dated."ORDER_key"
++            AND revision._observed_at >= dated.eff_tmstp
++    QUALIFY row_number() OVER (
++        PARTITION BY revision.order_line_key, revision._observed_at
++        ORDER BY
++            pair.eff_tmstp DESC,
++            pair.ver_tmstp DESC,
++            pair."ORDER_key" ASC,
++            dated.eff_tmstp DESC
++    ) = 1
++),
++
++ordered AS (
++    SELECT
++        revision.order_line_key AS order_line_key,
++        revision._observed_at AS _observed_at,
++        order_line_is_part_of_order._event_date AS _event_date,
++        order_line_is_part_of_order.order_key AS order_key,
++        revision._measure__order_line__revenue_order_lines_amount AS _measure__order_line__revenue_order_lines_amount
++    FROM ordered__version AS revision
++    LEFT JOIN ordered__order_line_is_part_of_order AS order_line_is_part_of_order
++        ON
++            revision.order_line_key = order_line_is_part_of_order.order_line_key
++            AND revision._observed_at = order_line_is_part_of_order._observed_at
++    WHERE order_line_is_part_of_order._event_date IS NOT NULL
+ )
+ 
+ SELECT
+@@ -110,10 +164,12 @@ SELECT
+     placed._observed_at AS _observed_at,
+     placed.order_key AS order_key,
+     placed.customer_key AS customer_key,
++    cast(NULL AS VARCHAR) AS order_line_key,
+     placed._measure__order__placed_orders_count AS _measure__order__placed_orders_count,
+     placed._measure__order__freight_orders_amount AS _measure__order__freight_orders_amount,
+     cast(NULL AS BIGINT) AS _measure__order__shipped_orders_count,
+-    cast(NULL AS DECIMAL(28, 8)) AS _measure__order__ship_lag_orders_days
++    cast(NULL AS DECIMAL(28, 8)) AS _measure__order__ship_lag_orders_days,
++    cast(NULL AS DECIMAL(28, 8)) AS _measure__order_line__revenue_order_lines_amount
+ FROM placed AS placed
+ 
+ UNION ALL
+@@ -126,8 +182,28 @@ SELECT
+     shipped._observed_at AS _observed_at,
+     shipped.order_key AS order_key,
+     shipped.customer_key AS customer_key,
++    cast(NULL AS VARCHAR) AS order_line_key,
+     cast(NULL AS BIGINT) AS _measure__order__placed_orders_count,
+     cast(NULL AS DECIMAL(28, 8)) AS _measure__order__freight_orders_amount,
+     shipped._measure__order__shipped_orders_count AS _measure__order__shipped_orders_count,
+-    shipped._measure__order__ship_lag_orders_days AS _measure__order__ship_lag_orders_days
+-FROM shipped AS shipped;
++    shipped._measure__order__ship_lag_orders_days AS _measure__order__ship_lag_orders_days,
++    cast(NULL AS DECIMAL(28, 8)) AS _measure__order_line__revenue_order_lines_amount
++FROM shipped AS shipped
++
++UNION ALL
++
++SELECT
++    'order_line' AS _stage,
++    'ordered' AS _event,
++    ordered._event_date AS _event_date,
++    TRUE AS _is_current,
++    ordered._observed_at AS _observed_at,
++    ordered.order_key AS order_key,
++    cast(NULL AS VARCHAR) AS customer_key,
++    ordered.order_line_key AS order_line_key,
++    cast(NULL AS BIGINT) AS _measure__order__placed_orders_count,
++    cast(NULL AS DECIMAL(28, 8)) AS _measure__order__freight_orders_amount,
++    cast(NULL AS BIGINT) AS _measure__order__shipped_orders_count,
++    cast(NULL AS DECIMAL(28, 8)) AS _measure__order__ship_lag_orders_days,
++    ordered._measure__order_line__revenue_order_lines_amount AS _measure__order_line__revenue_order_lines_amount
++FROM ordered AS ordered;
+diff --git a/dar/uss/order_line.sql b/dar/uss/order_line.sql
+new file mode 100644
+index 0000000..93cdcaa
+--- /dev/null
++++ b/dar/uss/order_line.sql
+@@ -0,0 +1,15 @@
++-- Generated from dab/model.yaml and dab/uss.yaml. Do not edit; regenerate.
++CREATE OR REPLACE TABLE dar__uss.order_line AS
++SELECT
++    e."ORDER_LINE_key" AS order_line_key,
++    e.eff_tmstp AS _observed_at,
++    e."LINE_NUMBER" AS line_number,
++    e."QUANTITY" AS quantity,
++    e."AGREED_UNIT_PRICE" AS agreed_unit_price,
++    e."DISCOUNT_RATE" AS discount_rate,
++    e."REVENUE" AS revenue
++FROM dab."view_ORDER_LINE_hist" AS e
++QUALIFY row_number() OVER (
++    PARTITION BY e."ORDER_LINE_key"
++    ORDER BY e.eff_tmstp DESC
++) = 1;
+diff --git a/destinations/app.py b/destinations/app.py
+index 7afff1c..ac35478 100644
+--- a/destinations/app.py
++++ b/destinations/app.py
+@@ -523,5 +523,133 @@ def _(a3, mo, q3, shown):
+     return
+ 
+ 
++@app.cell
++def _(answers, asked, mo, pl, shown):
++    q4 = asked[3] if len(asked) > 3 else asked[-1]
++    # Decimal is exact and altair cannot encode it. The cast is here, on the way to the
++    # picture, rather than in the query -- which stays exact so the two answers can be
++    # compared as values.
++    a4 = answers[q4.id].with_columns(pl.col("revenue_order_lines_amount").cast(pl.Float64))
++    # A series has to stop somewhere, and the period it stops in is short rather than small.
++    # Drawn at full strength beside twenty-two whole months, the last bar reads as a collapse
++    # in demand -- so it is marked, here, from the answer alone.
++    a4 = a4.with_columns((pl.col("order_month") != a4["order_month"].max()).alias("complete"))
++
++    taken = float(a4["revenue_order_lines_amount"].sum())
++    best = (a4.filter(pl.col("complete")).sort("revenue_order_lines_amount", descending=True)).row(
++        0, named=True
++    )
++
++    # No currency symbol anywhere on this page. The model says nothing records which currency
++    # this is, and a symbol would be the page inventing a fact -- which is the one thing a
++    # destination is never allowed to do.
++    shown(
++        q4,
++        mo.md(
++            f"""
++            ## {q4.question}
++
++            *Asked by the {q4.persona.lower()}.*
++
++            ## {taken:,.0f} taken
++
++            across **{len(a4)}** months, from **{a4["order_month"].min()}** to
++            **{a4["order_month"].max()}**. The best whole month was **{best["order_month"]}**,
++            at **{best["revenue_order_lines_amount"]:,.0f}**. No currency is shown because
++            nothing in the source records one.
++            """
++        ),
++    )
++    return a4, best, q4, taken
++
++
++@app.cell
++def _(GRID, MUTED, SEQUENTIAL, SURFACE, a4, alt, mo, q4, shown):
++    # Magnitude per month, so bars rather than a line: the question is how much was taken in
++    # each month, not the shape of a trajectory between them. One series, so no legend -- the
++    # title above names it.
++    revenue = (
++        alt.Chart(a4)
++        .mark_bar(color=SEQUENTIAL[4], cornerRadiusEnd=3)
++        .encode(
++            x=alt.X("order_month:O", title=None, axis=alt.Axis(labelAngle=-90, labelColor=MUTED)),
++            y=alt.Y(
++                "revenue_order_lines_amount:Q",
++                title="revenue",
++                axis=alt.Axis(labelColor=MUTED, titleColor=MUTED, gridColor=GRID, format=",.0f"),
++            ),
++            # Never on colour alone: the caption below says what the faded bar is, and the
++            # tooltip says it again for anyone who reads a bar rather than a page.
++            opacity=alt.Opacity(
++                "complete:N",
++                scale=alt.Scale(domain=[True, False], range=[1.0, 0.35]),
++                legend=None,
++            ),
++            tooltip=[
++                alt.Tooltip("order_month:O", title="Ordered in"),
++                alt.Tooltip("revenue_order_lines_amount:Q", title="Revenue", format=",.2f"),
++                alt.Tooltip("complete:N", title="Whole month"),
++            ],
++        )
++        .properties(height=190, width="container", background=SURFACE)
++        .configure_view(stroke=None)
++        .configure_axis(domainColor="#c3c2b7", tickColor="#c3c2b7", labelFontSize=11)
++    )
++
++    shown(q4, mo.ui.altair_chart(revenue, chart_selection=False, legend_selection=False))
++    return (revenue,)
++
++
++@app.cell
++def _(MUTED, a4, mo, q4, shown):
++    shown(
++        q4,
++        mo.md(
++            f"""
++            <span style="color:{MUTED}">The last bar, **{a4["order_month"].max()}**, is faded
++            because the recording stops inside that month. It is shorter than the others, not
++            smaller, and reading it as a fall in demand is reading the edge of the recording.
++            The question says where it ends.</span>
++            """
++        ),
++    )
++    return
++
++
++@app.cell
++def _(mo, q4, shown):
++    shown(q4, mo.md("### What the words mean"))
++    return
++
++
++@app.cell
++def _(glossary, q4, shown):
++    shown(q4, glossary(q4))
++    return
++
++
++@app.cell
++def _(a4, mo, q4, shown):
++    shown(
++        q4,
++        mo.md(
++            f"""
++            ### The answer, row by row
++
++            {len(a4):,} rows, at the grain of the order line rather than the order. Every other
++            question on this page is per order, and they can be read side by side because a
++            measure stays on the stage that owns it.
++            """
++        ),
++    )
++    return
++
++
++@app.cell
++def _(a4, mo, q4, shown):
++    shown(q4, mo.ui.table(a4, page_size=25, selection=None, show_column_summaries=False))
++    return
++
++
+ if __name__ == "__main__":
+     app.run()
+diff --git a/docs/questions/04-revenue-per-order-month/answer.png b/docs/questions/04-revenue-per-order-month/answer.png
+new file mode 100644
+index 0000000..835306e
+Binary files /dev/null and b/docs/questions/04-revenue-per-order-month/answer.png differ
+diff --git a/docs/questions/04-revenue-per-order-month/question.md b/docs/questions/04-revenue-per-order-month/question.md
+new file mode 100644
+index 0000000..d945e21
+--- /dev/null
++++ b/docs/questions/04-revenue-per-order-month/question.md
+@@ -0,0 +1,139 @@
++---
++id: q04
++slice: 4
++status: green
++persona: Finance analyst
++question: What revenue did we take per order month?
++aggregation: sum
++measure: ORDER_LINE.REVENUE_ORDER_LINES_AMOUNT
++dimensions: [_calendar.month_label]
++time_grain: month
++defines:
++  - ORDER_LINE
++  - ORDER_LINE.QUANTITY
++  - ORDER_LINE.AGREED_UNIT_PRICE
++  - ORDER_LINE.DISCOUNT_RATE
++  - ORDER_LINE.REVENUE
++  - ORDER_LINE.events.ORDERED
++  - ORDER_LINE.measures.REVENUE_ORDER_LINES_AMOUNT
++  - ORDER_LINE_IS_PART_OF_ORDER
++order_by: [order_month]
++---
++
++## Story
++
++As the **finance analyst**, I want to see what the business took each month, so that I can put a
++revenue line beside the order counts and the freight the other three questions already give me —
++and say whether a busy month was a valuable one.
++
++## Definitions
++
++Every term below is defined in `dab/model.yaml` or `dab/uss.yaml` and nowhere else. This
++question references them; it does not restate them.
++
++- {{ORDER_LINE}}
++- {{ORDER_LINE.QUANTITY}}
++- {{ORDER_LINE.AGREED_UNIT_PRICE}}
++- {{ORDER_LINE.DISCOUNT_RATE}}
++- {{ORDER_LINE.REVENUE}}
++- {{ORDER_LINE.events.ORDERED}}
++- {{ORDER_LINE.measures.REVENUE_ORDER_LINES_AMOUNT}}
++- {{ORDER_LINE_IS_PART_OF_ORDER}}
++
++## The W's
++
++- **Why**: three questions have counted orders and what it cost to move them. None says what any
++  of it was worth, so nothing here can tell an expensive month from a valuable one.
++- **What**: one additive measure — what the business took, added up over lines. Not what it
++  collected: nothing in this source records a payment.
++- **Who**: the finance analyst acts on it; the business is what earns it.
++- **How**: one `ordered` event per line, on the day the order carrying it was accepted. A line
++  has no day of its own, so it inherits the order's, along the same edge and at the same instant
++  as the key ([ADR 0009](../../adr/0009-a-stage-may-be-dated-by-a-date-it-inherits.md)).
++- **Where**: not asked. Geography belongs to questions 1 and 2; adding it here would ask a third
++  thing at the same time as the two new ones this slice already introduces.
++- **When**: all history, by the month the order was **accepted** (`_calendar.month_label`,
++  `YYYY-MM`) — 23 months, the same 23 the first question spans, and the last of them is partial.
++  Revenue is attributed to the day demand arrived, not the day goods left: that is a different
++  question and would need the shipment event.
++- **What will you do with it**: read it beside q01. A month whose orders rose and whose revenue
++  did not is a month of smaller orders, and that is a different problem from a quiet month.
++
++## What this slice is actually for
++
++The question is the smallest one that needs a second grain, and the second grain is the point.
++
++Every entity until now was one row per order. A measure could not multiply however the join was
++written, so [D-0001](../../deviations.md) — one shared `dar__uss` for every process — has been
++carried on an argument nobody could test. Now there are 2,155 lines against 830 orders, between
++one and twenty-five to an order.
++
++The freight number is the one to watch. It sits on the order, it is real, and it is in the same
++bridge as this measure:
++
++| | rows | freight | revenue |
++|---|---|---|---|
++| the whole bridge, no filter | 3,794 | **64,942.69** | **1,265,793.0395** |
++| per order month, joined to `_calendar` | 3,794 | **64,942.69** | **1,265,793.0395** |
++
++2,155 line rows carry `order_key`, and freight does not move. That is the property, measured.
++
++## The half of it that is false
++
++The measure is protected. The **attribute it was made from is not**, and it is published beside
++it on the order peripheral:
++
++```sql
++SELECT sum(o.freight_charge)
++FROM dar__uss._bridge AS b
++INNER JOIN dar__uss."order" AS o ON b.order_key = o.order_key
++WHERE b._event = 'ordered';
++-- 207,306.10 against a true 64,942.69. Once per line.
++```
++
++That is one join and one sum — the same join this question's answer writes. It was already
++wrong before this slice, at 128,897.71, because the order already had two events;
++[ADR 0012](../../adr/0012-the-bridge-protects-measures-and-not-the-attributes-beside-them.md)
++decides what to do about it, and the short version is that a published answer may not aggregate a
++peripheral's column at all, enforced on the engine's own parse tree. This question obeys that
++rule, and so does every question before it.
++
++## Nulls
++
++None. Every line has a quantity, a price and a discount; no quantity is zero or negative, no
++price is negative, and no discount is outside 0 to 1. 838 of the 2,155 lines carry a discount.
++
++Every line belongs to an order that exists, and every order has at least one line — so nothing is
++dropped by either query's join, and the two agree for the reason they should rather than by both
++dropping the same rows. Were a line's order missing, it would have no bridge row at all, because
++an inherited date that does not resolve produces no row; the control mirrors that with an inner
++join rather than by filtering afterwards.
++
++## Where the series stops
++
++The recording ends on **1998-05-06**, so the last month on the chart is six days long: 14 orders
++against 74 in April. Drawn at full strength beside twenty-two whole months it reads as a collapse
++in demand, which is reading the edge of the recording rather than the business. The page marks
++that bar and says so beneath it.
++
++This is not new to slice 4 — every question here spans the same 23 months and the same short last
++one. It is loud in a bar chart of a single magnitude in a way it is not in a heatmap, which is the
++picture doing its job: a form that makes the truth obvious also makes the artefact of the
++recording obvious.
++
++## The composed key
++
++A line has no identifier on the order form. Its key is composed from the order and the product,
++and that composition is checked against the two source columns on every build rather than argued
++about: 2,155 lines, 2,155 distinct composed keys
++([ADR 0010](../../adr/0010-a-composite-source-key-becomes-one-key-and-is-checked-against-its-parts.md)).
++
++## Delivered
++
++![The answer as it was accepted](answer.png)
++
++## Answers
++
++Two queries, in `staged.sql` and `uss.sql`. The first computes the answer straight from what the
++source sent, bypassing the business model and the star schema entirely. The second computes it
++from the star schema. They must agree row for row — 23 months, 2,155 lines, 1,265,793.0395.
+diff --git a/docs/questions/04-revenue-per-order-month/staged.sql b/docs/questions/04-revenue-per-order-month/staged.sql
+new file mode 100644
+index 0000000..3e6d6d6
+--- /dev/null
++++ b/docs/questions/04-revenue-per-order-month/staged.sql
+@@ -0,0 +1,15 @@
++-- The control. Straight from what the source sent, bypassing the business model and the
++-- star schema. It may not mention dab or dar__uss: independence is the whole value.
++--
++-- A line has no date of its own, so the month comes from the order it is part of -- which is
++-- the same join the star schema walks, spelled in the source's words. Orders with no line
++-- contribute nothing and lines whose order is missing are dropped, which is what the star
++-- schema does too: a row whose inherited date does not resolve gets no bridge row.
++SELECT
++    strftime(o.order_date, '%Y-%m') AS order_month,
++    cast(sum(d.quantity * d.unit_price * (1 - d.discount)) AS DECIMAL(28, 8))
++        AS revenue_order_lines_amount
++FROM das__staged.order_details__current AS d
++INNER JOIN das__staged.orders__current AS o ON d.order_id = o.order_id
++GROUP BY strftime(o.order_date, '%Y-%m')
++ORDER BY order_month
+diff --git a/docs/questions/04-revenue-per-order-month/uss.sql b/docs/questions/04-revenue-per-order-month/uss.sql
+new file mode 100644
+index 0000000..8b5d6e1
+--- /dev/null
++++ b/docs/questions/04-revenue-per-order-month/uss.sql
+@@ -0,0 +1,15 @@
++-- The answer, from the generated star schema. This is what the destination reads.
++--
++-- One stage, at the grain of the line. The order's own measures are on other rows of the same
++-- bridge and are null here, so this sum cannot pick up a freight charge however the query is
++-- grouped -- which is the property the whole shared star schema rests on, and slice four is
++-- the first slice with two grains for it to be true of. ADR 0012.
++SELECT
++    cal.month_label AS order_month,
++    cast(sum(b._measure__order_line__revenue_order_lines_amount) AS DECIMAL(28, 8))
++        AS revenue_order_lines_amount
++FROM dar__uss._bridge AS b
++INNER JOIN dar__uss._calendar AS cal ON b._event_date = cal.date_key
++WHERE b._event = 'ordered'
++GROUP BY cal.month_label
++ORDER BY order_month
+diff --git a/docs/questions/README.md b/docs/questions/README.md
+index d751de2..0dd2196 100644
+--- a/docs/questions/README.md
++++ b/docs/questions/README.md
+@@ -17,7 +17,7 @@ are the methodology working rather than a plan going wrong.
+ | [1](01-orders-per-month-and-destination-country/) | Sales director | How many orders were placed per order month and destination country? | The whole spine, once: one contract, one entity, one transaction event, one count measure, bridge and peripheral and calendar, one page | green |
+ | [2](02-freight-per-customer-country-and-quarter/) | Logistics manager | What freight did we pay per customer country and order quarter? | A second contract and entity, the **first relationship**, and the first key a stage inherits. This entry said the relationship has to carry the country because customer country is not destination country — in this recording those two columns are equal on all 830 orders, so the answer alone does not prove the inheritance and three data checks assert the mechanism instead | green |
+ | [3](03-shipped-orders-and-days-to-ship/) | Operations manager | How many orders shipped per shipping month, and how many days did they take? | **Two events on one entity**, a second stage in the bridge, and a ratio computed at query time from two additive measures. 21 orders have never shipped, so "an event that did not happen has no row" stops being theoretical | green |
+-| 4 | Finance analyst | What revenue did we take per order month? | A third entity at a **finer grain**, a derived measure, and the fan-out proof: freight sits on the order and must not multiply across its lines | not started |
++| [4](04-revenue-per-order-month/) | Finance analyst | What revenue did we take per order month? | A third entity at a **finer grain**, a derived measure, and the fan-out proof: freight sits on the order and must not multiply across its lines. 2,155 lines against 830 orders, and freight does not move — but the same attribute on the peripheral does, which is the half of D-0001 that is false and is now refused where this system publishes numbers | green |
+ | 5 | Category manager | What revenue did we take per product category and quarter? | Two more contracts and a **two-hop relationship chain** — line to product to category | not started |
+ | 6 | Sales director | What revenue did we take per customer segment and quarter? | **The second source.** A file drop with its own customer identifiers, overlapping on only some rows, carrying a segment that exists nowhere else | not started |
+ 

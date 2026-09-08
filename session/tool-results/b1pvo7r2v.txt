@@ -1,0 +1,605 @@
+=============== docs/adr/0002-dar-is-one-generated-unified-star-schema.md
+---
+status: accepted
+date: 2026-09-07
+decision-makers: [adss maintainers]
+slice: 1
+---
+
+# DAR is one generated Unified Star Schema: an event bridge whose stages own their measures and inherit only keys, one peripheral per entity, one dense calendar
+
+## Context and Problem Statement
+
+DAR is the layer a person reads. The blueprint says it is volatile and generated (R4), and the
+Unified Star Schema is the shape chosen for it: one *bridge* holding a row per measurement event,
+one *peripheral* per entity holding its current state, and one calendar every process is dated
+against. This record fixes what the generator emits, because every question, every page and every
+future consumer is written against those column names and will not survive them changing.
+
+Three things about the source make the shape less obvious than the description sounds.
+
+**Fan-out.** The USS description says keys and measures propagate downward along many-to-one
+relationships. Keys can. Measures cannot: if a parent's measure were copied onto every child row
+that points at it, summing that measure would multiply it by the number of children. That is the
+classic fan trap, and avoiding it is the entire reason a bridge exists rather than one wide join.
+
+**History.** DAB keeps a version of every entity row. A question about something that *happened*
+and a question about a state as it was *observed* are different questions and need different rows,
+but they belong in one table, because the whole value of the bridge is that two processes can be
+summed and compared on one calendar.
+
+**What the generator is allowed to read.** Two observations constrain this hard, and both were
+made against the real engine on DuckDB rather than reasoned about. `<entity>_focal` and
+`<entity>_idfr` are created but never populated — a generator that joined to them would produce
+empty results and no error. And `view_<entity>_with_rel` carries no relationship key columns at
+all, despite its name; its column list is byte-identical to `view_<entity>`. A generator built on
+the names alone would be wrong in both directions.
+
+There is a fourth thing, and it is the one this slice cannot demonstrate. The argument that one
+shared bridge is safe rests on the walk over many-to-one edges. Slice 1 has one entity and no
+relationships, so the walk has zero edges and nothing inherits. The property is asserted here and
+first exercised in slice 2.
+
+## Decision Drivers
+
+* a `sum()` over the bridge is right without the reader knowing how the model is shaped
+* one calendar, so two processes can be compared
+* a published column contract that a model change *extends* rather than rearranges
+* deterministic output: the same declarations always produce the same SQL
+* nothing silently missing
+
+## Considered Options
+
+* An event bridge with one stage per (entity, event), keys inherited and measures owned
+* One bridge row per entity instance, with measures joined on
+* A hand-written star schema per question
+* Reading DAB's relationship views for the inherited keys
+
+## Decision Outcome
+
+Chosen option: **an event-grained bridge whose stages own their measures and inherit only keys.**
+
+*Keys inherit; measures do not.* A stage carries the key of every entity it reaches by walking
+many-to-one edges, and a measure is non-null only on the stage of the (entity, event) that owns
+it. Every other branch of the union emits a typed `NULL` in that column. This is what makes
+`sum()` additive at any grain the reader chooses, and it is proved by a test rather than trusted:
+a fixture with two parents and three children, where `sum(_measure__parent__…)` must still be the
+parent total and not three times it.
+
+*One row per measurement event.* A transaction stage reads `dab.view_<E>_hist`, keeps the latest
+version in which the event's date is set, and dates the row by that attribute. An unshipped order
+therefore has no shipment event *by construction* rather than by a filter somebody has to
+remember. A state stage reads the same history view, dates rows by `eff_tmstp`, and marks the
+latest version per key `_is_current`. Both kinds land in the same table with the same columns,
+which is what lets them be compared.
+
+*The generator reads `view_<entity>_hist` and the relationship pair objects, and nothing else.*
+Not `_focal`, which is empty. Not `_with_rel`, which does not carry what its name implies. Reading
+the current view instead of the history view would also lose `_observed_at`, which is how a bridge
+row carries its own provenance back to the DAS load that produced it.
+
+The rejected options each fail on one of the drivers. One row per entity instance with measures
+joined on is the fan trap, restated as a design. A hand-written star per question abandons R4 and
+puts the layer's correctness in a person's hands, every time, forever. Reading the relationship
+*views* rather than the pair objects is the subtle one: those views rank pairs by effective
+timestamp and keep the open rows, and our effective timestamp is the moment DAS observed the row,
+so a changed foreign key can drop out of the view entirely — rows silently missing from the
+bridge, with the query still running and the total merely smaller.
+
+### The column contract
+
+`dar__uss._bridge`:
+
+| column | type | null | meaning |
+|---|---|---|---|
+| `_stage` | VARCHAR | no | the entity this row is a row *of* |
+| `_event` | VARCHAR | no | the event, lower-cased: `placed`, `shipped`, `observed` |
+| `_event_date` | DATE | no | the day it happened, or the day the state was observed; joins `_calendar.date_key` |
+| `_is_current` | BOOLEAN | no | always true on a transaction stage; the latest version per key on a state stage |
+| `_observed_at` | TIMESTAMP | no | the DAB `eff_tmstp` behind this row, which is the DAS `extracted_at` |
+| `<entity>_key` | VARCHAR | own key no, inherited yes | one per entity in model order |
+| `_measure__<entity>__<measure>` | BIGINT for a count, DECIMAL(28,8) for a sum | non-null only on the owning stage | one per declared measure, in model order |
+
+`dar__uss.<entity>` is a peripheral **table**, one row per key, key first and attributes in
+declaration order. Tables rather than views, so what DAR served is exactly what the build log
+describes.
+
+`dar__uss._calendar` is dense and daily from the first to the last `_event_date` in the bridge,
+with civil arithmetic only — `year_number`, `quarter_of_year`, `month_of_year`, `day_of_month`,
+`year_start`, `quarter_start`, `month_start`, `quarter_label`, `month_label`. Column names avoid
+reserved words. Fiscal periods and holidays are business meaning and would need a definition, so
+they belong in DAB and not in a generator.
+
+Two rules follow from the contract and are written down because they are query-time traps: a join
+on the row's own stage key may be `INNER`, a join on an inherited key must be `LEFT`; and a ratio
+is `sum(a) / sum(b)` at query time, never a stored measure.
+
+Nulls: the generator never invents a member. A null dimension stays null, and a question that
+wants nulls grouped or excluded says so in the question file, where that choice belongs.
+
+### Consequences
+
+* Good, because a sum over the bridge is additive whatever the shape of the model, and the proof
+  is a test rather than a convention
+* Good, because every process lands on one calendar, so two of them can be compared
+* Good, because a consumer writes against a contract that a model change extends — new entities
+  and measures are appended, never inserted or renamed
+* Good, because a changed foreign key keeps its row, which reading the relationship view would not
+  have done
+* Bad, because the bridge is sparse: most cells of most rows are null. At this scale that costs
+  nothing, and it is the price of one table instead of one per process
+* Bad, because ratios and state questions need care at query time, and nothing in the schema stops
+  a reader averaging an average
+* Bad, because this slice cannot demonstrate the property the shared-bridge deviation (D-0001)
+  rests on. With one entity there are no edges to inherit along, so the fan-trap argument is
+  carried on assertion until slice 2
+* Bad, because the generator now depends on three specific behaviours of a third-party engine on a
+  platform that engine does not advertise supporting. Each is pinned by a check, but a vendor
+  change could invalidate any of them
+
+### Confirmation
+
+A machinery test asserts the column order, the event-date filter and the refusals — including
+that a **zero-edge walk is a valid walk**, so slice 2 does not meet that as a special case. A
+second asserts that every branch of the union emits the contract columns **in the contract
+order**, which is stronger than aliasing each once and is the assertion that matters: a union
+takes its column names from its first branch, so a branch that emits the right columns in a
+different order puts one measure's values silently into another measure's column, and `DESCRIBE`
+still matches. Every emitter's output, laid out the way the generator lays it out, is run through
+the repository's own linter.
+
+Data checks pin the engine behaviours this design rests on, so a vendor change says so rather
+than quietly emptying the star schema: that `_focal` and `_idfr` are still empty; that
+`view_<E>_with_rel` is still a passthrough on a relationship's *source* side and gains exactly
+the source entity's columns on its *target* side; and that `v_<edge>` still hands over the raw,
+unranked pairs. The `with_rel` check first asserted the passthrough of *every* entity, which was
+true only while there were no relationships — ADR 0006 corrects the observation, and this
+section now describes the check that exists. A fourth asserts `DESCRIBE dar__uss._bridge`
+equals the plan on the real warehouse, and a fifth counts the description table directly, which is
+the only place an ingestion-strategy defect is visible.
+
+**The fan-out test exists as of slice 4**, in `tests/test_fan_out.py`. It **could have existed in
+slice 2**, and this section said otherwise: it claimed the test needed two grains the system did
+not yet have. The test runs entirely on the neutral fixture, and that fixture gained a CHILD with
+its own measure in slice 2, at the same time as the first relationship. What was missing was not a
+second grain but the decision to go and build one; the excuse was wrong and the two slices of
+delay were real. It runs the
+generated SQL over a two-grain warehouse and asserts that a parent's measure is its own total and
+not its children times it; ADR 0012 records what it covers, what mutation makes it fail, and the
+half of D-0001's argument it shows to be false.
+
+`adss dar generate --check` regenerates and fails on any diff, which is what keeps the committed
+SQL from becoming a second truth.
+
+This decision is the argument behind deviation **D-0001** in
+[deviations.md](../deviations.md).
+=============== docs/adr/0006-an-inherited-key-is-resolved-as-of-the-row-that-inherits-it.md
+---
+status: accepted
+date: 2026-09-07
+decision-makers: [adss maintainers]
+slice: 2
+---
+
+# An inherited key is resolved from the raw pairs, as of the observation time of the row that inherits it
+
+## Context and Problem Statement
+
+Slice 1 built a bridge with one entity and no relationships. ADR 0002 asserted that one shared
+bridge is safe because keys inherit along many-to-one edges while measures do not, and said in as
+many words that the walk had zero edges and the property was asserted rather than exercised. This
+slice is the first with an edge: an order is placed by a customer, and the question groups the
+freight of an order by the *customer's* country, which exists nowhere on the order.
+
+So the generator has to get `customer_key` onto an order row. The engine offers four places to get
+it from, they do not agree with each other, and the names do not say which is which. A probe built
+a two-entity model with one relationship, changed a foreign key, and read every object the engine
+produced. It overturned two things ADR 0002 states as fact.
+
+**The relationship view is a *current* view, not a historical one.** ADR 0002 says reading it would
+lose a row whose foreign key changed. That is not what happens. The macro behind
+`dab.view_<SRC>_<NAME>_<TGT>` is:
+
+```sql
+rank() OVER (PARTITION BY <SRC>_key, type_key ORDER BY eff_tmstp DESC, ver_tmstp DESC) AS nbr
+... WHERE nbr = 1 AND row_st = 'Y'
+```
+
+Partitioned by the child, so the child never drops out — it is re-pointed. After the probe moved
+CH1 from P1 to P2, the pair table held both rows with `row_st = 'Y'` and the view held `CH1|P2`
+alone. Nothing is lost; the *old* pair is what is lost, for every row of that child, retroactively.
+The reason to read the raw pairs is therefore history, not disappearance, and ADR 0002 got the
+right answer from the wrong mechanism.
+
+**`view_<entity>_with_rel` does carry relationship keys — on the target side, and it fans out.**
+ADR 0002 says its column list is byte-identical to `view_<entity>`. That is true only for the
+relationship's *source* entity. Once an entity is a relationship *target*, its `_with_rel` view
+becomes a double left join through the pair macro and gains the source entity's key **and every one
+of its attributes**, one row per child. The probe measured the consequence:
+`sum(CHILD_AMOUNT)` over `view_PARENT_with_rel` returned 200.75 against a true 150.75. That is a
+live fan trap in a view whose name invites exactly the join that springs it.
+
+**`rank()` is not `row_number()`, so a tie returns both rows.** The probe's CH5 had two parent codes
+in one load, so two pair rows shared an `eff_tmstp`, and the relationship view returned CH5 twice.
+A child appearing twice in the bridge multiplies its measures — the precise failure the bridge
+exists to prevent, arriving from the engine's own view rather than from anything we wrote.
+
+**The model cannot say that an edge is many-to-one.** This is the finding that decides how the rule
+is enforced, and it is settled by the engine's own error rather than inferred: adding
+`cardinality:` to a relationship is rejected with *"Valid fields are: name, definition, description,
+source, target, source_entity_id, target_entity_id, type"*, and that list is the whole grammar. The
+one candidate, `type`, is not a cardinality slot — it accepts any string without validation
+(`1:N`, `MANY_TO_ONE`, `BOGUS_VALUE` all pass `check model`) and is **dropped on compile**: it does
+not appear in the compiled `model.json` and never reaches the engine. Nor is the engine merely
+silent about cardinality. It is agnostic by design: it treats a child's parents as a *set*,
+aggregating all target keys per `(source key, eff_tmstp)` into a fingerprint and writing a row when
+that set changes. Many-to-many is a supported case, not a defect.
+
+So the generator cannot learn "many-to-one" from the model, and it cannot learn it from the data,
+because the data is legitimately allowed to be many-to-many. Something else has to say it.
+
+## Decision Drivers
+
+* a measure summed over the bridge is additive at every grain, whatever the model's shape
+* a bridge row is true as of one instant, and every column on it is true as of that same instant
+* the generator reads objects whose behaviour has been observed, never ones whose names suggest it
+* a case the design cannot handle fails the build loudly rather than answering a question wrongly
+* the walk works for zero edges, one edge and, later, a chain — without a special case per depth
+
+## Considered Options
+
+* `dab.view_<SRC>_<NAME>_<TGT>` — the engine's ranked relationship view
+* `dab.v_<SRC>_<NAME>_<TGT>` — the raw pairs plus a relationship name, ranked here
+* `dab.<SRC>_<TGT>_x` — the pair table directly, with `dab__meta` for the type key
+* `dab.view_<TGT>_with_rel` — the view named as though it were for this
+
+## Decision Outcome
+
+Chosen option: **`dab.v_<SRC>_<NAME>_<TGT>`, ranked in the generated SQL as of the child row's own
+`_observed_at`, one parent per child, with the tie refused by a data check.**
+
+`v_<SRC>_<NAME>_<TGT>` is the raw pair table joined to the engine's metadata to add a `rel_name`
+column, with no ranking and no `row_st` filter. That is what makes it the right source: the pairs
+arrive unfiltered, and the as-of rule is ours and visible in the generated SQL rather than the
+vendor's and hidden in a macro. It also solves a naming problem the pair table has on its own — the
+pair table is named `<SRC>_<TGT>_x` from the *entity pair*, not from the relationship, so two
+relationships between the same two entities land in one table separated only by a `type_key` whose
+meaning lives in `dab__meta.atom_contx_desc`. Filtering on `rel_name` says what is meant; filtering
+on `type_key = 1` says nothing and breaks when a second edge is declared.
+
+**As of `_observed_at`, not as of now.** The stage picks a version of the child; the inherited key
+is the one in force when that version was observed. Today the stage always picks the child's latest
+version, so this coincides with the current parent and the choice looks free. It is not: it is what
+keeps the rule stated at the level of a bridge row rather than at the level of a table, so it
+survives a stage that keeps more than the latest version, which is what a snapshot event and a
+`_is_current = FALSE` row will both need.
+
+So the ranking partitions by the inheriting key **and its observation time**, not by the key
+alone. A review of this slice caught the first draft doing the latter, which collapses to one
+parent per key and would hand every retained version of an entity that same parent — "as of now"
+wearing this rule's clothes, and passing every check because today no stage keeps two versions.
+The distinction costs one column in a `PARTITION BY` and is the entire difference between the
+option chosen here and the one rejected.
+
+**Exactly one parent per child, and a tie is a build failure.** Since neither the model nor the data
+can state the cardinality, it is inferred from the mapping and then pinned. The inference is sound:
+M5 already forbids an attribute expression from containing a subquery, an aggregate or a reach into
+another table, so a relationship's `target_transformation_expression` reads its own row and is
+single-valued per staged row *by construction*. What that does not cover is one key appearing on
+several staged rows of a single load, which is exactly how the probe's CH5 acquired two parents at
+one instant. So the check is not optional decoration on top of the inference — it is the half of the
+argument the inference cannot make.
+
+The generated SQL uses `row_number()` over `eff_tmstp DESC, ver_tmstp DESC` and then the parent key
+itself, so it is deterministic and can never emit two rows for one child. `ver_tmstp` is not a
+formality: the engine writes a closing row that shares its predecessor's `eff_tmstp` and is
+separated from it only by `ver_tmstp`. Determinism alone would be a silent wrong answer, so a
+generated check counts children with more than one open parent at the ranking instant and fails the
+build when it is not zero. The two together mean the bad case is loud, and that if the check is ever
+ignored the damage is a mis-attributed row rather than a doubled measure. Doubling is worse: it is
+invisible in both of a question's acceptance queries if both are written the same way.
+
+**Only open pairs.** The read filters `row_st = 'Y'`. The engine flips a pair to `'N'` in exactly one
+case — the source row disappears from `das__staged`, and `FULL_LOG`'s delete branch closes it — and
+it keeps both rows when it does. In this architecture `das__staged` is an append-only view over
+parquet, so that should never fire; the filter is there because "should never fire" is not a reason
+to read a retracted pair if it ever does.
+
+`view_<TGT>_with_rel` is refused outright and now for a measured reason rather than an assumed one.
+The engine's ranked view is refused because its as-of rule is not ours to state and its `rank()`
+can fan out. The pair table is refused because it cannot name the relationship it is carrying.
+
+**A child with no parent keeps its row and inherits a null key.** The probe's CH6 has no pair row at
+all, so the join is a left join. An order the source attributes to nobody is still an order that
+was placed, and dropping it would change a count that ADR 0002 already published. Null is not a
+member: it groups as itself and the generator invents nothing for it, per conventions §1.3.
+
+### Corrections to ADR 0002
+
+ADR 0002 is not superseded — its decision stands and this record extends it. Two of its factual
+claims are wrong and are corrected here rather than in place, because what a record was when it was
+made is the thing that makes it worth keeping:
+
+1. "A changed foreign key keeps its row, which reading the relationship view would not have done."
+   The relationship view does keep the row. It re-points every one of that child's rows at the new
+   parent and erases the old pair, which is a different defect and a worse one, because it is
+   invisible.
+2. "`view_<entity>_with_rel` carries no relationship key columns at all; its column list is
+   byte-identical to `view_<entity>`." True on the source side only. On the target side it carries
+   the source entity's key and attributes, fanned out. **ADR 0004 repeats the same claim** —
+   "`view_<entity>_with_rel` carries no relationship keys despite its name" — and is corrected
+   here too, not there.
+
+A third claim, in this record's own first draft, was corrected a commit later: it was written
+from a partial reading of the probe that produced it. What that cost is worth naming, because it
+is the failure mode this whole arrangement is meant to catch — the decision it reached was the
+one the full report supports, so nothing downstream was wrong, and it was right by luck rather
+than by reading. The findings it had missed changed how the decision is *enforced*, not what it
+is.
+
+The check ADR 0002 installed for the second claim asserted it of *every* entity, so it fails the
+moment CUSTOMER becomes a relationship target. That is the check working: it was pinning observed
+behaviour and the behaviour was mis-observed. It is replaced by one that asserts the real rule —
+the source side is unchanged, the target side gains exactly the source entity's columns — which is
+a stronger statement than the one it replaces and would have caught this in slice 1 had it been
+possible to write then.
+
+## Consequences
+
+* Good, because the as-of rule is written in the generated SQL, so a reader of `dar/uss/_bridge.sql`
+  can see when the inherited key was true without reading a vendor macro
+* Good, because the fan-out the engine's own views expose cannot reach the bridge: the generator
+  emits `row_number()`, and the case that would have needed it fails the build first
+* Good, because filtering on `rel_name` keeps two edges between the same two entities in
+  separate pair objects. It does **not** keep them apart in the bridge, which a review of this
+  slice caught: a stage carries one key column per entity it inherits from, so two such edges —
+  or an edge from an entity to itself — would emit that column twice under one name, and DuckDB
+  resolves the ambiguity instead of raising. The generator refuses both shapes rather than
+  emitting them. Naming the column after the edge instead of the target would allow them and
+  would change the bridge's published contract, so it is a decision for the slice that first
+  needs two, not a shape to guess at now
+* Good, because the walk is the same shape at zero edges and one, so slice 5's two-hop chain extends
+  it rather than special-cases it
+* Bad, because the generated bridge SQL grows a ranked CTE per edge, and at three or four edges it
+  stops being readable in one screen. It is generated, linted and drift-checked, so this costs
+  legibility rather than correctness
+* Bad, because `v_<SRC>_<NAME>_<TGT>` is an engine-internal object with no compatibility promise,
+  like every other object here. The pinning checks are what turn a vendor change into a failure
+  instead of an empty column
+* Bad, and not fixable here: **a foreign key set to null is never retracted.** The engine's reader
+  filters the pair source on the target key being non-null, so "this child now belongs to nobody" is
+  inexpressible — re-landing a child with a null parent writes no row, no tombstone and no `row_st`
+  flip, and the stale pair survives forever. The probe reproduced this. If the source ever nulls an
+  order's customer, DAB keeps the old customer and nothing says so. That is a property of the
+  engine, not of this decision; it is recorded here because this is the decision that would
+  otherwise be blamed for it
+
+## More Information
+
+The probe found one thing that is not used and should be, when there is a reason to. Every
+presentation object wraps a DuckDB table macro taking a `p_eff_tmstp` with a default, so the whole
+DAB layer is point-in-time queryable for nothing: `f_child_parent_x(TIMESTAMP '2026-01-15')` returned
+the January parent while `f_child_parent_x()` returned the current one. That is a second, shorter
+way to write the as-of join. It is not taken because it moves the as-of rule back inside a vendor
+macro, which is the thing this decision is spending SQL to avoid — but a later slice that needs
+as-of over several objects at once should weigh it again rather than rediscover it.
+
+`type_key` is not stable across models: it was 1 for the relationship in this probe and 17 in an
+earlier one, and attribute type keys differ per entity within a single model. It is never
+hardcoded — `rel_name` is what the generated SQL matches on, which is the whole reason
+`v_<SRC>_<NAME>_<TGT>` is read rather than the pair table it wraps.
+
+## Confirmation
+
+`tests/test_uss.py` asserts the generated bridge left-joins the pairs rather than inner-joining
+them, that it ranks by `row_number` and not `rank`, that the ranking is as of the child's
+`_observed_at`, and that a non-owning branch still emits a typed null for a key it does not own —
+this last one because a union takes its column names from its first branch, so the order of the key
+columns is the invariant and counting them would not catch a transposition.
+
+A generated data check counts children with more than one parent at the ranking instant and must
+return zero. Another counts bridge rows whose inherited key resolves to no row in the target
+peripheral, which is the shape a mis-spelled M6 target expression takes: the engine reports nothing
+at deploy or at execute, and the column is simply null everywhere.
+
+The engine-behaviour checks are widened rather than removed: `_focal` and `_idfr` are still empty,
+`view_<E>_with_rel` is unchanged on a relationship's source side and gains exactly the source
+entity's columns on its target side.
+
+What this slice still does not prove is the fan-out property itself. Both entities here are at the
+same grain — one order has one customer — so no measure can multiply across the edge no matter how
+the join is written. The first measure at a finer grain arrives in slice 4, and that is where the
+test that a parent's measure is not multiplied by its children becomes possible. Saying so is the
+point: ADR 0002 asserted this property in slice 1 and it is still asserted now.
+=============== docs/adr/0012-the-bridge-protects-measures-and-not-the-attributes-beside-them.md
+---
+status: accepted
+date: 2026-09-08
+decision-makers: [adss maintainers]
+slice: 4
+---
+
+# The bridge protects a measure and not the attribute it was made from, so a question may not aggregate a peripheral's number
+
+## Context and Problem Statement
+
+D-0001 puts every process into one shared `dar__uss`, departing from the blueprint's
+no-cross-dependency rule. Its entire justification, written in slice 1 and carried unexercised
+through three slices, is that *the fan trap R2 exists to prevent cannot occur in it* — because
+keys inherit along many-to-one edges and measures do not.
+
+Slice 4 is the first slice with two grains, so it is the first that can test that. It half holds.
+
+**The measures are safe, structurally, and this is the first demonstration of it.** Over the real
+two-grain bridge — 830 order rows and 2155 line rows — every shape returns the truth:
+
+| query | freight | revenue |
+|---|---|---|
+| both measures, whole bridge, no filter, no join | **64,942.69** ✓ | **1,265,793.0395** ✓ |
+| both, per order month, joined to `_calendar` (3794 rows) | **64,942.69** ✓ | **1,265,793.0395** ✓ |
+
+2155 line rows carry `order_key`, and freight does not move. That is what D-0001 has been
+asserting, and it is now a measurement.
+
+**The peripheral is not safe, and the query that breaks it is not exotic.** It is one join — the
+same join `q01` and `q02` already write:
+
+```sql
+SELECT sum(o.freight_charge)
+FROM dar__uss._bridge AS b
+INNER JOIN dar__uss."order" AS o ON b.order_key = o.order_key
+WHERE b._event = 'ordered';
+-- 207,306.10 against a true 64,942.69. Once per LINE.
+```
+
+`freight_charge` is a **published column of the order peripheral**. So the rule generalises to
+something D-0001 never said:
+
+> Any `NUMBER` attribute that is also a measure's source appears **twice** in `dar__uss` — once
+> as an additive measure on its owning stage, protected by a typed null on every other branch,
+> and once as a plain attribute on its peripheral, protected by nothing. `FREIGHT_CHARGE`,
+> `SHIP_LAG_DAYS` and `REVENUE` are all in that position.
+
+**And it was already live at slice 3, undetected.** On the warehouse as shipped in PR #3, before
+any line existed, the same query returns **128,897.71** against 64,942.69 — because `ORDER` had
+two events, so the bridge already had two rows per order. Slice 4 does not introduce the trap. It
+raises it from 1.98× to 3.19× and makes it reachable from another entity's stage, which is what a
+fan trap actually is.
+
+## Decision Drivers
+
+* the property D-0001 rests on is demonstrated or the deviation's argument is not carried
+* what the demonstration does *not* cover is stated, rather than left for a reader to discover
+* the trap is kept out of what this system publishes, since it cannot be kept out of SQL
+* nothing legitimate is removed to achieve it
+
+## Considered Options
+
+* Stop publishing a numeric attribute on a peripheral when it is also a measure's source
+* Publish it, and add a query-time rule to the bridge's contract
+* Publish it, add the rule, **and refuse a question that breaks it**
+
+## Decision Outcome
+
+Chosen: **the third.** The property is proved for measures, the limit of that proof is written
+into ADR 0002's contract as a third query-time rule, and a question whose answer query aggregates
+a peripheral's numeric column is **refused** by the question checker.
+
+**Why not remove the column.** A numeric attribute on a peripheral is legitimately useful — it is
+how a reader filters "orders whose freight was over 100" or sorts a table by it. Removing it to
+prevent a bad aggregate would break the good use to prevent the bad one, and would make the
+peripheral a worse description of the entity than the entity has.
+
+**Why a rule alone is not enough.** ADR 0002 already publishes two query-time rules and neither
+covers this one; a third would be true, unread and unenforced. This system's own position, stated
+in ADR 0006 and ADR 0008, is that a failure which is invisible gets refused where it can be seen.
+
+**What can actually be enforced.** Not "no reader writes a bad query" — a bridge does not stop a
+bad query, it makes the good one natural, and the honest form of that claim is narrower than it
+sounds. But every number this system *publishes* goes through a question's `uss.sql`, and those
+are files this repository owns and already checks. So: an answer query may not apply an aggregate
+to a column of a peripheral. It must aggregate `_measure__…` columns, which are the ones the
+bridge protects. That is checkable, it is checked, and it stops the trap entering the artefacts
+anybody reads.
+
+The rule has one deliberate hole: a question may still aggregate a peripheral's column if it does
+so outside `uss.sql`, and a person at a SQL prompt can do whatever they like. That is not a gap
+this decision can close and pretending otherwise would be the false comfort D-0001 has been
+running on.
+
+### D-0001 does not close
+
+Its exit condition, quoted whole, is: *"A second consumer needs isolation: a different shape of
+the same structure, or a group that must not see part of it."* That has not happened. Slice 4
+adds a fourth question read by one more persona, and a persona is not a consumer needing
+isolation — nothing here needs a different shape of the bridge and nothing must be hidden from
+anybody. Closing the entry now would be closing it for a reason that is not its own exit
+condition, which is how a register becomes decoration.
+
+What changes is the register's **Why**. It has said since slice 1 that the fan trap "cannot occur"
+in the shared structure. That is true of the measures and false of the peripherals, and the entry
+now says which, with the number.
+
+## Consequences
+
+* Good, because the argument D-0001 has been carried on for three slices is measured rather than
+  asserted, and the measurement is repeated on every build
+* Good, because the half that does *not* hold is written down with the query that breaks it and
+  the number it returns, rather than being discovered by somebody trusting the entry
+* Good, because the trap cannot enter a published answer, which is where it would be believed
+* Bad, because the refusal is a text rule over SQL, and a sufficiently determined query defeats
+  it — an aggregate spelled across a subquery, for instance. It raises the cost of the mistake
+  from zero to deliberate, which is what the other refusals in this system do too
+* Bad, because a question that genuinely wants a peripheral's number aggregated — "the largest
+  freight on any order" — now has to model it as a measure. That is more honest and more typing,
+  and it is the same trade ADR 0008 made
+
+## Confirmation
+
+`tests/test_fan_out.py` asserts the fan-out property directly, on the neutral fixture's two
+grains: a parent's measure summed over a bridge containing its children equals the parent's own
+total, the finer measure is right in the same scan, the coarser measure is null on every finer row
+while the inherited **key** is not, and — the falsifiable half — the parent's total does not move
+when a parent gains children. It runs the generated SQL against a warehouse it builds, rather than
+reading the SQL for substrings, because a substring assertion would pass a generator that emitted
+the right nulls in the wrong branch.
+
+That it can fail is measured rather than assumed. The generator was mutated so a measure inherits
+along an edge exactly as a key does — carried in the CTE that walks the edge, selected by the
+stage, and treated as the branch's own. It emits SQL DuckDB accepts, and the four assertions fail
+together: 402.00 in place of 150.75, three parent measures on the three child rows in place of
+none, and 904.50 against 402.00 when five children are added to a parent whose size did not
+change. A fifth test — the peripheral trap below — passes under that mutation, which is correct:
+the mutation is in the bridge and the trap is not.
+
+A generated data check, one per measure, asserts it is null on every row of every **event** that
+does not own it — the mechanism rather than the number, on the warehouse that was actually built.
+By event and not by stage: two events on one entity share a stage, so a per-stage check would let
+an order's shipment measure sit on its placement row and report nothing, and that is the likelier
+defect since every branch of the union comes off the same stage's CTE. `tests/test_measure_checks.py`
+runs each check against a bridge built to fail it, including that case.
+
+`tests/test_questions.py` asserts that an answer query aggregating a peripheral's column is
+refused, and that the same aggregate over a `_measure__` column is accepted. Every question in
+this repository is run through the refusal, so the rule is enforced rather than published.
+
+**It is not the text rule the Consequences above anticipated.** The refusal reads the engine's own
+parse tree for the answer query and the engine's own list of aggregate functions, so a `cast()`
+around the sum, a sum written as a window, a subquery, and an aggregate nobody thought to list are
+all caught — three of which a text rule would have missed, and the third is why the list is not
+kept by hand — and a ranking window is not one of them, because `row_number`, `rank`, `ntile`
+and `lag` are all in that list and refusing them blocked an ordinary answer with a reason that
+was not true. Seven mutations of the refusal have been run and all seven fail the suite,
+including refusing a ranking window again and reading only the first of an aggregate's
+columns — a peripheral multiplied into a measure is refused in either operand order.
+
+It is stricter than the trap requires, in two places worth naming. `count(*)` over the bridge is
+refused, because it counts measurement events rather than the thing asked about — two events on
+one entity and it doubles. And an aggregate over a `DISTINCT` peripheral column cannot be
+multiplied by a fan-out and is refused anyway: narrowing the rule to the aggregates that can
+actually be wrong would be a rule nobody could apply without already knowing which those are.
+
+**Where the rule actually lives, corrected.** The Decision Outcome above says the limit of the
+proof is "written into ADR 0002's contract as a third query-time rule". It is not, and under this
+repository's own rules it cannot be: a record is superseded, not edited. The rule is in
+[conventions §10](../conventions.md), which is the one convention document and the place a
+reviewer checks a question against, and in the `dar` and `adss` skills. ADR 0002's Confirmation
+points here. A reader following that sentence to ADR 0002 would have found nothing.
+
+**What defeats it, corrected.** This section previously claimed the rule was over-strict at the
+edge rather than porous there. That was wrong, and a security review found it: the refusal read
+the whole dotted reference, so a table aliased `_measure__x` laundered its own attributes through
+it — `sum(_measure__x.freight_charge)` was accepted, which is the exact aggregate this record
+exists to refuse, wearing a name it chose for itself. The refusal now decides on the last part of
+a reference, because what the bridge protects is a column, and an alias is the one part of a
+reference an author picks freely. A mutation restoring the old test fails the suite.
+
+One hole remains and is measured rather than assumed: a column aliased to a `_measure__` name
+inside a **subquery** — `sum(p._measure__pretend)` over `(SELECT freight_charge AS
+_measure__pretend …) AS p` — is still accepted. Closing it means resolving aliases through the
+parse tree rather than reading names, which is a larger piece of machinery than this decision
+warrants for a control that is already deliberate-only. It is recorded here rather than left for
+somebody to find, which is the difference between a limit and a defect.
+
+What is **not** confirmed: that no reader ever writes the bad query at a prompt. Nothing can
+confirm that, and the register now says so instead of implying otherwise.

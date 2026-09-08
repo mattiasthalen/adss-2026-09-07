@@ -1,0 +1,560 @@
+########## 0009-a-stage-may-be-dated-by-a-date-it-inherits.md
+     1	---
+     2	status: accepted
+     3	date: 2026-09-08
+     4	decision-makers: [adss maintainers]
+     5	slice: 4
+     6	---
+     7	
+     8	# A stage may be dated by a date it inherits along the walk, named where it is inherited from
+     9	
+    10	## Context and Problem Statement
+    11	
+    12	Slice 4 asks for revenue per order **month**. Revenue is measured on an order line — quantity
+    13	times price less discount — so the bridge needs a row per line. And **an order line has no
+    14	date.** The source's `OrderDetail` has five properties and not one of them is a date; the live
+    15	`$metadata` says so, and there is nothing to map from.
+    16	
+    17	The generator can only date a stage by an attribute of the event's own entity. `read_uss`
+    18	resolves `date_attribute` against `model.entity(event.entity_id)`, so naming the order's date on
+    19	a line event fails with a bare `KeyError: "ORDER_LINE has no attribute 'PLACED_ON'"` — not even a
+    20	`UssError`, so the refusal arrives with no explanation attached.
+    21	
+    22	Nor may any layer go and fetch one. M1 forbids a join or a subquery in a mapping's `table:`; M5
+    23	forbids a reach into another table; a DAS contract has no key for a join. A second mapped table
+    24	on `ORDER_LINE` would be keyed by the order, which is not a line.
+    25	
+    26	So the question the plan wrote down for this slice cannot be built at all without deciding
+    27	something the plan did not anticipate.
+    28	
+    29	**What is already true, and is the whole reason this is small.** The walk exists. For every
+    30	edge, `_inherit_cte` already resolves the parent **as of the observation time of the row that
+    31	inherits** and puts the parent's key on the child's bridge row. ADR 0006 spent its whole decision
+    32	on getting that instant right. A date is another column of the row the walk already found.
+    33	
+    34	This is also what a Unified Star Schema does. Puppini's bridge is a row per measurement event;
+    35	the event for an order line is the order being placed, on the day it was placed. Dating a line by
+    36	its order's date is not an accommodation — it is what the shape means.
+    37	
+    38	## Decision Drivers
+    39	
+    40	* the question is answerable at all, which today it is not
+    41	* a bridge row is true as of one instant, and every column on it is true as of that same instant
+    42	* a mechanism that already exists, extended, rather than a second one beside it
+    43	* the date a reader sees is traceable to a definition in the one place data is explained
+    44	* slice 5 walks two hops, and must not need a third mechanism
+    45	
+    46	## Considered Options
+    47	
+    48	* **(a)** The date inherits along the walk, named as `<ENTITY>.<ATTRIBUTE>` in the sidecar
+    49	* **(b)** Record `OrderDetails?$expand=Order` so the landed line carries the order's date
+    50	* **(c)** Give `ORDER_LINE` its own date attribute, mapped from the order via the source
+    51	* **(d)** Drop the calendar and let the question group on the order peripheral's date
+    52	
+    53	## Decision Outcome
+    54	
+    55	Chosen: **(a), the date inherits along the walk**, written in `dab/uss.yaml` as
+    56	
+    57	```yaml
+    58	    - id: ORDERED
+    59	      entity: ORDER_LINE
+    60	      date_attribute: ORDER.PLACED_ON      # qualified: inherited along the edge to ORDER
+    61	```
+    62	
+    63	An unqualified `date_attribute` still means an attribute of the event's own entity, which is
+    64	every event declared so far and stays the ordinary case. A qualified one names the entity the
+    65	date is inherited from, and that entity must be reachable along a declared edge from the event's
+    66	entity — otherwise it is refused, by name, with the edges that do exist listed.
+    67	
+    68	The date is resolved **in the same CTE and at the same instant as the key**, because they are the
+    69	same row of the same parent. Anything else would put two instants on one bridge row, which is the
+    70	confusion ADR 0006 calls the entire difference between the option it chose and the one it
+    71	rejected. A line whose order cannot be resolved gets a null date and therefore no bridge row, by
+    72	the filter the generator already emits — consistent with how an event that did not happen is
+    73	already handled.
+    74	
+    75	**Why not (b), expanding the source record.** It is the cheap-looking one and it is the worst.
+    76	`PLACED_ON` would then have two homes — the order's own attribute and a copy on every line — and
+    77	B8 says a definition exists exactly once. Two homes is how two reports start disagreeing, and
+    78	this one would disagree *silently*, because both copies come from the same load and would agree
+    79	until the first time they did not. It also needs a new contract key and a new `Endpoint` field to
+    80	build a URL the recorder cannot currently express.
+    81	
+    82	**Why not (c), a mapped date on the line.** Same objection with an extra step: the mapping would
+    83	have to reach into another table to get it, which M5 forbids outright.
+    84	
+    85	**Why not (d), grouping on the peripheral.** The stage still needs a non-null date to exist at
+    86	all, so it does not escape the problem. And ADR 0007 rejected the peripheral-as-of-now reasoning
+    87	already: a peripheral is current state, a bridge row is the version in which the event is dated,
+    88	and reading one against the other puts two instants on one answer.
+    89	
+    90	### What this does not become
+    91	
+    92	The temptation this record exists to close is to let `date_attribute` take an expression, or to
+    93	let it reach further than one declared edge because "the walk goes there anyway". Neither. The
+    94	value is *a date attribute of an entity reached along a declared edge*, resolved exactly as its
+    95	key is resolved. Arithmetic on it belongs in the mapping under ADR 0007; anything else is a
+    96	second expression language in a file that is not linted, which ADR 0007 refused on §3.
+    97	
+    98	## Consequences
+    99	
+   100	* Good, because the question is answerable, and answerable at the grain it is asked at
+   101	* Good, because it reuses the walk rather than adding a mechanism beside it: one more column off
+   102	  a row the generator already resolves, at an instant it already got right
+   103	* Good, because slice 5's two-hop chain inherits this unchanged — a date reached along two edges
+   104	  is the same rule applied twice, and needs no new decision
+   105	* Good, because the date on a line is traceable to `ORDER.PLACED_ON`, which has one definition,
+   106	  so the page's glossary can explain the axis a reader is looking at
+   107	* Bad, because `dab/uss.yaml` now has two shapes for one field, and a reader has to know that a
+   108	  dot means "inherited". The alternative — always qualifying — would rewrite three existing
+   109	  declarations for no gain, and `<ENTITY>.<ATTRIBUTE>` is the notation the questions already use
+   110	* Bad, because a line's date now moves if its order is re-pointed to a different order, which
+   111	  cannot happen in this source and is a real property of the design rather than a bug. The
+   112	  as-of resolution is what bounds it: the date is the one in force when the line was observed
+   113	
+   114	## Confirmation
+   115	
+   116	`tests/test_uss.py` asserts that a qualified `date_attribute` is resolved from the inherited
+   117	entity and not from the event's own; that it is refused, naming the available edges, when the
+   118	entity it names is not reachable along one; that an unqualified one still means the event's own
+   119	entity; and that the date and the key come from the same CTE, so no bridge row can carry two
+   120	instants. The neutral fixture gains an event on `CHILD` dated by `PARENT.HAPPENED_ON`, which is
+   121	the shape this record is about and which the fixture did not have.
+   122	
+   123	A data check asserts that every bridge row's `_event_date` for such a stage equals the inherited
+   124	entity's own date for the key on that row — the property that would break silently if the two
+   125	were ever resolved at different instants.
+########## 0010-a-composite-source-key-becomes-one-key-and-is-checked-against-its-parts.md
+     1	---
+     2	status: accepted
+     3	date: 2026-09-08
+     4	decision-makers: [adss maintainers]
+     5	slice: 4
+     6	---
+     7	
+     8	# A composite source key becomes one key expression, and a check compares it against the parts it was made from
+     9	
+    10	## Context and Problem Statement
+    11	
+    12	The source's order lines are keyed on `(OrderId, ProductId)`. Conventions M2 has permitted
+    13	"a `concat` of casts with a separator" since slice 1 and warned that a concat without one makes
+    14	`'A1' + '23'` and `'A12' + '3'` the same key — a clause that has been **review-only for three
+    15	slices** because nothing had a composite key. This is the slice that has one.
+    16	
+    17	A probe built the whole slice four times over and measured what the rule has been asserting.
+    18	
+    19	**The collision this data can produce: none.** Over all 2155 real order lines, a separator-less
+    20	concat yields 2155 distinct keys — because every `OrderId` is exactly five digits, so the split
+    21	point is never ambiguous. A separator-less key would pass every gate, every data check and both
+    22	acceptance queries. The warning is right in general and unfalsifiable here, which is the most
+    23	dangerous shape a rule can have: it looks satisfied whatever you do.
+    24	
+    25	**A separator that can occur in a value does not fix it.** Measured, with `'-'` between
+    26	`('A-1','23')` and `('A','1-23')`: five distinct keys from six pairs. With a separator outside
+    27	the value domain: six from six. So "the parts are integers, so `-` is fine" is exactly the
+    28	reasoning that is *fine today and wrong at the first string key* — and the key cannot be changed
+    29	later, so "wrong later" means wrong with the old key already immortal.
+    30	
+    31	**`concat` ignores nulls; `||` does not.** Measured: `concat('1213','-',NULL)` is `'1213-'`, not
+    32	null. `concat_ws` drops the separator too. `'1213' || '-' || NULL` is null. The source's metadata
+    33	does **not** mark `OrderDetail.OrderId` or `ProductId` `Nullable="false"` — unlike `Order.OrderId`,
+    34	which it does — so a null half silently produces a truncated key that collides with a real one.
+    35	
+    36	**M2's stated reason is wrong, and the truth is worse in a different way.** M2 says two entries
+    37	are read as alternate identifiers and "that mode cannot be undone once loaded". Measured: two
+    38	entries are **refused at deploy**, loudly, unless `allow_multiple_identifiers` is set on the
+    39	mapping group. With it set, the entity key becomes a **minted UUID** — not derived from anything
+    40	in DAS — so the layer stops being rebuildable from the source, which is a blueprint promise. The
+    41	repository already catches that, but under the `_focal`/`_idfr` vendor pins, which name the
+    42	wrong cause.
+    43	
+    44	**And the key expression genuinely cannot be changed after loading.** Changing only `'-'` to
+    45	`'/'` and re-executing doubled everything: 2155 keys became 4310, and revenue over the bridge
+    46	went from 1,265,793.0395 to 2,531,586.079. `adss check` caught it — as
+    47	`ORDER_LINE_desc holds no duplicate versions … a growing gap is FULL ingestion duplicating
+    48	silently`, which names a cause that has nothing to do with what happened and would cost a reader
+    49	an afternoon.
+    50	
+    51	## Decision Drivers
+    52	
+    53	* a key that cannot collide, demonstrated rather than argued from the shape of the data
+    54	* a rule that still holds when a later composite key has a string part
+    55	* failing closed on a null part, rather than producing a shorter key that collides
+    56	* the next person is told the truth about what two entries actually do
+    57	
+    58	## Considered Options
+    59	
+    60	* `concat` of casts with a separator — what M2's text suggests
+    61	* `||` of casts with a separator, plus a check comparing the composed key against its parts
+    62	* Two `primary_keys` entries with `allow_multiple_identifiers`
+    63	* A surrogate minted in DAS
+    64	
+    65	## Decision Outcome
+    66	
+    67	Chosen: **`||` of casts with a separator, and a generated check that the composed key has exactly
+    68	as many distinct values as the source's own composite key.**
+    69	
+    70	```yaml
+    71	primary_keys: ["cast(order_id AS VARCHAR) || '-' || cast(product_id AS VARCHAR)"]
+    72	```
+    73	
+    74	The check is the part that matters, and it is what turns three slices of asserted reasoning into
+    75	something falsifiable. Whatever separator is chosen and whatever the parts turn out to be, the
+    76	composed key must not collapse two source rows into one — and that is directly countable against
+    77	the contract's own `primary_keys`, which DAS already records as a composite. A separator argument
+    78	is a prediction; this is a measurement, and it fires on the data that actually landed.
+    79	
+    80	`||` rather than `concat`, because `concat` is null-blind: it turns a missing half into a shorter
+    81	key that can collide with a real one, silently. `||` yields null, and a null key fails at the
+    82	engine rather than in a report six months later. The dab skill recommends `concat`; that
+    83	recommendation is wrong for a composite key and is corrected.
+    84	
+    85	**Why not two entries.** Not because M2's stated reason is right — it is not — but because what
+    86	actually happens is worse: the entity key becomes a minted UUID with nothing in DAS to recompute
+    87	it from, so DAB stops being rebuildable from the source. M2's text is corrected to say what the
+    88	engine really does.
+    89	
+    90	**Why not a surrogate in DAS.** It would be minted there instead, with the same rebuildability
+    91	problem one layer earlier, and DAS's job is to record what a source sent rather than to invent an
+    92	identifier it did not.
+    93	
+    94	### On the separator, honestly
+    95	
+    96	`'-'` is chosen for readability — `10248-11` is a key a person can recognise in a screenshot —
+    97	and it is safe here only because both parts are non-negative integers. That is not a general
+    98	guarantee and this record does not pretend it is. **A composite key with a part that is not a
+    99	non-negative integer is a new decision**, not an application of this one: the separator has to be
+   100	chosen against that part's value domain, and the check below is what would catch a wrong choice.
+   101	
+   102	## Consequences
+   103	
+   104	* Good, because the property M2 has asserted for three slices is now measured on every build,
+   105	  against the source's own key rather than against an argument about digits
+   106	* Good, because a null part fails rather than producing a key that is quietly one character short
+   107	* Good, because the check is generated per contract, so a later composite key is checked without
+   108	  anything else changing
+   109	* Bad, because the key is not a number the business uses. `10248-11` is this system's identifier
+   110	  for a line, and no order form has ever carried it. If a question ever needs "which product", the
+   111	  answer is a `PRODUCT` peripheral reached along an edge — slice 5's content — and **never**
+   112	  splitting this string back apart, which would be a reach into a key's internals from a layer
+   113	  that must not know it has any
+   114	* Bad, because re-keying an entity after it is loaded doubles its history, and the check that
+   115	  notices names the wrong cause. That is recorded here and left alone: the right repair is to drop
+   116	  the schemas and rebuild, which the build already supports, and a check that explained it
+   117	  properly would have to know what a re-key looks like
+   118	
+   119	## Confirmation
+   120	
+   121	`tests/test_mapping_rules.py` asserts that a composed key expression conforms to M2 — one entry,
+   122	producing a VARCHAR — and that two entries are still refused before the engine sees them.
+   123	
+   124	A generated data check, one per contract with a composite key, counts the distinct composed keys
+   125	in `das__staged.<table>__current` against the distinct source key tuples and fails on any
+   126	difference. It is written against the shape that would break it — a separator-less concat over
+   127	parts whose lengths vary — and that case is constructed in `tests/` so the check is known to be
+   128	capable of failing, rather than known to pass.
+   129	
+   130	What is **not** confirmed, and is recorded rather than claimed: nothing detects that a key
+   131	expression has *changed* between builds. The signature is a doubling of the description table,
+   132	which an existing check reports under a name that describes a different defect. Making that
+   133	check name the right cause would mean teaching it what a re-key looks like, and the repair — drop
+   134	and rebuild — is the same either way.
+########## 0011-a-float-in-the-source-is-recorded-as-a-decimal.md
+     1	---
+     2	status: accepted
+     3	date: 2026-09-08
+     4	decision-makers: [adss maintainers]
+     5	slice: 4
+     6	---
+     7	
+     8	# A float in the source is recorded as a decimal, because the choice is about where a bad value fails
+     9	
+    10	## Context and Problem Statement
+    11	
+    12	`OrderDetail.Discount` is `Edm.Single` — a 32-bit float, and the first one this system has met.
+    13	Revenue is quantity times unit price less that discount, so it feeds a measure.
+    14	
+    15	The contract vocabulary has `DOUBLE` and `DECIMAL` and no `REAL`. So **neither option is a
+    16	transcription of what the source declares**; both are a choice, and §1.1's usual instruction —
+    17	record what the source sent — does not settle it.
+    18	
+    19	ADR 0007 established that a question's two answers are compared row by row **by value**, and that
+    20	a float makes that comparison order-dependent because summing doubles is not associative. Slice 4
+    21	is the first slice that could actually trip it, so the question is whether it does.
+    22	
+    23	A probe built the slice twice, once with each type, and measured.
+    24	
+    25	**On this data, the two builds are indistinguishable.** Every DAR value byte-identical; zero of
+    26	2155 revenue rows differ; both acceptance queries agree either way. Revenue uses at most four
+    27	decimal places and `DECIMAL(28,8)` holds it with four to spare.
+    28	
+    29	**Not indistinguishable in general.** At a larger magnitude the same expression diverges:
+    30	`97 * 1234567.8901 * (1 - 0.06)` is `112567900.21931798` through a double and
+    31	`112567900.21931800` through a decimal.
+    32	
+    33	**And the order-dependence ADR 0007 predicted is live on this slice's own measure.** Summing the
+    34	2155 real revenue values as doubles, in three different orders:
+    35	
+    36	```
+    37	ORDER BY order_id, product_id            -> 1265793.0395000004
+    38	ORDER BY product_id DESC, order_id DESC  -> 1265793.0394999993
+    39	ORDER BY unit_price, quantity            -> 1265793.0395000007
+    40	```
+    41	
+    42	Three orders, three answers. ADR 0007 wrote that down as a prediction; this is the witness.
+    43	
+    44	**Where the float actually stops, and who stops it.** At `dab.<E>_desc.val_num`, a
+    45	`DECIMAL(28,8)` column the engine coerces into silently. Every presentation object gives
+    46	`DECIMAL(28,8)` whatever DAS declared. **Nobody in this repository wrote that cast and nothing
+    47	names it** — which means the answer side of every question is protected by a vendor's choice
+    48	rather than by ours.
+    49	
+    50	**The exactness check added in slice 3 is silent here**, and it is worth being exact about why.
+    51	It inspects returned values, and both sides launder the float before it sees them: the answer
+    52	side is `DECIMAL(28,8)` because DAB widens every `NUMBER`, and every control query already wraps
+    53	its sum in a cast. Measured: with a `DOUBLE` contract the check reports nothing — unless the
+    54	question's author omits that cast, in which case it fires. So it defends against a float in an
+    55	*answer*, not against a float in a *source*, and slice 4 was expected to trip it and does not.
+    56	
+    57	## Decision Drivers
+    58	
+    59	* a bad value fails where somebody can see it, rather than propagating
+    60	* the exactness the acceptance check depends on does not rest on a vendor's silent coercion
+    61	* §1.1 keeps DAS a recording, so a type is chosen for how it fails, not for what it computes
+    62	* the choice survives a source whose values are larger than this one's
+    63	
+    64	## Considered Options
+    65	
+    66	* `DOUBLE` — closest to what `Edm.Single` is
+    67	* `DECIMAL(18, 4)` — what the values actually are
+    68	
+    69	## Decision Outcome
+    70	
+    71	Chosen: **`DECIMAL`**, and the reason is not exactness.
+    72	
+    73	On this data exactness does not distinguish them, and arguing from the general case would be
+    74	arguing from a magnitude this source cannot produce. The decisive difference is **where a bad
+    75	value fails**:
+    76	
+    77	| in the payload | `DECIMAL` contract | `DOUBLE` contract |
+    78	|---|---|---|
+    79	| `NaN` | `Conversion Error` at the cast, loudly, at `das unpack` | becomes `NaN`, propagates into a measure |
+    80	| `Infinity` | same | becomes `Inf`, and a sum of it is `Inf` |
+    81	
+    82	A `NaN` discount through a `DOUBLE` contract produces a `NaN` revenue on one line, and a `NaN`
+    83	anywhere in a sum makes the whole month `NaN` — in *both* answers alike, because both derive from
+    84	the same landed value. So the acceptance check agrees, the gate is green, and a month's revenue is
+    85	not a number. `DECIMAL` refuses the record at the door, which is where a contract is supposed to
+    86	refuse things.
+    87	
+    88	That also stops the answer side depending on a coercion nobody wrote down. With `DECIMAL` in the
+    89	contract the value is exact from the moment it lands, and the engine's widening to
+    90	`DECIMAL(28,8)` is a widening rather than a rescue.
+    91	
+    92	### What this does not decide
+    93	
+    94	**Rounding is not decided here, and money is not rounded anywhere in this system.** Revenue
+    95	carries every place the source's arithmetic produces, and the page formats for display without
+    96	storing what it formatted. If a business ever needs revenue to two places, that is a *definition*
+    97	— it belongs in `dab/model.yaml` with a sentence saying which way it rounds and why, and a check
+    98	that verifies it. Rounding silently in a mapping would be exactly the "value somebody chose"
+    99	ADR 0007 puts on the forbidden side of M5.
+   100	
+   101	## Consequences
+   102	
+   103	* Good, because a value the source should never have sent fails at the contract, once, rather
+   104	  than becoming a `NaN` that both acceptance queries agree on
+   105	* Good, because the exactness the acceptance check rests on is now ours from the landing zone
+   106	  onward, not a vendor's silent coercion two layers later
+   107	* Good, because it costs nothing measurable: two full builds, byte-identical DAR
+   108	* Bad, because `DECIMAL(18, 4)` is **not** what the source declares, and §1.1 says DAS records
+   109	  what the source sent. This is a knowing departure in the one direction §1.1 does not cover:
+   110	  the vocabulary has no `REAL`, so recording it faithfully is not among the options
+   111	* Bad, because a source value with more than four decimal places would now be refused rather than
+   112	  approximated. That is the right failure and it is still a failure somebody has to handle
+   113	
+   114	## Confirmation
+   115	
+   116	`tests/test_contract.py` asserts that a `DECIMAL` column carries its precision and scale into the
+   117	generated cast, and `tests/test_das_sql.py` that the cast is emitted rather than a bare read.
+   118	
+   119	The order-dependence witness is recorded in ADR 0007 and re-measured here on real values; nothing
+   120	in the built system can now produce it, because no measure is a float at any layer — which is what
+   121	the "both answers hold only exact values" check asserts on every build, per question.
+   122	
+   123	What is **not** confirmed: no test constructs a `NaN` payload and watches the contract refuse it.
+   124	The behaviour was measured by hand against a scratch build and is written down here rather than
+   125	pinned, because fabricating a payload the recorder never produced would be testing DuckDB's cast
+   126	rather than this system's use of it. The property that matters — that a float never reaches an
+   127	answer — is pinned, per question, on every build.
+########## 0012-the-bridge-protects-measures-and-not-the-attributes-beside-them.md
+     1	---
+     2	status: accepted
+     3	date: 2026-09-08
+     4	decision-makers: [adss maintainers]
+     5	slice: 4
+     6	---
+     7	
+     8	# The bridge protects a measure and not the attribute it was made from, so a question may not aggregate a peripheral's number
+     9	
+    10	## Context and Problem Statement
+    11	
+    12	D-0001 puts every process into one shared `dar__uss`, departing from the blueprint's
+    13	no-cross-dependency rule. Its entire justification, written in slice 1 and carried unexercised
+    14	through three slices, is that *the fan trap R2 exists to prevent cannot occur in it* — because
+    15	keys inherit along many-to-one edges and measures do not.
+    16	
+    17	Slice 4 is the first slice with two grains, so it is the first that can test that. It half holds.
+    18	
+    19	**The measures are safe, structurally, and this is the first demonstration of it.** Over the real
+    20	two-grain bridge — 830 order rows and 2155 line rows — every shape returns the truth:
+    21	
+    22	| query | freight | revenue |
+    23	|---|---|---|
+    24	| both measures, whole bridge, no filter, no join | **64,942.69** ✓ | **1,265,793.0395** ✓ |
+    25	| both, per order month, joined to `_calendar` (3794 rows) | **64,942.69** ✓ | **1,265,793.0395** ✓ |
+    26	
+    27	2155 line rows carry `order_key`, and freight does not move. That is what D-0001 has been
+    28	asserting, and it is now a measurement.
+    29	
+    30	**The peripheral is not safe, and the query that breaks it is not exotic.** It is one join — the
+    31	same join `q01` and `q02` already write:
+    32	
+    33	```sql
+    34	SELECT sum(o.freight_charge)
+    35	FROM dar__uss._bridge AS b
+    36	INNER JOIN dar__uss."order" AS o ON b.order_key = o.order_key
+    37	WHERE b._event = 'ordered';
+    38	-- 207,306.10 against a true 64,942.69. Once per LINE.
+    39	```
+    40	
+    41	`freight_charge` is a **published column of the order peripheral**. So the rule generalises to
+    42	something D-0001 never said:
+    43	
+    44	> Any `NUMBER` attribute that is also a measure's source appears **twice** in `dar__uss` — once
+    45	> as an additive measure on its owning stage, protected by a typed null on every other branch,
+    46	> and once as a plain attribute on its peripheral, protected by nothing. `FREIGHT_CHARGE`,
+    47	> `SHIP_LAG_DAYS` and `REVENUE` are all in that position.
+    48	
+    49	**And it was already live at slice 3, undetected.** On the warehouse as shipped in PR #3, before
+    50	any line existed, the same query returns **128,897.71** against 64,942.69 — because `ORDER` had
+    51	two events, so the bridge already had two rows per order. Slice 4 does not introduce the trap. It
+    52	raises it from 1.98× to 3.19× and makes it reachable from another entity's stage, which is what a
+    53	fan trap actually is.
+    54	
+    55	## Decision Drivers
+    56	
+    57	* the property D-0001 rests on is demonstrated or the deviation's argument is not carried
+    58	* what the demonstration does *not* cover is stated, rather than left for a reader to discover
+    59	* the trap is kept out of what this system publishes, since it cannot be kept out of SQL
+    60	* nothing legitimate is removed to achieve it
+    61	
+    62	## Considered Options
+    63	
+    64	* Stop publishing a numeric attribute on a peripheral when it is also a measure's source
+    65	* Publish it, and add a query-time rule to the bridge's contract
+    66	* Publish it, add the rule, **and refuse a question that breaks it**
+    67	
+    68	## Decision Outcome
+    69	
+    70	Chosen: **the third.** The property is proved for measures, the limit of that proof is written
+    71	into ADR 0002's contract as a third query-time rule, and a question whose answer query aggregates
+    72	a peripheral's numeric column is **refused** by the question checker.
+    73	
+    74	**Why not remove the column.** A numeric attribute on a peripheral is legitimately useful — it is
+    75	how a reader filters "orders whose freight was over 100" or sorts a table by it. Removing it to
+    76	prevent a bad aggregate would break the good use to prevent the bad one, and would make the
+    77	peripheral a worse description of the entity than the entity has.
+    78	
+    79	**Why a rule alone is not enough.** ADR 0002 already publishes two query-time rules and neither
+    80	covers this one; a third would be true, unread and unenforced. This system's own position, stated
+    81	in ADR 0006 and ADR 0008, is that a failure which is invisible gets refused where it can be seen.
+    82	
+    83	**What can actually be enforced.** Not "no reader writes a bad query" — a bridge does not stop a
+    84	bad query, it makes the good one natural, and the honest form of that claim is narrower than it
+    85	sounds. But every number this system *publishes* goes through a question's `uss.sql`, and those
+    86	are files this repository owns and already checks. So: an answer query may not apply an aggregate
+    87	to a column of a peripheral. It must aggregate `_measure__…` columns, which are the ones the
+    88	bridge protects. That is checkable, it is checked, and it stops the trap entering the artefacts
+    89	anybody reads.
+    90	
+    91	The rule has one deliberate hole: a question may still aggregate a peripheral's column if it does
+    92	so outside `uss.sql`, and a person at a SQL prompt can do whatever they like. That is not a gap
+    93	this decision can close and pretending otherwise would be the false comfort D-0001 has been
+    94	running on.
+    95	
+    96	### D-0001 does not close
+    97	
+    98	Its exit condition, quoted whole, is: *"A second consumer needs isolation: a different shape of
+    99	the same structure, or a group that must not see part of it."* That has not happened. Slice 4
+   100	adds a fourth question read by one more persona, and a persona is not a consumer needing
+   101	isolation — nothing here needs a different shape of the bridge and nothing must be hidden from
+   102	anybody. Closing the entry now would be closing it for a reason that is not its own exit
+   103	condition, which is how a register becomes decoration.
+   104	
+   105	What changes is the register's **Why**. It has said since slice 1 that the fan trap "cannot occur"
+   106	in the shared structure. That is true of the measures and false of the peripherals, and the entry
+   107	now says which, with the number.
+   108	
+   109	## Consequences
+   110	
+   111	* Good, because the argument D-0001 has been carried on for three slices is measured rather than
+   112	  asserted, and the measurement is repeated on every build
+   113	* Good, because the half that does *not* hold is written down with the query that breaks it and
+   114	  the number it returns, rather than being discovered by somebody trusting the entry
+   115	* Good, because the trap cannot enter a published answer, which is where it would be believed
+   116	* Bad, because the refusal is a text rule over SQL, and a sufficiently determined query defeats
+   117	  it — an aggregate spelled across a subquery, for instance. It raises the cost of the mistake
+   118	  from zero to deliberate, which is what the other refusals in this system do too
+   119	* Bad, because a question that genuinely wants a peripheral's number aggregated — "the largest
+   120	  freight on any order" — now has to model it as a measure. That is more honest and more typing,
+   121	  and it is the same trade ADR 0008 made
+   122	
+   123	## Confirmation
+   124	
+   125	`tests/test_fan_out.py` asserts the fan-out property directly, on the neutral fixture's two
+   126	grains: a parent's measure summed over a bridge containing its children equals the parent's own
+   127	total, the finer measure is right in the same scan, the coarser measure is null on every finer row
+   128	while the inherited **key** is not, and — the falsifiable half — the parent's total does not move
+   129	when a parent gains children. It runs the generated SQL against a warehouse it builds, rather than
+   130	reading the SQL for substrings, because a substring assertion would pass a generator that emitted
+   131	the right nulls in the wrong branch.
+   132	
+   133	That it can fail is measured rather than assumed. The generator was mutated so a measure inherits
+   134	along an edge exactly as a key does — carried in the CTE that walks the edge, selected by the
+   135	stage, and treated as the branch's own. It emits SQL DuckDB accepts, and the four assertions fail
+   136	together: 402.00 in place of 150.75, three parent measures on the three child rows in place of
+   137	none, and 904.50 against 402.00 when five children are added to a parent whose size did not
+   138	change. A fifth test — the peripheral trap below — passes under that mutation, which is correct:
+   139	the mutation is in the bridge and the trap is not.
+   140	
+   141	A generated data check, one per measure, asserts it is null on every row of every **event** that
+   142	does not own it — the mechanism rather than the number, on the warehouse that was actually built.
+   143	By event and not by stage: two events on one entity share a stage, so a per-stage check would let
+   144	an order's shipment measure sit on its placement row and report nothing, and that is the likelier
+   145	defect since every branch of the union comes off the same stage's CTE. `tests/test_measure_checks.py`
+   146	runs each check against a bridge built to fail it, including that case.
+   147	
+   148	`tests/test_questions.py` asserts that an answer query aggregating a peripheral's column is
+   149	refused, and that the same aggregate over a `_measure__` column is accepted. Every question in
+   150	this repository is run through the refusal, so the rule is enforced rather than published.
+   151	
+   152	**It is not the text rule the Consequences above anticipated.** The refusal reads the engine's own
+   153	parse tree for the answer query and the engine's own list of aggregate functions, so a `cast()`
+   154	around the sum, a sum written as a window, a subquery, and an aggregate nobody thought to list are
+   155	all caught — three of which a text rule would have missed, and the third is why the list is not
+   156	kept by hand. Four mutations of the refusal were run and all four fail the suite.
+   157	
+   158	It is stricter than the trap requires, in two places worth naming. `count(*)` over the bridge is
+   159	refused, because it counts measurement events rather than the thing asked about — two events on
+   160	one entity and it doubles. And an aggregate over a `DISTINCT` peripheral column cannot be
+   161	multiplied by a fan-out and is refused anyway: narrowing the rule to the aggregates that can
+   162	actually be wrong would be a rule nobody could apply without already knowing which those are.
+   163	
+   164	What still defeats it is narrower than the Consequences claim: not a subquery, but an answer that
+   165	never writes an aggregate at all, or one that aliases a measure to a new name and aggregates the
+   166	alias — which is refused too, so the honest statement is that the rule is over-strict at the edge
+   167	rather than porous there.
+   168	
+   169	What is **not** confirmed: that no reader ever writes the bad query at a prompt. Nothing can
+   170	confirm that, and the register now says so instead of implying otherwise.

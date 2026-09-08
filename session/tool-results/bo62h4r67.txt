@@ -1,0 +1,572 @@
+     1	"""The Unified Star Schema, generated: an event bridge, a peripheral per entity, a calendar.
+     2	
+     3	Keys inherit along many-to-one relationships; measures do not. Copying a parent's measure
+     4	onto every child row would multiply it when summed, which is the fan trap a bridge exists to
+     5	avoid -- so a measure is non-null only on the stage of the (entity, event) that owns it, and
+     6	every other branch of the union emits a typed NULL. ADR 0002.
+     7	
+     8	Slice 1 has one entity and no relationships, so the walk that inherits keys has no edges. A
+     9	zero-edge walk is a valid walk, and the tests say so, because the alternative is meeting it
+    10	as a special case the first time an edge exists.
+    11	"""
+    12	
+    13	from __future__ import annotations
+    14	
+    15	from dataclasses import dataclass
+    16	from enum import StrEnum
+    17	from pathlib import Path
+    18	
+    19	import yaml
+    20	
+    21	from adss.model import Entity, Model, Relationship
+    22	from adss.names import Relation, Schema, crossing, refuse_unsafe, unsafe
+    23	
+    24	BRIDGE = Relation(Schema.DAR_USS, "_bridge")
+    25	CALENDAR = Relation(Schema.DAR_USS, "_calendar")
+    26	
+    27	COUNT_TYPE = "BIGINT"
+    28	SUM_TYPE = "DECIMAL(28, 8)"
+    29	
+    30	_GENERATED = "-- Generated from dab/model.yaml and dab/uss.yaml. Do not edit; regenerate."
+    31	
+    32	
+    33	class UssError(Exception):
+    34	    """A declaration the generator will not build from."""
+    35	
+    36	
+    37	class Aggregate(StrEnum):
+    38	    COUNT = "count"
+    39	    SUM = "sum"
+    40	
+    41	
+    42	class EventKind(StrEnum):
+    43	    TRANSACTION = "transaction"
+    44	    SNAPSHOT = "snapshot"
+    45	
+    46	
+    47	@dataclass(frozen=True, slots=True)
+    48	class Measure:
+    49	    id: str
+    50	    definition: str
+    51	    aggregate: Aggregate
+    52	    attribute_id: str | None
+    53	
+    54	    @property
+    55	    def sql_type(self) -> str:
+    56	        return COUNT_TYPE if self.aggregate is Aggregate.COUNT else SUM_TYPE
+    57	
+    58	
+    59	@dataclass(frozen=True, slots=True)
+    60	class Event:
+    61	    id: str
+    62	    entity_id: str
+    63	    definition: str
+    64	    kind: EventKind
+    65	    date_attribute_id: str
+    66	    measures: tuple[Measure, ...]
+    67	
+    68	    @property
+    69	    def name(self) -> str:
+    70	        return self.id.lower()
+    71	
+    72	    @property
+    73	    def dated_by(self) -> tuple[str | None, str]:
+    74	        """Where the date comes from: an entity reached along an edge, or this event's own.
+    75	
+    76	        `PARENT.HAPPENED_ON` is inherited; `HAPPENED_ON` is the event's own entity's. ADR 0009.
+    77	        """
+    78	        entity, _, attribute = self.date_attribute_id.rpartition(".")
+    79	        return (entity or None, attribute)
+    80	
+    81	
+    82	@dataclass(frozen=True, slots=True)
+    83	class Uss:
+    84	    path: Path
+    85	    events: tuple[Event, ...]
+    86	
+    87	    def measure_columns(self) -> tuple[tuple[Event, Measure, str], ...]:
+    88	        """Every measure column in the bridge, in declaration order."""
+    89	        return tuple(
+    90	            (event, measure, f"_measure__{event.entity_id.lower()}__{measure.id.lower()}")
+    91	            for event in self.events
+    92	            for measure in event.measures
+    93	        )
+    94	
+    95	
+    96	def _named(measure_id: str) -> str:
+    97	    if unsafe(measure_id):
+    98	        raise UssError(refuse_unsafe("measure", measure_id))
+    99	    return measure_id
+   100	
+   101	
+   102	def read_uss(path: Path, model: Model | None = None) -> Uss:
+   103	    """Read the declarations, refusing anything that would generate but should not."""
+   104	    document = yaml.safe_load(path.read_text())["uss"]
+   105	    events: list[Event] = []
+   106	    for declared in document["events"]:
+   107	        event_id = str(declared["id"])
+   108	        # An id reaches a generated check as a string literal and a file name, so a quote
+   109	        # in it would make that check report nothing wrong for ever. names.py, ADR 0012.
+   110	        if unsafe(event_id):
+   111	            raise UssError(refuse_unsafe("event", event_id))
+   112	        if "definition" not in declared:
+   113	            raise UssError(
+   114	                f"{path}: event {event_id} has no definition. A glossary copies these "
+   115	                f"strings verbatim, so one that does not exist becomes a blank row."
+   116	            )
+   117	        measures: list[Measure] = []
+   118	        for raw in declared.get("measures", ()):
+   119	            aggregate = Aggregate(str(raw["aggregate"]))
+   120	            if "definition" not in raw:
+   121	                raise UssError(f"{path}: measure {raw['id']} has no definition.")
+   122	            attribute_id = str(raw["attribute"]).strip() if raw.get("attribute") else None
+   123	            if aggregate is Aggregate.SUM and not attribute_id:
+   124	                raise UssError(
+   125	                    f"{path}: measure {raw['id']} declares aggregate: sum and names nothing "
+   126	                    f"to sum. A blank attribute would emit a column named after nothing."
+   127	                )
+   128	            measures.append(
+   129	                Measure(
+   130	                    id=_named(str(raw["id"])),
+   131	                    definition=str(raw["definition"]),
+   132	                    aggregate=aggregate,
+   133	                    attribute_id=attribute_id,
+   134	                )
+   135	            )
+   136	        events.append(
+   137	            Event(
+   138	                id=event_id,
+   139	                entity_id=str(declared["entity"]),
+   140	                definition=str(declared["definition"]),
+   141	                kind=EventKind(str(declared["kind"])),
+   142	                date_attribute_id=str(declared["date_attribute"]),
+   143	                measures=tuple(measures),
+   144	            )
+   145	        )
+   146	    uss = Uss(path=path, events=tuple(events))
+   147	    resolved = model or _model_beside(path)
+   148	    _refuse_edges_that_would_collide(resolved)
+   149	    _refuse_measures_that_would_share_a_name(uss)
+   150	    _refuse_measures_of_things_that_are_not_numbers(uss, resolved)
+   151	    return uss
+   152	
+   153	
+   154	def _model_beside(path: Path) -> Model:
+   155	    from adss.model import read_model
+   156	
+   157	    return read_model(path.parent / "model.yaml")
+   158	
+   159	
+   160	def _refuse_edges_that_would_collide(model: Model) -> None:
+   161	    """Two edges into one key column is a silent loss, so it is refused rather than emitted.
+   162	
+   163	    A stage carries one column per entity it inherits from, named for that entity. Two edges
+   164	    from one entity to the same target -- or an edge to the entity itself -- would emit two
+   165	    columns of the same name, and DuckDB resolves that ambiguity instead of raising, so one of
+   166	    the two inherited keys vanishes with nothing to say which. Distinguishing them means naming
+   167	    the column after the edge rather than the target, which changes a published contract, so it
+   168	    is a decision for the slice that first needs two such edges rather than a shape to guess at
+   169	    now. ADR 0006.
+   170	    """
+   171	    for entity in model.entities:
+   172	        edges = model.edges_from(entity.id)
+   173	        for edge in edges:
+   174	            if edge.target_entity_id == entity.id:
+   175	                raise UssError(
+   176	                    f"{edge.id} points at the entity it runs from, so the stage would carry "
+   177	                    f"{entity.key_column} twice under one name and lose one of them silently."
+   178	                )
+   179	        targets = [edge.target_entity_id for edge in edges]
+   180	        for target in targets:
+   181	            if targets.count(target) > 1:
+   182	                colliding = [edge.id for edge in edges if edge.target_entity_id == target]
+   183	                raise UssError(
+   184	                    f"{' and '.join(colliding)} both inherit into "
+   185	                    f"{model.entity(target).key_column}, and a stage carrying that column "
+   186	                    f"twice loses one of them with no error. Naming the column after the edge "
+   187	                    f"rather than the target would fix it and would change the bridge's "
+   188	                    f"published contract, so it is a decision rather than a patch."
+   189	                )
+   190	
+   191	
+   192	def _refuse_measures_that_would_share_a_name(uss: Uss) -> None:
+   193	    """Two events on one entity may not declare the same measure id. ADR 0008.
+   194	
+   195	    A measure is owned by an event and named for an entity. While an entity has one event those
+   196	    are the same thing; with two they are not, and the same id on both emits one column twice
+   197	    AND silently replaces one definition with the other in the glossary.
+   198	
+   199	    The column half would fail the build loudly -- DuckDB renames the second column rather than
+   200	    raising, so the built table stops matching the published contract. The glossary half is
+   201	    caught by nothing: no check inspects the definitions, and they are what a question's
+   202	    references resolve against and what the page renders. A reader would be shown a plausible
+   203	    sentence about the wrong number, and everything would pass.
+   204	    """
+   205	    seen: dict[tuple[str, str], str] = {}
+   206	    for event in uss.events:
+   207	        for measure in event.measures:
+   208	            key = (event.entity_id, measure.id)
+   209	            if key in seen:
+   210	                raise UssError(
+   211	                    f"{event.entity_id} declares {measure.id} on both {seen[key]} and "
+   212	                    f"{event.id}. A measure is named for its entity and owned by its event, so "
+   213	                    f"the two would share one column -- and {event.id}'s definition would "
+   214	                    f"replace {seen[key]}'s in the glossary, which nothing checks and the page "
+   215	                    f"renders. Give them separate ids, or one definition covering both."
+   216	                )
+   217	            seen[key] = event.id
+   218	
+   219	
+   220	def _refuse_measures_of_things_that_are_not_numbers(uss: Uss, model: Model) -> None:
+   221	    for event in uss.events:
+   222	        if event.kind is not EventKind.TRANSACTION:
+   223	            raise UssError(
+   224	                f"{event.id} is declared {event.kind}, and the generator only builds "
+   225	                f"transaction stages. It would emit a transaction stage anyway and mark "
+   226	                f"every row current, which is worse than refusing: nothing downstream could "
+   227	                f"tell. A snapshot stage arrives in the slice that first needs one."
+   228	            )
+   229	        entity = model.entity(event.entity_id)
+   230	        inherited, attribute_id = event.dated_by
+   231	        if inherited is not None:
+   232	            reachable = {edge.target_entity_id for edge in model.edges_from(entity.id)}
+   233	            if inherited not in reachable:
+   234	                raise UssError(
+   235	                    f"{event.id} is dated by {event.date_attribute_id}, and no edge reaches "
+   236	                    f"{inherited} from {entity.id}. {entity.id} reaches "
+   237	                    f"{sorted(reachable) or 'nothing'}. A date inherits along a declared edge "
+   238	                    f"or it does not inherit at all."
+   239	                )
+   240	        # A separate name: the measures below belong to the EVENT's entity, not to the one the
+   241	        # date is inherited from, and reusing `entity` here silently checked them against it.
+   242	        dater = model.entity(inherited) if inherited is not None else entity
+   243	        if not dater.attribute(attribute_id).is_date:
+   244	            raise UssError(f"{event.id} is dated by {attribute_id}, which is not a date.")
+   245	        for measure in event.measures:
+   246	            if measure.attribute_id is None:
+   247	                continue
+   248	            # By name, not by KeyError. A measure of an attribute the event's entity does not
+   249	            # have is exactly what a reader that checked measures against the inherited entity
+   250	            # would accept, so the refusal says whose attribute it is rather than dying.
+   251	            if measure.attribute_id not in {a.id for a in entity.attributes}:
+   252	                elsewhere = (
+   253	                    f" {dater.id} has it and {entity.id} does not"
+   254	                    if dater is not entity
+   255	                    and measure.attribute_id in {a.id for a in dater.attributes}
+   256	                    else ""
+   257	                )
+   258	                raise UssError(
+   259	                    f"{event.id}.{measure.id} sums {measure.attribute_id}, which {entity.id} "
+   260	                    f"does not have. A measure belongs to the entity of its own event, never "
+   261	                    f"to one the event inherits a date from.{elsewhere}"
+   262	                )
+   263	            if not entity.attribute(measure.attribute_id).is_number:
+   264	                raise UssError(
+   265	                    f"{event.id}.{measure.id} sums {measure.attribute_id}, which is not a "
+   266	                    f"number. Summing what is not a number produces a number nobody can read."
+   267	                )
+   268	
+   269	
+   270	def _version_cte(model: Model, event: Event) -> str:
+   271	    """The version of each entity this event is measured on: the latest in which it is dated."""
+   272	    entity = model.entity(event.entity_id)
+   273	    inherited, attribute_id = event.dated_by
+   274	    date = crossing(attribute_id)
+   275	    held = "revision"
+   276	    lines = [
+   277	        f"    {held}.{crossing(entity.source_key)} AS {entity.key_column}",
+   278	        f"    {held}.eff_tmstp AS _observed_at",
+   279	    ]
+   280	    # An inherited date is resolved with the key, in the CTE that walks the edge, so both are
+   281	    # true as of one instant. ADR 0009.
+   282	    if inherited is None:
+   283	        lines.append(f"    cast({held}.{date} AS DATE) AS _event_date")
+   284	    for measure in event.measures:
+   285	        column = f"_measure__{entity.object_name}__{measure.id.lower()}"
+   286	        if measure.aggregate is Aggregate.COUNT:
+   287	            value = f"cast(1 AS {COUNT_TYPE})"
+   288	        else:
+   289	            attribute = crossing(str(measure.attribute_id))
+   290	            value = f"cast({held}.{attribute} AS {SUM_TYPE})"
+   291	        lines.append(f"    {value} AS {column}")
+   292	    selected = ",\n".join(lines)
+   293	    # An inherited date is filtered where it is resolved, not here: this entity has no such
+   294	    # column to filter on.
+   295	    dated = "" if inherited else f"WHERE {held}.{date} IS NOT NULL\n"
+   296	    return (
+   297	        f"{event.name}__version AS (\n"
+   298	        f"SELECT\n{selected}\n"
+   299	        f'FROM dab."view_{entity.id}_hist" AS {held}\n'
+   300	        f"{dated}"
+   301	        f"QUALIFY row_number() OVER (\n"
+   302	        f"    PARTITION BY {held}.{crossing(entity.source_key)}\n"
+   303	        f"    ORDER BY {held}.eff_tmstp DESC\n"
+   304	        f") = 1\n"
+   305	        f")"
+   306	    )
+   307	
+   308	
+   309	def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
+   310	    """One inherited key: the pair in force when the inheriting row was observed. ADR 0006.
+   311	
+   312	    Resolved per inheriting ROW rather than per key -- the partition carries the observation
+   313	    time -- because that is the whole reason ADR 0006 chose the observation time over "now".
+   314	    A stage that kept more than the latest version of an entity would otherwise hand every one
+   315	    of those versions the same parent, which is "as of now" wearing the other rule's clothes.
+   316	
+   317	    Read from `v_<SRC>_<NAME>_<TGT>`, which is the raw pairs plus the relationship's name, and
+   318	    ranked here rather than by the engine. The engine's own ranked view answers a different
+   319	    question -- who the parent is *now* -- and answers it with `rank()`, which returns two rows
+   320	    for a child whose source named two parents at one instant. Two rows here would double that
+   321	    child's measures, so the ranking is `row_number()` and the tie is refused by a data check.
+   322	    """
+   323	    source = model.entity(edge.source_entity_id)
+   324	    target = model.entity(edge.target_entity_id)
+   325	    held = edge.id.lower()
+   326	    # If the event is dated by this target's attribute, the date is resolved here, off the same
+   327	    # parent the key came from, so both are true as of one instant. ADR 0009.
+   328	    inherited, attribute_id = event.dated_by
+   329	    dates = inherited == target.id
+   330	    carried = f",\n    cast(dated.{crossing(attribute_id)} AS DATE) AS _event_date" if dates else ""
+   331	    # The candidate versions are the DATED ones. Without that clause the latest version wins
+   332	    # even when it is the one that blanked the date -- an ordinary shape in a full change log --
+   333	    # and the child's date is null, so ADR 0009's own rule removes its row. A whole grain then
+   334	    # leaves the bridge while the parent's own event stays dated, and nothing says so.
+   335	    joined = (
+   336	        f'\nLEFT JOIN dab."view_{target.id}_hist" AS dated\n'
+   337	        f"    ON dated.{crossing(target.source_key)} = pair.{crossing(target.source_key)}\n"
+   338	        f"    AND dated.{crossing(attribute_id)} IS NOT NULL\n"
+   339	        f"    AND dated.eff_tmstp <= revision._observed_at"
+   340	        if dates
+   341	        else ""
+   342	    )
+   343	    return (
+   344	        f"{event.name}__{held} AS (\n"
+   345	        f"SELECT\n"
+   346	        f"    revision.{source.key_column} AS {source.key_column},\n"
+   347	        f"    revision._observed_at AS _observed_at,\n"
+   348	        f"    pair.{crossing(target.source_key)} AS {target.key_column}"
+   349	        f"{carried}\n"
+   350	        f"FROM {event.name}__version AS revision\n"
+   351	        f'LEFT JOIN dab."v_{edge.id}" AS pair\n'
+   352	        f"    ON pair.{crossing(source.source_key)} = revision.{source.key_column}\n"
+   353	        f"    AND pair.rel_name = '{edge.id}'\n"
+   354	        f"    AND pair.row_st = 'Y'\n"
+   355	        f"    AND pair.eff_tmstp <= revision._observed_at"
+   356	        f"{joined}\n"
+   357	        f"QUALIFY row_number() OVER (\n"
+   358	        f"    PARTITION BY revision.{source.key_column}, revision._observed_at\n"
+   359	        f"    ORDER BY\n"
+   360	        f"        pair.eff_tmstp DESC,\n"
+   361	        f"        pair.ver_tmstp DESC,\n"
+   362	        f"        pair.{crossing(target.source_key)}"
+   363	        + (",\n        dated.eff_tmstp DESC" if dates else "")
+   364	        + "\n) = 1\n"
+   365	        ")"
+   366	    )
+   367	
+   368	
+   369	def _stage_cte(model: Model, event: Event) -> str:
+   370	    """One stage: the entity's version, with the key of everything it inherits from."""
+   371	    entity = model.entity(event.entity_id)
+   372	    edges = model.edges_from(entity.id)
+   373	    inherited, _ = event.dated_by
+   374	    dater = "revision"
+   375	    if inherited is not None:
+   376	        dater = next(edge.id.lower() for edge in edges if edge.target_entity_id == inherited)
+   377	    lines = [
+   378	        f"    revision.{entity.key_column} AS {entity.key_column}",
+   379	        "    revision._observed_at AS _observed_at",
+   380	        f"    {dater}._event_date AS _event_date",
+   381	    ]
+   382	    lines += [
+   383	        f"    {edge.id.lower()}.{model.entity(edge.target_entity_id).key_column} "
+   384	        f"AS {model.entity(edge.target_entity_id).key_column}"
+   385	        for edge in edges
+   386	    ]
+   387	    lines += [
+   388	        f"    revision._measure__{entity.object_name}__{measure.id.lower()} "
+   389	        f"AS _measure__{entity.object_name}__{measure.id.lower()}"
+   390	        for measure in event.measures
+   391	    ]
+   392	    # One row per inheriting row in each of these, so none of the joins can fan out. LEFT
+   393	    # anyway: the row that inherits nothing is kept by the join inside the CTE, and an inner
+   394	    # join here would undo that one level up.
+   395	    joins = "".join(
+   396	        f"\nLEFT JOIN {event.name}__{edge.id.lower()} AS {edge.id.lower()}\n"
+   397	        f"    ON {edge.id.lower()}.{entity.key_column} = revision.{entity.key_column}\n"
+   398	        f"    AND {edge.id.lower()}._observed_at = revision._observed_at"
+   399	        for edge in edges
+   400	    )
+   401	    selected = ",\n".join(lines)
+   402	    # An event's own date is filtered in the version CTE; an inherited one is not there to
+   403	    # filter, so it is filtered where it was resolved. Same rule, one step along the walk: a
+   404	    # row whose date does not resolve is absent rather than dated null -- and the calendar's
+   405	    # inner join would otherwise drop it silently, which looks like the rule working. ADR 0009.
+   406	    absent = "" if inherited is None else f"\nWHERE {dater}._event_date IS NOT NULL"
+   407	    return (
+   408	        f"{event.name} AS (\nSELECT\n{selected}\n"
+   409	        f"FROM {event.name}__version AS revision{joins}{absent}\n)"
+   410	    )
+   411	
+   412	
+   413	def _branch(model: Model, uss: Uss, event: Event, keys: tuple[str, ...]) -> str:
+   414	    """One branch of the union: this stage's own columns, and a typed NULL for the rest."""
+   415	    entity = model.entity(event.entity_id)
+   416	    carried = {entity.key_column} | {
+   417	        model.entity(edge.target_entity_id).key_column for edge in model.edges_from(entity.id)
+   418	    }
+   419	    lines = [
+   420	        f"    '{entity.object_name}' AS _stage",
+   421	        f"    '{event.name}' AS _event",
+   422	        f"    {event.name}._event_date AS _event_date",
+   423	        "    TRUE AS _is_current",
+   424	        f"    {event.name}._observed_at AS _observed_at",
+   425	    ]
+   426	    for key in keys:
+   427	        value = f"{event.name}.{key}" if key in carried else "cast(NULL AS VARCHAR)"
+   428	        lines.append(f"    {value} AS {key}")
+   429	    owned = {column for candidate, _, column in uss.measure_columns() if candidate is event}
+   430	    for _, measure, column in uss.measure_columns():
+   431	        value = f"{event.name}.{column}" if column in owned else f"cast(NULL AS {measure.sql_type})"
+   432	        lines.append(f"    {value} AS {column}")
+   433	    return "SELECT\n" + ",\n".join(lines) + f"\nFROM {event.name} AS {event.name}"
+   434	
+   435	
+   436	def entity_ids(model: Model, uss: Uss) -> tuple[str, ...]:
+   437	    """Every entity the bridge names, in MODEL order: the ones with events, and the ones they
+   438	    inherit from. An entity reached only by inheritance still needs a peripheral, or the bridge
+   439	    carries a key that joins to nothing.
+   440	    """
+   441	    touched = {event.entity_id for event in uss.events}
+   442	    touched |= {
+   443	        edge.target_entity_id for event in uss.events for edge in model.edges_from(event.entity_id)
+   444	    }
+   445	    return tuple(entity.id for entity in model.entities if entity.id in touched)
+   446	
+   447	
+   448	def entity_keys(model: Model, uss: Uss) -> tuple[str, ...]:
+   449	    """One key column per entity the bridge names, in MODEL order.
+   450	
+   451	    Model order, not event order: reordering two events in the sidecar is not a model change,
+   452	    and it must not rearrange a contract that consumers are written against. The check cannot
+   453	    catch that on its own, because it derives what it expects from this same function.
+   454	    """
+   455	    return tuple(model.entity(entity_id).key_column for entity_id in entity_ids(model, uss))
+   456	
+   457	
+   458	def bridge_columns(model: Model, uss: Uss) -> tuple[str, ...]:
+   459	    """The published column contract, in order.
+   460	
+   461	    Grouped: the structural columns, then one key per entity in model order, then one column
+   462	    per measure in declaration order.
+   463	
+   464	    That grouping means the contract does NOT only ever grow at the end, and saying otherwise
+   465	    would be the more comfortable lie. A new entity appends a key, and because keys precede
+   466	    measures, every measure column moves right. An entity inserted in the middle of the model
+   467	    moves the keys after it as well. So the model file's own order is part of this contract,
+   468	    and nothing here can catch a rearrangement: the check that compares the built bridge to
+   469	    this contract derives what it expects from this same function, so both sides move together
+   470	    and it passes either way.
+   471	
+   472	    What makes that tolerable rather than a defect is that nothing reads this table by
+   473	    position. Conventions section 3 forbids `SELECT *`, the questions name their columns and
+   474	    so does the destination. A consumer that did read positionally would be reading a contract
+   475	    this docstring does not offer it. New entities still go at the end, because moving a key
+   476	    column is a bigger change than moving a measure. Blueprint B7.
+   477	    """
+   478	    keys = entity_keys(model, uss)
+   479	    structural = ("_stage", "_event", "_event_date", "_is_current", "_observed_at")
+   480	    return structural + keys + tuple(column for _, _, column in uss.measure_columns())
+   481	
+   482	
+   483	def bridge_sql(model: Model, uss: Uss) -> str:
+   484	    """One row per measurement event, over every stage the declarations name."""
+   485	    keys = entity_keys(model, uss)
+   486	    ctes = ",\n\n".join(
+   487	        cte
+   488	        for event in uss.events
+   489	        for cte in (
+   490	            _version_cte(model, event),
+   491	            *(_inherit_cte(model, event, edge) for edge in model.edges_from(event.entity_id)),
+   492	            _stage_cte(model, event),
+   493	        )
+   494	    )
+   495	    branches = "\n\nUNION ALL\n\n".join(_branch(model, uss, event, keys) for event in uss.events)
+   496	    return f"{_GENERATED}\nCREATE OR REPLACE TABLE {BRIDGE.sql} AS\nWITH {ctes}\n\n{branches};\n"
+   497	
+   498	
+   499	def peripheral_sql(model: Model, entity_id: str) -> str:
+   500	    """One row per entity instance, current state, key first and attributes as declared."""
+   501	    entity: Entity = model.entity(entity_id)
+   502	    lines = [
+   503	        f"    e.{crossing(entity.source_key)} AS {entity.key_column}",
+   504	        "    e.eff_tmstp AS _observed_at",
+   505	    ]
+   506	    lines += [f"    e.{crossing(a.id)} AS {a.column}" for a in entity.attributes]
+   507	    selected = ",\n".join(lines)
+   508	    relation = Relation(Schema.DAR_USS, entity.object_name)
+   509	    return (
+   510	        f"{_GENERATED}\n"
+   511	        f"CREATE OR REPLACE TABLE {relation.sql} AS\n"
+   512	        f"SELECT\n{selected}\n"
+   513	        f'FROM dab."view_{entity.id}_hist" AS e\n'
+   514	        f"QUALIFY row_number() OVER (\n"
+   515	        f"    PARTITION BY e.{crossing(entity.source_key)}\n"
+   516	        f"    ORDER BY e.eff_tmstp DESC\n"
+   517	        f") = 1;\n"
+   518	    )
+   519	
+   520	
+   521	def calendar_sql() -> str:
+   522	    """Dense and daily across everything the bridge holds. Civil arithmetic only.
+   523	
+   524	    A calendar containing only the days something happened is not a calendar: a month with
+   525	    no events must still appear in a time series. Fiscal periods and holidays are business
+   526	    meaning and would need a definition, so they belong in the model, not in a generator.
+   527	    """
+   528	    return (
+   529	        f"{_GENERATED}\n"
+   530	        f"CREATE OR REPLACE TABLE {CALENDAR.sql} AS\n"
+   531	        f"WITH bounds AS (\n"
+   532	        f"SELECT\n"
+   533	        f"    min(b._event_date) AS first_date,\n"
+   534	        f"    max(b._event_date) AS last_date\n"
+   535	        f"FROM {BRIDGE.sql} AS b\n"
+   536	        f"),\n\n"
+   537	        f"every_day AS (\n"
+   538	        f"SELECT\n"
+   539	        f"    cast(d.day AS DATE) AS date_key\n"
+   540	        f"FROM bounds AS bo\n"
+   541	        f"CROSS JOIN range(\n"
+   542	        f"    bo.first_date, bo.last_date + INTERVAL 1 DAY, INTERVAL 1 DAY\n"
+   543	        f") AS d (day)\n"
+   544	        f")\n\n"
+   545	        f"SELECT\n"
+   546	        f"    d.date_key AS date_key,\n"
+   547	        f"    cast(year(d.date_key) AS INTEGER) AS year_number,\n"
+   548	        f"    cast(quarter(d.date_key) AS INTEGER) AS quarter_of_year,\n"
+   549	        f"    cast(month(d.date_key) AS INTEGER) AS month_of_year,\n"
+   550	        f"    cast(day(d.date_key) AS INTEGER) AS day_of_month,\n"
+   551	        f"    cast(date_trunc('year', d.date_key) AS DATE) AS year_start,\n"
+   552	        f"    cast(date_trunc('quarter', d.date_key) AS DATE) AS quarter_start,\n"
+   553	        f"    cast(date_trunc('month', d.date_key) AS DATE) AS month_start,\n"
+   554	        f"    strftime(d.date_key, '%Y') || '-Q' || cast(quarter(d.date_key) AS VARCHAR) "
+   555	        f"AS quarter_label,\n"
+   556	        f"    strftime(d.date_key, '%Y-%m') AS month_label\n"
+   557	        f"FROM every_day AS d;\n"
+   558	    )
+   559	
+   560	
+   561	def definitions(model: Model, uss: Uss) -> dict[str, str]:
+   562	    """Every definition, by the token that refers to it. Copied verbatim, never composed.
+   563	
+   564	    A generator that composed a definition would be a third place the data is explained,
+   565	    and the worst kind: one nobody wrote and nobody reviews.
+   566	    """
+   567	    found = dict(model.definitions())
+   568	    for event in uss.events:
+   569	        found[f"{event.entity_id}.events.{event.id}"] = event.definition
+   570	        for measure in event.measures:
+   571	            found[f"{event.entity_id}.measures.{measure.id}"] = measure.definition
+   572	    return found

@@ -1,0 +1,1094 @@
+### about
+    src/adss/cli.py:161: # The views are built rather than committed, so --check has nothing to say about
+    src/adss/source.py:5: different path would prove nothing about the live run. ADR 0003.
+    src/adss/uss.py:184: sentence about the wrong number, and everything would pass.
+    src/adss/mapping.py:143: M6 is about relationships and lands with the first one. M2 is checked for cardinality
+### above
+    src/adss/project.py:26: raise FileNotFoundError(f"no project root above {here}")
+    tests/test_uss.py:35: """The union's branches, without the common table expressions above them."""
+### absence
+    tests/test_uss.py:240: """A child with no parent has no pair row at all -- absence is the only evidence. An
+### absent
+    src/adss/das.py:62: The payload is deliberately absent. If it were here a downstream mapping could read
+    tests/test_uss.py:102: "an event that did not happen must be absent by construction, not by a filter "
+    tests/test_questions.py:36: text = (NEUTRAL / "question.md").read_text().replace("{{PARENT}}", "{{PARENT.ABSENT}}")
+    tests/test_engine_install.py:30: warehouse = tmp_path / "absent.duckdb"
+### accept
+    src/adss/mapping.py:4: them accept it and then corrupt data quietly. Conventions section 1.4, ADR 0004.
+    src/adss/mapping.py:70: """A mapping the engine would accept and should not."""
+    tests/test_uss.py:218: # And what the branch carries came off the PAIR. Stopping at the branch would accept
+### acceptance
+    src/adss/question.py:1: """A business question: the specification, the acceptance test and what a page renders.
+    src/adss/checks.py:231: reported by the engine at deploy, at execute, or by a question's acceptance queries.
+    tests/test_relationship_rules.py:6: question's acceptance queries -- the inherited key is simply null everywhere, which looks like
+### accepted
+    src/adss/destination.py:3: A slice is accepted on its presentation, so the presentation has to reach whoever accepts
+    src/adss/destination.py:96: question -- and it is one question a slice is accepted on.
+    tests/test_questions.py:67: assert questions, "a slice is accepted on a question; there are none"
+### accepts
+    src/adss/mapping.py:3: Every rule here exists because the engine accepts the violation without complaint. Two of
+    src/adss/mapping.py:185: # own row, so M5 accepts it, and the engine is the first thing to object -- to SQL
+    src/adss/destination.py:3: A slice is accepted on its presentation, so the presentation has to reach whoever accepts
+    tests/test_destination.py:1: """The presentation has to reach whoever accepts the slice."""
+### across
+    src/adss/uss.py:438: """Dense and daily across everything the bridge holds. Civil arithmetic only.
+    tests/test_uss.py:303: """type_key is not stable across models -- it differed between two probes of the same
+### added
+    src/adss/checks.py:103: # until now: that `v_<edge>` hands over the RAW pairs. If a release added ranking inside
+    tests/test_uss.py:414: "and no measure is added, reordered or renamed by adding an entity"
+    tests/test_das_sql.py:19: assert "union_by_name => true" in sql, "a column added by a later load is silently dropped"
+    tests/test_das_round_trip.py:96: assert count(connection, "das__raw.parent") == 10, "DAS is non-volatile; a load is added"
+### additive
+    tests/test_uss.py:374: """B7 says change is additive, and for this contract that means appended to the END.
+### against
+    src/adss/cli.py:317: """Run the generated SQL against the warehouse, peripherals first."""
+    src/adss/names.py:1: """The names this system owns. One place, so a flow check has something closed to check against."""
+    src/adss/uss.py:183: references resolve against and what the page renders. A reader would be shown a plausible
+    src/adss/uss.py:368: and it must not rearrange a contract that consumers are written against. The check cannot
+### aggregate
+    src/adss/uss.py:37: class Aggregate(StrEnum):
+    src/adss/uss.py:51: aggregate: Aggregate
+    src/adss/uss.py:56: return COUNT_TYPE if self.aggregate is Aggregate.COUNT else SUM_TYPE
+    src/adss/uss.py:100: aggregate = Aggregate(str(raw["aggregate"]))
+### already
+    src/adss/cli.py:227: typer.echo(f"the modelling framework is already in {schema}")
+    src/adss/engine.py:40: """Whether the framework is already in this warehouse.
+    src/adss/sqlformat.py:7: It runs inside the generator rather than after it, so the committed file is already the
+    tests/test_uss.py:241: inner join would silently drop it and change a count that is already published.
+### always
+    src/adss/names.py:46: Always quoted, never conditionally: an identifier that loses its quotes fails only at
+    src/adss/source.py:29: """One page of an entity set, always asking for the total so paging can end."""
+    src/adss/mapping.py:191: f"has. Almost always this is YAML flow style splitting an expression on "
+    tests/test_mapping_rules.py:89: the one signature it always leaves, which is a key the schema does not have.
+### anything
+    src/adss/contract.py:69: """Where the records come from. Read by the pipeline; never by anything downstream."""
+    src/adss/contract.py:129: """Read one contract, refusing anything that would compile but should not exist."""
+    src/adss/source.py:90: """Answer requests from a recording, and refuse anything it does not cover."""
+    src/adss/uss.py:88: """Read the declarations, refusing anything that would generate but should not."""
+### appears
+    src/adss/cli.py:7: No tool's name appears in a subcommand. `adss das ingest`, never `adss dlt run`: the
+    src/adss/das.py:39: appears only in later loads is silently dropped, and without hive_types the partition key
+### arithmetic
+    src/adss/uss.py:438: """Dense and daily across everything the bridge holds. Civil arithmetic only.
+    src/adss/mapping.py:20: # arithmetic over them. Anything else is a join, and every join must come from a declared
+    src/adss/mapping.py:21: # relationship. M5, and ADR 0007 for where the line between arithmetic and meaning is drawn.
+    src/adss/mapping.py:205: Arithmetic and same-row functions do not, however they are spelled; a subquery, a join, a
+### arrived
+    src/adss/contract.py:120: f"records what arrived"
+    tests/test_uss.py:389: definition="Arrived after the contract was published.",
+### artefact
+    src/adss/platform.py:94: Every generated statement opens with a comment saying which artefact it came from, so
+    tests/test_contract.py:1: """A contract is documentation, schema and transformation in one artefact. ADR 0003."""
+### asked
+    src/adss/cli.py:368: The picture is the record of what was delivered, so it belongs next to what was asked
+    src/adss/source.py:25: """A replay was asked for something the recording does not hold."""
+    src/adss/engine.py:42: Asked of the warehouse rather than of the engine, because the engine answers by failing:
+    src/adss/das.py:85: A question asked of the source needs one row per thing, not one per observation. The
+### attribute
+    src/adss/model.py:29: class Attribute:
+    src/adss/model.py:36: """How this attribute is spelled in the generated layer."""
+    src/adss/model.py:52: attributes: tuple[Attribute, ...]
+    src/adss/model.py:68: def attribute(self, attribute_id: str) -> Attribute:
+### bare
+    src/adss/names.py:35: """Bare unless it is a reserved word, in which case quoted rather than abbreviated around.
+    src/adss/mapping.py:242: casting, because that is what decides the VARCHAR the two sides produce -- a bare column on
+    src/adss/mapping.py:331: f"differ, because a bare column and a cast produce different keys and the "
+    tests/test_uss.py:245: this one -- and a bare JOIN is inner while matching neither half of it.
+### because
+    src/adss/cli.py:3: The layer commands exist separately from `build` because the layers fail differently and are
+    src/adss/cli.py:4: debugged separately -- and because a reader who wants to know what this system does should be
+    src/adss/cli.py:351: Each step is a separate command because the layers fail differently and are debugged
+    src/adss/model.py:5: and never composes one, because a composed definition is a second explanation that nobody
+### become
+    src/adss/checks.py:115: f"here means this object has become a ranked one and the as-of rule is the "
+### becomes
+    src/adss/contract.py:1: """A contract: what a source sends, what it is called here, and what type it becomes.
+    src/adss/contract.py:50: """One declared column: where it comes from in the payload, and what it becomes."""
+    src/adss/landing.py:50: # Without this the dataset name is normalised and das__raw quietly becomes das_raw,
+    src/adss/uss.py:96: f"strings verbatim, so one that does not exist becomes a blank row."
+### beside
+    src/adss/cli.py:366: """Photograph the destination, one image per question, beside the question it answers.
+    src/adss/cli.py:379: beside = question.directory / "answer.png"
+    src/adss/cli.py:380: beside.write_bytes(image.read_bytes())
+    src/adss/cli.py:381: typer.echo(f"{beside.relative_to(project.root)} ({image.stat().st_size:,} bytes)")
+### block
+    src/adss/mapping.py:192: f"the commas inside a function call -- write that attribute in block "
+### both
+    src/adss/contract.py:171: f"{table}: two columns both land as {column.target_name!r}. The warehouse "
+    src/adss/uss.py:165: f"{' and '.join(colliding)} both inherit into "
+    src/adss/uss.py:177: are the same thing; with two they are not, and the same id on both emits one column twice
+    src/adss/uss.py:192: f"{event.entity_id} declares {measure.id} on both {seen[key]} and "
+### bounds
+    src/adss/uss.py:447: f"WITH bounds AS (\n"
+    src/adss/uss.py:456: f"FROM bounds AS bo\n"
+### broken
+    src/adss/sqlformat.py:26: except Exception as broken:  # sqlfluff raises several unrelated types
+    src/adss/sqlformat.py:27: raise SqlFormatError(f"the generator emitted SQL the linter rejected: {broken}") from broken
+    src/adss/platform.py:5: broken.
+    src/adss/platform.py:37: """Something else holds the warehouse. Nothing is broken; something else is reading."""
+### build
+    src/adss/cli.py:1: """The one entry point. Each subcommand drives exactly one layer; `build` drives them in order.
+    src/adss/cli.py:3: The layer commands exist separately from `build` because the layers fail differently and are
+    src/adss/cli.py:48: help="Build and inspect the analytical data storage system.",
+    src/adss/cli.py:99: """Build and inspect the analytical data storage system."""
+### business
+    src/adss/cli.py:58: help="Data according to the business: integrate and historize.",
+    src/adss/cli.py:243: """Load the business model from what the system recorded."""
+    src/adss/cli.py:246: typer.echo("loaded the business model")
+    src/adss/model.py:1: """A structural reading of the business model. It carries meaning; it never reads it.
+### byte
+    src/adss/mapping.py:315: f"not byte-identical to any table in its group ({sorted(tables)}). The engine "
+    tests/test_relationship_rules.py:37: ("bad_relationship_table", "byte-identical"),
+    tests/test_relationship_rules.py:100: assert "byte-identical" in str(refused.value)
+### call
+    src/adss/mapping.py:181: # A YAML flow mapping treats the commas inside a function call as its own
+    src/adss/mapping.py:192: f"the commas inside a function call -- write that attribute in block "
+    tests/test_mapping_rules.py:83: """A flow mapping treats the commas inside a function call as its own separators.
+### called
+    src/adss/contract.py:1: """A contract: what a source sends, what it is called here, and what type it becomes.
+    src/adss/mapping.py:265: called = fragment[word.end() : word.end() + 1] == "("
+    src/adss/mapping.py:266: return found if called else "?"
+    src/adss/checks.py:210: """What relationship_checks would be called, without emitting or formatting any of it.
+### came
+    src/adss/contract.py:179: f"silently displace the provenance that says where the row came from."
+    src/adss/names.py:38: came from, which is the one thing the name is for. Conventions 1.3.
+    src/adss/source.py:37: it came from.
+    src/adss/platform.py:94: Every generated statement opens with a comment saying which artefact it came from, so
+### cardinality
+    src/adss/model.py:80: state it: `cardinality` is rejected and `type` is dropped on compile. It is inferred from
+    src/adss/mapping.py:143: M6 is about relationships and lands with the first one. M2 is checked for cardinality
+    tests/test_relationship_checks.py:3: The cardinality of an edge cannot be read off the model -- the language has nowhere to state
+### carried
+    src/adss/uss.py:332: carried = {entity.key_column} | {
+    src/adss/uss.py:343: value = f"{event.name}.{key}" if key in carried else "cast(NULL AS VARCHAR)"
+    src/adss/das.py:83: """One row per key, from the latest load that carried it.
+    tests/test_uss.py:193: carried = definitions(model, uss)
+### carries
+    src/adss/model.py:1: """A structural reading of the business model. It carries meaning; it never reads it.
+    src/adss/uss.py:144: A stage carries one column per entity it inherits from, named for that entity. Two edges
+    src/adss/uss.py:258: Resolved per inheriting ROW rather than per key -- the partition carries the observation
+    src/adss/uss.py:355: carries a key that joins to nothing.
+### change
+    src/adss/cli.py:110: The diff this produces is the upstream change, made visible.
+    src/adss/landing.py:5: extracted -- which is what makes an upstream change a contract edit rather than an outage.
+    src/adss/source.py:61: parser. When the source changes, the diff on these files is the change, visible.
+    src/adss/uss.py:168: f"rather than the target would fix it and would change the bridge's "
+### character
+    tests/test_uss.py:49: for index, character in enumerate(body):
+    tests/test_uss.py:50: depth += (character == "(") - (character == ")")
+### check
+    src/adss/cli.py:138: bool, typer.Option("--check", help="Fail if the committed checks are not what regenerates.")
+    src/adss/cli.py:144: checks carry no path, so they are committed -- and `--check` is what stops the committed
+    src/adss/cli.py:151: # A renamed or removed contract would otherwise leave an orphan check behind, and an
+    src/adss/cli.py:152: # orphan check aborts the whole run before any finding is printed.
+### code
+    src/adss/source.py:3: A replay follows the same code path and the same requests as a live read: the only thing
+    src/adss/question.py:3: It is a data file rather than code, which is what keeps the vocabulary of one business out
+    tests/test_cli.py:12: # click's exit code for "you did not give me a command, here is how to use me".
+### comma
+    src/adss/contract.py:151: f"keys. A parenthesised type is split by the comma inside a flow mapping."
+### commas
+    src/adss/mapping.py:181: # A YAML flow mapping treats the commas inside a function call as its own
+    src/adss/mapping.py:192: f"the commas inside a function call -- write that attribute in block "
+    tests/test_mapping_rules.py:83: """A flow mapping treats the commas inside a function call as its own separators.
+### committed
+    src/adss/cli.py:138: bool, typer.Option("--check", help="Fail if the committed checks are not what regenerates.")
+    src/adss/cli.py:143: The views embed the lake's absolute path, so they are built rather than committed. The
+    src/adss/cli.py:144: checks carry no path, so they are committed -- and `--check` is what stops the committed
+    src/adss/cli.py:161: # The views are built rather than committed, so --check has nothing to say about
+### compile
+    src/adss/model.py:80: state it: `cardinality` is rejected and `type` is dropped on compile. It is inferred from
+    src/adss/contract.py:20: """A contract that would compile but should not exist."""
+    src/adss/contract.py:129: """Read one contract, refusing anything that would compile but should not exist."""
+    src/adss/mapping.py:22: _REACHING = re.compile(r"\b(select|join|from|over|group\s+by)\b", re.IGNORECASE)
+### composes
+    src/adss/model.py:5: and never composes one, because a composed definition is a second explanation that nobody
+### contract
+    src/adss/cli.py:25: from adss.contract import read_contract
+    src/adss/cli.py:104: contract: Annotated[
+    src/adss/cli.py:105: str | None, typer.Option(help="Contract stem; all of them if omitted.")
+    src/adss/cli.py:114: if contract and path.stem != contract:
+### contracts
+    src/adss/cli.py:141: """Write the views the contracts describe, and the checks that go with them.
+    src/adss/cli.py:261: """The checks the model generates, as file name to SQL. The contracts generate the rest."""
+    src/adss/project.py:29: def contracts(self) -> Path:
+    src/adss/project.py:30: return self.root / "das" / "contracts"
+### conventions
+    src/adss/contract.py:98: """The mechanical translation of a source's own word. Not a rename. Conventions 1.1."""
+    src/adss/names.py:38: came from, which is the one thing the name is for. Conventions 1.3.
+    src/adss/names.py:47: run time, and the two conventions must be visually distinct. Conventions section 3.
+    src/adss/uss.py:389: position. Conventions section 3 forbids `SELECT *`, the questions name their columns and
+### copies
+    src/adss/uss.py:95: f"{path}: event {event_id} has no definition. A glossary copies these "
+### cost
+    tests/test_mapping_rules.py:88: complain -- about SQL nobody wrote. It has now cost two slices, so it is refused here by
+### count
+    src/adss/source.py:30: return f"{endpoint.url}?$count=true&$top={endpoint.page_size}&$skip={skip}"
+    src/adss/source.py:44: total = int(document["@odata.count"]) if total is None else total
+    src/adss/source.py:74: total = int(document["@odata.count"]) if total is None else total
+    src/adss/uss.py:38: COUNT = "count"
+### counted
+    src/adss/checks.py:119: counted = connection.execute(
+    src/adss/checks.py:124: through, raw = counted if counted else (None, None)
+### counting
+    tests/test_uss.py:152: silently into another measure's column, and DESCRIBE still matches the contract. Counting
+### created
+    src/adss/project.py:4: directory: a relative path inside a persisted view resolves at query time, so a view created
+### customer_id
+    tests/test_relationship_rules.py:109: assert key_shape("customer_id") != key_shape("lpad(customer_id, 5, '0')")
+### das__staged
+    src/adss/names.py:23: DAS_STAGED = "das__staged"
+    src/adss/question.py:120: if "das__staged." not in control or "__current" not in control:
+    src/adss/question.py:122: f"{question.id}: the control query must read a das__staged __current view. "
+    tests/test_das_executes.py:90: connection.execute("CREATE SCHEMA das__raw; CREATE SCHEMA das__staged;")
+### data
+    src/adss/cli.py:48: help="Build and inspect the analytical data storage system.",
+    src/adss/cli.py:53: name="das", help="Data according to the system: capture and unpack.", no_args_is_help=True
+    src/adss/cli.py:58: help="Data according to the business: integrate and historize.",
+    src/adss/cli.py:66: help="Data according to the requirements: the generated star schema.",
+### date_attribute
+    src/adss/uss.py:123: date_attribute_id=str(declared["date_attribute"]),
+### date_diff
+    tests/test_mapping_rules.py:50: "date_diff('day', a, b)",
+### days
+    src/adss/uss.py:440: A calendar containing only the days something happened is not a calendar: a month with
+### declare
+    src/adss/contract.py:24: """The closed vocabulary a contract may declare.
+    src/adss/uss.py:174: """Two events on one entity may not declare the same measure id. ADR 0008.
+### declared
+    src/adss/cli.py:116: declared = read_contract(path)
+    src/adss/cli.py:117: directory = project.fixtures / declared.table
+    src/adss/cli.py:118: pages_recorded = record(declared.source, over_http, directory)
+    src/adss/cli.py:119: typer.echo(f"recorded {pages_recorded} page(s) of {declared.table} into {directory}")
+### definitions
+    src/adss/model.py:3: The definitions in the model are the only explanation of the data there is. This module
+    src/adss/model.py:111: def definitions(self) -> dict[str, str]:
+    src/adss/uss.py:182: caught by nothing: no check inspects the definitions, and they are what a question's
+    src/adss/uss.py:477: def definitions(model: Model, uss: Uss) -> dict[str, str]:
+### delivered
+    src/adss/cli.py:368: The picture is the record of what was delivered, so it belongs next to what was asked
+    src/adss/question.py:70: # delivered for this question would quietly be a picture of all of them.
+    tests/test_questions.py:129: an empty selection as "show everything", so the record of what was delivered for this
+### dependency
+    src/adss/question.py:135: f"reach past it would render, pass, and be exactly the invisible dependency "
+### deploy
+    src/adss/cli.py:233: @dab.command("deploy")
+    src/adss/cli.py:237: _engine(project).run("deploy")
+    src/adss/mapping.py:198: f"engine refuses an entity with none, at deploy rather than at review."
+    src/adss/checks.py:231: reported by the engine at deploy, at execute, or by a question's acceptance queries.
+### different
+    src/adss/source.py:5: different path would prove nothing about the live run. ADR 0003.
+    src/adss/uss.py:264: ranked here rather than by the engine. The engine's own ranked view answers a different
+    src/adss/mapping.py:263: # as surely as a cast does: lpad(x, 5, '0') and x produce different keys, and
+    src/adss/mapping.py:331: f"differ, because a bare column and a cast produce different keys and the "
+### docs
+    src/adss/names.py:12: """What a schema is for. The names carry the principles; see docs/blueprint.md."""
+    src/adss/project.py:66: return self.root / "docs" / "questions"
+### documentation
+    src/adss/contract.py:3: The contract is the whole of the DAS layer's knowledge. It is documentation, schema and
+    tests/test_contract.py:1: """A contract is documentation, schema and transformation in one artefact. ADR 0003."""
+### does
+    src/adss/cli.py:4: debugged separately -- and because a reader who wants to know what this system does should be
+    src/adss/model.py:77: """A many-to-one edge, along which a key inherits and a measure does not.
+    src/adss/contract.py:172: f"does not refuse that -- it renames the second and the first one's values "
+    src/adss/landing.py:23: # any it does not know, so a typo here fails loudly rather than landing somewhere odd.
+### down
+    tests/test_engine_pin.py:40: assert recorded, "an engine with no version needs its self-report written down"
+### dropped
+    src/adss/model.py:80: state it: `cardinality` is rejected and `type` is dropped on compile. It is inferred from
+    src/adss/das.py:39: appears only in later loads is silently dropped, and without hive_types the partition key
+    tests/test_das_sql.py:19: assert "union_by_name => true" in sql, "a column added by a later load is silently dropped"
+### duckdb
+    src/adss/project.py:50: return self.root / "warehouse.duckdb"
+    src/adss/uss.py:146: columns of the same name, and DuckDB resolves that ambiguity instead of raising, so one of
+    src/adss/uss.py:180: The column half would fail the build loudly -- DuckDB renames the second column rather than
+    src/adss/platform.py:3: Everything that knows the warehouse is a DuckDB file knows it here. The blueprint's first
+### each
+    src/adss/cli.py:1: """The one entry point. Each subcommand drives exactly one layer; `build` drives them in order.
+    src/adss/cli.py:351: Each step is a separate command because the layers fail differently and are debugged
+    src/adss/uss.py:224: """The version of each entity this event is measured on: the latest in which it is dated."""
+    src/adss/uss.py:314: # One row per inheriting row in each of these, so none of the joins can fan out. LEFT
+### either
+    src/adss/cli.py:162: # them and should not write them either.
+    src/adss/uss.py:386: and it passes either way.
+    src/adss/destination.py:95: single picture of everything stops being either readable or attachable at the second
+    src/adss/checks.py:158: "running either would fail the build on something nobody is answering",
+### else
+    src/adss/cli.py:130: fetch = over_http if live else replay(project.fixtures / declared.table)
+    src/adss/cli.py:198: else:
+    src/adss/cli.py:298: else:
+    src/adss/cli.py:304: current = written.read_text() if written.exists() else ""
+### empty
+    src/adss/question.py:67: # The id becomes a file name and an environment variable, so it may not be empty, contain a
+    src/adss/question.py:68: # separator, or be anything a shell or a path would read as more than a name. An empty one
+    src/adss/question.py:76: f"underscore, and must not be empty."
+    src/adss/checks.py:76: f"dab.{entity.id}_{suffix} is still empty, as the generator assumes",
+### engine
+    src/adss/cli.py:35: from adss.engine import Engine, is_installed, metadata_schema
+    src/adss/cli.py:72: def _engine(project: Project) -> Engine:
+    src/adss/cli.py:73: return Engine(
+    src/adss/cli.py:221: The engine refuses a second install and says to drop its schemas, which is right for a
+### entity_id
+    src/adss/model.py:101: def entity(self, entity_id: str) -> Entity:
+    src/adss/model.py:103: if entity.id == entity_id:
+    src/adss/model.py:105: raise KeyError(f"{self.path} has no entity {entity_id!r}")
+    src/adss/model.py:107: def edges_from(self, entity_id: str) -> tuple[Relationship, ...]:
+### event
+    src/adss/uss.py:1: """The Unified Star Schema, generated: an event bridge, a peripheral per entity, a calendar.
+    src/adss/uss.py:5: avoid -- so a measure is non-null only on the stage of the (entity, event) that owns it, and
+    src/adss/uss.py:60: class Event:
+    src/adss/uss.py:76: events: tuple[Event, ...]
+### ever
+    src/adss/uss.py:380: That grouping means the contract does NOT only ever grow at the end, and saying otherwise
+    src/adss/checks.py:85: # the passthrough of every entity, which was only ever true because it had no edges.
+    tests/test_uss.py:168: discover that the generator only ever worked with edges.
+### every
+    src/adss/cli.py:8: blueprint's first promise is that every tool here is replaceable.
+    src/adss/cli.py:108: """Read the live source and keep every response verbatim under das/fixtures.
+    src/adss/cli.py:126: """Append one load of every contract to the lake."""
+    src/adss/model.py:91: """`<SRC>_<NAME>_<TGT>`, which is how every object the engine builds is named."""
+### everything
+    src/adss/cli.py:281: everything = {project.dar_sql / n: s for n, s in _generate(project).items()}
+    src/adss/cli.py:282: everything |= {project.checks_sql / n: s for n, s in generated_checks.items()}
+    src/adss/cli.py:291: } | set(everything)
+    src/adss/cli.py:302: for written, sql in everything.items():
+### exactly
+    src/adss/cli.py:1: """The one entry point. Each subcommand drives exactly one layer; `build` drives them in order.
+    src/adss/mapping.py:157: f"{where}: M2 -- exactly one primary key. {list(table.primary_keys)} is read "
+    src/adss/platform.py:7: The warehouse has exactly one writer. That is not a preference: the modelling engine fails
+    src/adss/platform.py:95: "does not start with --" is exactly the wrong test: it would skip all of them.
+### execute
+    src/adss/cli.py:210: connection.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+    src/adss/cli.py:241: @dab.command("execute")
+    src/adss/cli.py:245: _engine(project).run("execute")
+    src/adss/cli.py:323: connection.execute(f"CREATE SCHEMA IF NOT EXISTS {Schema.DAR_USS}")
+### exists
+    src/adss/cli.py:178: if not check.exists() or check.read_text() != laid_out:
+    src/adss/cli.py:210: connection.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+    src/adss/cli.py:304: current = written.read_text() if written.exists() else ""
+    src/adss/cli.py:323: connection.execute(f"CREATE SCHEMA IF NOT EXISTS {Schema.DAR_USS}")
+### explained
+    src/adss/uss.py:480: A generator that composed a definition would be a third place the data is explained,
+### failing
+    src/adss/engine.py:42: Asked of the warehouse rather than of the engine, because the engine answers by failing:
+    src/adss/checks.py:26: """One thing that is true or is not. A failing check names what it looked at."""
+    tests/test_engine_install.py:3: The engine answers that question by failing -- a second install exits non-zero telling you to
+### field
+    src/adss/contract.py:178: f"({', '.join(sorted(RESERVED))}). A source field landing under it would "
+    src/adss/landing.py:3: Nothing here decides what a field is. The record arrives as one JSON value and stays that
+    src/adss/landing.py:4: way, so a field the contract has never heard of still lands and is simply not yet
+    src/adss/das.py:3: Nothing here interprets. A cast records what the source's own metadata says a field is; the
+### file
+    src/adss/cli.py:250: """The whole generated layer, as file name to SQL. Nothing here is hand-written."""
+    src/adss/cli.py:261: """The checks the model generates, as file name to SQL. The contracts generate the rest."""
+    src/adss/uss.py:383: moves the keys after it as well. So the model file's own order is part of this contract,
+    src/adss/engine.py:68: # spikes for a file that cannot change within the run.
+### fixtures
+    src/adss/cli.py:108: """Read the live source and keep every response verbatim under das/fixtures.
+    src/adss/cli.py:117: directory = project.fixtures / declared.table
+    src/adss/cli.py:130: fetch = over_http if live else replay(project.fixtures / declared.table)
+    src/adss/project.py:33: def fixtures(self) -> Path:
+### flow
+    src/adss/contract.py:151: f"keys. A parenthesised type is split by the comma inside a flow mapping."
+    src/adss/names.py:1: """The names this system owns. One place, so a flow check has something closed to check against."""
+    src/adss/mapping.py:181: # A YAML flow mapping treats the commas inside a function call as its own
+    src/adss/mapping.py:191: f"has. Almost always this is YAML flow style splitting an expression on "
+### generated
+    src/adss/cli.py:66: help="Data according to the requirements: the generated star schema.",
+    src/adss/cli.py:250: """The whole generated layer, as file name to SQL. Nothing here is hand-written."""
+    src/adss/cli.py:254: generated = {f"{model.entity(e).object_name}.sql": peripheral_sql(model, e) for e in named}
+    src/adss/cli.py:255: generated["_bridge.sql"] = bridge_sql(model, uss)
+### glossary
+    src/adss/model.py:4: moves them around -- into a glossary, into a check that a question's references resolve --
+    src/adss/uss.py:95: f"{path}: event {event_id} has no definition. A glossary copies these "
+    src/adss/uss.py:178: AND silently replaces one definition with the other in the glossary.
+    src/adss/uss.py:181: raising, so the built table stops matching the published contract. The glossary half is
+### goes
+    src/adss/question.py:144: f"order the engine happened to return, and someone goes looking for a data "
+    tests/test_uss.py:410: "the new key goes last among the keys; no existing key moves"
+### gone
+    src/adss/destination.py:32: """Repoint a link, including one whose target has gone.
+### have
+    src/adss/mapping.py:290: f"null, which reads as 'these rows have no target' rather than as a gap."
+    src/adss/platform.py:45: # set, because two overlapping opens of one path must not have the first close release the
+    tests/test_uss.py:442: """The assertion that would have caught the overwrite, and did not exist.
+    tests/test_engine_pin.py:4: checkout need not have pulled, and conventions section 6 says this suite touches no binary.
+### here
+    src/adss/cli.py:8: blueprint's first promise is that every tool here is replaceable.
+    src/adss/cli.py:250: """The whole generated layer, as file name to SQL. Nothing here is hand-written."""
+    src/adss/cli.py:325: # What was generated, not what is on disk. "Nothing here is hand-edited" is then
+    src/adss/model.py:79: That it is many-to-one is not stated here, because the modelling language has nowhere to
+### however
+    src/adss/mapping.py:205: Arithmetic and same-row functions do not, however they are spelled; a subquery, a join, a
+    src/adss/das.py:134: """One row per key in the current view, however many loads the change log holds."""
+### https
+    tests/test_das_executes.py:73: "https://probe",
+### identical
+    src/adss/mapping.py:315: f"not byte-identical to any table in its group ({sorted(tables)}). The engine "
+    src/adss/question.py:143: f"compared row by row, so without one an identical pair can differ by the "
+    src/adss/checks.py:229: All three failures look identical in the built warehouse -- an inherited key that is null,
+    tests/test_relationship_rules.py:37: ("bad_relationship_table", "byte-identical"),
+### independent
+    src/adss/question.py:149: # words -- that difference is what makes it independent rather than a transcription.
+### independently
+    src/adss/question.py:118: f"the answer independently, or agreement between the two proves nothing."
+    tests/test_questions.py:50: with pytest.raises(QuestionError, match="independently"):
+### inferred
+    src/adss/model.py:80: state it: `cardinality` is rejected and `type` is dropped on compile. It is inferred from
+    src/adss/landing.py:38: # payload is a single json-typed column, so nothing inside it is inferred,
+    tests/test_relationship_checks.py:5: inferred from the mapping and pinned by these checks, and the check is not decoration on top
+    tests/test_das_round_trip.py:76: "a column named after a payload field means the loader inferred a schema"
+### inside
+    src/adss/contract.py:151: f"keys. A parenthesised type is split by the comma inside a flow mapping."
+    src/adss/landing.py:38: # payload is a single json-typed column, so nothing inside it is inferred,
+    src/adss/project.py:4: directory: a relative path inside a persisted view resolves at query time, so a view created
+    src/adss/uss.py:315: # anyway: the row that inherits nothing is kept by the join inside the CTE, and an inner
+### instead
+    src/adss/cli.py:124: live: Annotated[bool, typer.Option(help="Read the source instead of the recording.")] = False,
+    src/adss/cli.py:347: live: Annotated[bool, typer.Option(help="Read the source instead of the recording.")] = False,
+    src/adss/uss.py:146: columns of the same name, and DuckDB resolves that ambiguity instead of raising, so one of
+    tests/test_uss.py:336: ambiguity instead of raising -- so one inherited key would vanish with nothing to say
+### item
+    src/adss/contract.py:124: for item in node:
+    src/adss/contract.py:125: _refuse_forbidden_keys(item, table)
+### items
+    src/adss/cli.py:257: return {name: formatted(sql, project.sqlfluff_config) for name, sql in generated.items()}
+    src/adss/cli.py:265: for name, sql in relationship_checks(model).items()
+    src/adss/cli.py:281: everything = {project.dar_sql / n: s for n, s in _generate(project).items()}
+    src/adss/cli.py:282: everything |= {project.checks_sql / n: s for n, s in generated_checks.items()}
+### itself
+    src/adss/contract.py:177: f"{table}: {column.target_name!r} is a name this layer adds itself "
+    src/adss/uss.py:145: from one entity to the same target -- or an edge to the entity itself -- would emit two
+    src/adss/mapping.py:216: Only their arguments: everything around them still has to answer for itself, so
+    src/adss/das.py:14: # The provenance this layer adds itself, named for what it records rather than for whoever
+### join
+    src/adss/cli.py:132: typer.echo(f"landed {declared.table}: {', '.join(loads)}")
+    src/adss/cli.py:165: written.write_text("\n".join(statements))
+    src/adss/contract.py:44: {"expression", "sql", "filter", "where", "join", "default", "coalesce", "case"}
+    src/adss/contract.py:109: f"({', '.join(sorted(ColumnType.__members__))})"
+### keep
+    src/adss/cli.py:108: """Read the live source and keep every response verbatim under das/fixtures.
+    src/adss/contract.py:42: # cheapest way to keep the format honest is to refuse the vocabulary outright.
+    src/adss/source.py:58: """Read the source and keep every response body verbatim, with the request beside it.
+    src/adss/mapping.py:1: """The rules that keep a mapping honest, because the engine will not.
+### keeps
+    src/adss/source.py:60: Verbatim because a recording that keeps only the records it parsed is a recording of our
+    src/adss/engine.py:34: """Where the engine keeps its own bookkeeping, according to the profile that decides it."""
+    src/adss/das.py:4: format has no way to express anything more, which is what keeps the layer honest. ADR 0003.
+    src/adss/question.py:3: It is a data file rather than code, which is what keeps the vocabulary of one business out
+### kind
+    src/adss/uss.py:64: kind: EventKind
+    src/adss/uss.py:122: kind=EventKind(str(declared["kind"])),
+    src/adss/uss.py:203: if event.kind is not EventKind.TRANSACTION:
+    src/adss/uss.py:205: f"{event.id} is declared {event.kind}, and the generator only builds "
+### know
+    src/adss/cli.py:4: debugged separately -- and because a reader who wants to know what this system does should be
+    src/adss/cli.py:187: # Names only: this is a DAS command, and it needs to know which files belong to the
+    src/adss/landing.py:23: # any it does not know, so a typo here fails loudly rather than landing somewhere odd.
+    src/adss/checks.py:203: know the other's file names. This is how the DAR generator knows which files belong to a
+### language
+    src/adss/model.py:19: """The modelling language's whole type vocabulary. Semantic, not physical."""
+    src/adss/model.py:79: That it is many-to-one is not stated here, because the modelling language has nowhere to
+    tests/test_relationship_checks.py:3: The cardinality of an edge cannot be read off the model -- the language has nowhere to state
+### layer
+    src/adss/cli.py:1: """The one entry point. Each subcommand drives exactly one layer; `build` drives them in order.
+    src/adss/cli.py:3: The layer commands exist separately from `build` because the layers fail differently and are
+    src/adss/cli.py:250: """The whole generated layer, as file name to SQL. Nothing here is hand-written."""
+    src/adss/model.py:36: """How this attribute is spelled in the generated layer."""
+### left
+    src/adss/uss.py:279: f'LEFT JOIN dab."v_{edge.id}" AS pair\n'
+    src/adss/uss.py:314: # One row per inheriting row in each of these, so none of the joins can fan out. LEFT
+    src/adss/checks.py:275: f"LEFT JOIN {Relation(Schema.DAR_USS, target.object_name).sql} AS t\n"
+    src/adss/checks.py:285: for index, (left, right) in enumerate(zip(control, answer, strict=False)):
+### like
+    src/adss/mapping.py:329: f"shaped like {declared.target_entity_id}'s own key ({sorted(keys)} with the "
+    src/adss/destination.py:71: # its outputs, which looks like a screenshot and answers nothing.
+    src/adss/destination.py:117: f"rendered one. A thumbnail taken without executing looks exactly like this."
+    src/adss/checks.py:95: f"side looks like",
+### live
+    src/adss/cli.py:108: """Read the live source and keep every response verbatim under das/fixtures.
+    src/adss/cli.py:124: live: Annotated[bool, typer.Option(help="Read the source instead of the recording.")] = False,
+    src/adss/cli.py:130: fetch = over_http if live else replay(project.fixtures / declared.table)
+    src/adss/cli.py:347: live: Annotated[bool, typer.Option(help="Read the source instead of the recording.")] = False,
+### loaded
+    src/adss/cli.py:246: typer.echo("loaded the business model")
+    src/adss/mapping.py:75: """One source table an entity is loaded from."""
+    src/adss/mapping.py:96: """How one entity is loaded."""
+    src/adss/mapping.py:159: f"cannot be undone once loaded."
+### look
+    src/adss/checks.py:229: All three failures look identical in the built warehouse -- an inherited key that is null,
+    src/adss/checks.py:230: or wrong, on rows that look like data rather than like a defect -- and none of them is
+    tests/test_uss.py:220: # which is precisely what all three M6 failures look like from downstream.
+    tests/test_questions.py:130: question would be a picture of every question, and nothing would look wrong.
+### make
+    src/adss/cli.py:235: """Make the model and its mappings ready to run."""
+    src/adss/mapping.py:264: # anonymising the name would make them the same shape.
+    src/adss/checks.py:165: # is. A float would make it order-dependent rather than wrong: DuckDB's sum over
+    tests/test_relationship_checks.py:6: of the inference: it is the half the inference cannot make.
+### makes
+    src/adss/landing.py:5: extracted -- which is what makes an upstream change a contract edit rather than an outage.
+    src/adss/uss.py:388: What makes that tolerable rather than a defect is that nothing reads this table by
+    src/adss/mapping.py:275: target expression makes pairs that join to nothing, and an edge no mapping loads makes no
+    src/adss/question.py:124: f"makes agreement mean anything."
+### many
+    src/adss/model.py:77: """A many-to-one edge, along which a key inherits and a measure does not.
+    src/adss/model.py:79: That it is many-to-one is not stated here, because the modelling language has nowhere to
+    src/adss/uss.py:3: Keys inherit along many-to-one relationships; measures do not. Copying a parent's measure
+    src/adss/mapping.py:158: f"as that many alternate identifiers, not as a composite key, and that mode "
+### mapping
+    src/adss/model.py:81: the mapping's shape and pinned by a data check. ADR 0006.
+    src/adss/contract.py:151: f"keys. A parenthesised type is split by the comma inside a flow mapping."
+    src/adss/mapping.py:1: """The rules that keep a mapping honest, because the engine will not.
+    src/adss/mapping.py:70: """A mapping the engine would accept and should not."""
+### marks
+    src/adss/destination.py:80: # Outputs stream in after load and the marks paint after that.
+### mean
+    src/adss/question.py:124: f"makes agreement mean anything."
+### means
+    src/adss/uss.py:147: the two inherited keys vanishes with nothing to say which. Distinguishing them means naming
+    src/adss/uss.py:380: That grouping means the contract does NOT only ever grow at the end, and saying otherwise
+    src/adss/sqlformat.py:29: raise SqlFormatError("the formatter returned nothing, which means it failed to parse")
+    src/adss/platform.py:25: "installed, this is what it means."
+### measured
+    src/adss/uss.py:224: """The version of each entity this event is measured on: the latest in which it is dated."""
+### measurement
+    src/adss/uss.py:400: """One row per measurement event, over every stage the declarations name."""
+### metadata
+    src/adss/__init__.py:3: from importlib.metadata import PackageNotFoundError, version
+    src/adss/das.py:3: Nothing here interprets. A cast records what the source's own metadata says a field is; the
+### modelling
+    src/adss/cli.py:219: """Put the modelling framework into the warehouse. Once per warehouse, and idempotent.
+    src/adss/cli.py:227: typer.echo(f"the modelling framework is already in {schema}")
+    src/adss/cli.py:230: typer.echo("installed the modelling framework")
+    src/adss/model.py:19: """The modelling language's whole type vocabulary. Semantic, not physical."""
+### moment
+    src/adss/project.py:5: from here would break the moment a page opened the same warehouse from elsewhere.
+### month
+    src/adss/uss.py:440: A calendar containing only the days something happened is not a calendar: a month with
+    src/adss/uss.py:465: f"    cast(month(d.date_key) AS INTEGER) AS month_of_year,\n"
+    src/adss/uss.py:469: f"    cast(date_trunc('month', d.date_key) AS DATE) AS month_start,\n"
+### move
+    src/adss/uss.py:385: this contract derives what it expects from this same function, so both sides move together
+    tests/test_uss.py:378: table, so both sides move together. So the property is pinned here, on the one shape that
+    tests/test_uss.py:416: # But the measures DO all move right, because keys precede them. That is the property the
+### names
+    src/adss/cli.py:38: from adss.names import Schema
+    src/adss/cli.py:187: # Names only: this is a DAS command, and it needs to know which files belong to the
+    src/adss/landing.py:19: from adss.names import Schema
+    src/adss/landing.py:22: # The load's own clock names the partition. Placeholders are the loader's, and it rejects
+### need
+    src/adss/uss.py:442: meaning and would need a definition, so they belong in the model, not in a generator.
+    tests/test_engine_pin.py:4: checkout need not have pulled, and conventions section 6 says this suite touches no binary.
+### needs
+    src/adss/cli.py:187: # Names only: this is a DAS command, and it needs to know which files belong to the
+    src/adss/uss.py:149: is a decision for the slice that first needs two such edges rather than a shape to guess at
+    src/adss/uss.py:208: f"tell. A snapshot stage arrives in the slice that first needs one."
+    src/adss/uss.py:354: inherit from. An entity reached only by inheritance still needs a peripheral, or the bridge
+### never
+    src/adss/cli.py:7: No tool's name appears in a subcommand. `adss das ingest`, never `adss dlt run`: the
+    src/adss/model.py:1: """A structural reading of the business model. It carries meaning; it never reads it.
+    src/adss/model.py:5: and never composes one, because a composed definition is a second explanation that nobody
+    src/adss/model.py:112: """Every definition, by the token that refers to it. Copied, never composed."""
+### next
+    src/adss/cli.py:368: The picture is the record of what was delivered, so it belongs next to what was asked
+    src/adss/mapping.py:319: target = next((one for one in mappings if one.entity_id == declared.target_entity_id), None)
+    src/adss/platform.py:76: A reader holding a writable handle blocks the next build, and the build is the thing
+    tests/test_uss.py:58: return next(part for part in branches(sql) if f"'{event}' AS _event" in part)
+### nobody
+    src/adss/cli.py:369: rather than in a directory of screenshots nobody browses.
+    src/adss/model.py:5: and never composes one, because a composed definition is a second explanation that nobody
+    src/adss/model.py:6: wrote and nobody reviews.
+    src/adss/contract.py:27: that is not here is a decision nobody has made yet.
+### nothing
+    src/adss/cli.py:161: # The views are built rather than committed, so --check has nothing to say about
+    src/adss/cli.py:196: typer.echo(f"{orphan.relative_to(project.root)} belongs to nothing declared")
+    src/adss/cli.py:250: """The whole generated layer, as file name to SQL. Nothing here is hand-written."""
+    src/adss/cli.py:296: typer.echo(f"{orphan.relative_to(project.root)} belongs to nothing declared")
+### nowhere
+    src/adss/model.py:79: That it is many-to-one is not stated here, because the modelling language has nowhere to
+    tests/test_relationship_checks.py:3: The cardinality of an edge cannot be read off the model -- the language has nowhere to state
+### number
+    src/adss/model.py:22: NUMBER = "NUMBER"
+    src/adss/model.py:41: return self.type is AttributeType.NUMBER
+    src/adss/uss.py:184: sentence about the wrong number, and everything would pass.
+    src/adss/uss.py:219: f"number. Summing what is not a number produces a number nobody can read."
+### occurred
+    tests/test_uss.py:208: occurred, happened = branch_of(bridge(), "occurred"), branch_of(bridge(), "happened")
+    tests/test_uss.py:209: # Not `"AS parent_key" in occurred`: a typed NULL is spelled `cast(NULL AS VARCHAR) AS
+    tests/test_uss.py:217: assert f"occurred.{key} AS {key}" in occurred, f"{key} is carried, not invented"
+    tests/test_uss.py:254: stage = cte_of(bridge(), "occurred")
+### odata
+    src/adss/source.py:44: total = int(document["@odata.count"]) if total is None else total
+    src/adss/source.py:74: total = int(document["@odata.count"]) if total is None else total
+    tests/test_source.py:58: assert document["@odata.count"] == 1, "the recording is the response, not the records in it"
+    tests/support.py:7: """A stand-in service that pages the way OData does, and remembers what it was asked."""
+### once
+    src/adss/cli.py:219: """Put the modelling framework into the warehouse. Once per warehouse, and idempotent.
+    src/adss/contract.py:4: transformation at once, so there is nothing beside it that can drift from it -- and it is
+    src/adss/source.py:1: """Reading a source once, and replaying that reading everywhere else.
+    src/adss/mapping.py:159: f"cannot be undone once loaded."
+### only
+    src/adss/cli.py:187: # Names only: this is a DAS command, and it needs to know which files belong to the
+    src/adss/model.py:3: The definitions in the model are the only explanation of the data there is. This module
+    src/adss/landing.py:51: # with only a warning to say so.
+    src/adss/__init__.py:7: except PackageNotFoundError:  # pragma: no cover - only when running from an unbuilt tree
+### orders
+    src/adss/checks.py:167: # same three reversed to 0.6 -- so two queries could sum one measure in two orders and
+### other
+    src/adss/cli.py:188: # other generator, not what they say.
+    src/adss/uss.py:6: every other branch of the union emits a typed NULL. ADR 0002.
+    src/adss/uss.py:178: AND silently replaces one definition with the other in the glossary.
+    src/adss/uss.py:261: of those versions the same parent, which is "as of now" wearing the other rule's clothes.
+### otherwise
+    src/adss/cli.py:151: # A renamed or removed contract would otherwise leave an orphan check behind, and an
+    src/adss/uss.py:260: A stage that kept more than the latest version of an entity would otherwise hand every one
+    src/adss/uss.py:380: That grouping means the contract does NOT only ever grow at the end, and saying otherwise
+    tests/test_uss.py:324: """Otherwise the bridge carries a key that joins to nothing, which is how a dimension
+### outright
+    src/adss/contract.py:42: # cheapest way to keep the format honest is to refuse the vocabulary outright.
+### over
+    src/adss/names.py:44: """An identifier crossing over from DAB, where mixed case is deliberate.
+    src/adss/uss.py:247: f"QUALIFY row_number() OVER (\n"
+    src/adss/uss.py:259: time -- because that is the whole reason ADR 0006 chose the observation time over "now".
+    src/adss/uss.py:284: f"QUALIFY row_number() OVER (\n"
+### pages
+    src/adss/landing.py:20: from adss.source import Fetch, pages
+    src/adss/landing.py:36: for url, page in pages(contract.source, fetch):
+    src/adss/source.py:33: def pages(endpoint: Endpoint, fetch: Fetch) -> Iterator[tuple[str, list[dict[str, Any]]]]:
+    tests/test_source.py:9: from adss.source import RecordingError, pages, record, replay
+### pairs
+    src/adss/uss.py:263: Read from `v_<SRC>_<NAME>_<TGT>`, which is the raw pairs plus the relationship's name, and
+    src/adss/mapping.py:275: target expression makes pairs that join to nothing, and an edge no mapping loads makes no
+    src/adss/mapping.py:276: pairs at all. All three show up as an inherited key that is null everywhere, which reads
+    src/adss/mapping.py:323: f"mapping loads. There is nothing for the pairs to join to."
+### part
+    src/adss/cli.py:288: project.checks_sql / f"{table}__{part}.sql"
+    src/adss/cli.py:290: for part in ("clock", "key")
+    src/adss/uss.py:383: moves the keys after it as well. So the model file's own order is part of this contract,
+    src/adss/mapping.py:25: # Standard SQL spells several same-row functions with FROM as part of their syntax, and their
+### permits
+    src/adss/mapping.py:27: # natural idiom for the very thing M5 permits -- and tell the reader it reached beyond its row.
+    tests/test_mapping_rules.py:58: """M5 permits an expression that reads its own row, and arithmetic over that row is one.
+### person
+    src/adss/cli.py:222: person and wrong for a build: a build has to be runnable twice.
+    src/adss/engine.py:44: person and wrong for a build, which must be runnable twice.
+    tests/test_engine_install.py:4: drop its schemas -- which is right for a person and wrong for a build, since a build has to be
+### pinned
+    src/adss/model.py:81: the mapping's shape and pinned by a data check. ADR 0006.
+    src/adss/engine.py:58: """A pinned engine binary and the project directory it is invoked from."""
+    src/adss/engine.py:74: f"{recorded}. The engine is pinned by content because it has no version."
+    src/adss/das.py:116: The comparison is pinned to UTC. `extracted_at` is a TIMESTAMP WITH TIME ZONE, so casting
+### place
+    src/adss/names.py:1: """The names this system owns. One place, so a flow check has something closed to check against."""
+    src/adss/project.py:1: """Where things are. One place, so no path is spelled twice.
+    src/adss/uss.py:480: A generator that composed a definition would be a third place the data is explained,
+    src/adss/checks.py:135: # only place: every presentation view hides it.
+### point
+    src/adss/cli.py:1: """The one entry point. Each subcommand drives exactly one layer; `build` drives them in order.
+    tests/test_cli.py:1: """The command line is the one entry point: to the layers, to CI, and to a new reader."""
+### precision
+    src/adss/contract.py:57: precision: int | None = None
+    src/adss/contract.py:63: return f"DECIMAL({self.precision}, {self.scale})"
+    src/adss/contract.py:147: precision, scale = declared.get("precision"), declared.get("scale")
+    src/adss/contract.py:148: if column_type is ColumnType.DECIMAL and (precision is None or scale is None):
+### produces
+    src/adss/cli.py:110: The diff this produces is the upstream change, made visible.
+    src/adss/uss.py:219: f"number. Summing what is not a number produces a number nobody can read."
+    src/adss/sqlformat.py:8: formatted one and a regeneration produces no spurious diff.
+    tests/test_das_executes.py:3: This is a machinery test, not a data check: it asserts the emitter produces executable SQL,
+### promise
+    src/adss/cli.py:8: blueprint's first promise is that every tool here is replaceable.
+    src/adss/platform.py:4: promise is that every tool is replaceable, and this module is where that promise is kept or
+### property
+    src/adss/model.py:34: @property
+    src/adss/model.py:39: @property
+    src/adss/model.py:43: @property
+    src/adss/model.py:54: @property
+### purpose
+    src/adss/contract.py:26: Closed on purpose: this is the dictionary where staging decisions accumulate, and a type
+### query
+    src/adss/project.py:4: directory: a relative path inside a persisted view resolves at query time, so a view created
+    src/adss/question.py:117: f"{question.id}: the control query mentions {forbidden!r}. It must compute "
+    src/adss/question.py:122: f"{question.id}: the control query must read a das__staged __current view. "
+    src/adss/question.py:129: raise QuestionError(f"{question.id}: the answer query does not read the star schema")
+### rather
+    src/adss/cli.py:5: able to find that out from `--help` rather than from a pipeline definition.
+    src/adss/cli.py:143: The views embed the lake's absolute path, so they are built rather than committed. The
+    src/adss/cli.py:161: # The views are built rather than committed, so --check has nothing to say about
+    src/adss/cli.py:326: # true by construction rather than by a check somebody has to run.
+### read
+    src/adss/cli.py:108: """Read the live source and keep every response verbatim under das/fixtures.
+    src/adss/cli.py:124: live: Annotated[bool, typer.Option(help="Read the source instead of the recording.")] = False,
+    src/adss/cli.py:347: live: Annotated[bool, typer.Option(help="Read the source instead of the recording.")] = False,
+    src/adss/contract.py:69: """Where the records come from. Read by the pipeline; never by anything downstream."""
+### reading
+    src/adss/cli.py:39: from adss.platform import exclusive, install, reading
+    src/adss/cli.py:335: with reading(project.warehouse) as connection:
+    src/adss/model.py:1: """A structural reading of the business model. It carries meaning; it never reads it.
+    src/adss/source.py:1: """Reading a source once, and replaying that reading everywhere else.
+### reads
+    src/adss/model.py:1: """A structural reading of the business model. It carries meaning; it never reads it.
+    src/adss/contract.py:173: f"are what everything downstream reads."
+    src/adss/uss.py:388: What makes that tolerable rather than a defect is that nothing reads this table by
+    src/adss/mapping.py:151: f"{where}: M1 -- a mapping reads a {Schema.DAS_STAGED} object and nothing "
+### record
+    src/adss/cli.py:42: from adss.source import over_http, record, replay
+    src/adss/cli.py:102: @das.command("record")
+    src/adss/cli.py:118: pages_recorded = record(declared.source, over_http, directory)
+    src/adss/cli.py:368: The picture is the record of what was delivered, so it belongs next to what was asked
+### recorded
+    src/adss/cli.py:119: typer.echo(f"recorded {pages_recorded} page(s) of {declared.table} into {directory}")
+    src/adss/cli.py:243: """Load the business model from what the system recorded."""
+    src/adss/source.py:92: recorded = manifest["requests"]
+    src/adss/source.py:93: assert isinstance(recorded, dict), f"{directory / MANIFEST} has no request index"
+### recording
+    src/adss/cli.py:124: live: Annotated[bool, typer.Option(help="Read the source instead of the recording.")] = False,
+    src/adss/cli.py:347: live: Annotated[bool, typer.Option(help="Read the source instead of the recording.")] = False,
+    src/adss/source.py:25: """A replay was asked for something the recording does not hold."""
+    src/adss/source.py:60: Verbatim because a recording that keeps only the records it parsed is a recording of our
+### records
+    src/adss/contract.py:69: """Where the records come from. Read by the pipeline; never by anything downstream."""
+    src/adss/contract.py:120: f"records what arrived"
+    src/adss/landing.py:35: def records() -> Iterator[dict[str, Any]]:
+    src/adss/landing.py:60: info = pipeline.run(records(), loader_file_format="parquet")
+### references
+    src/adss/model.py:4: moves them around -- into a glossary, into a check that a question's references resolve --
+    src/adss/uss.py:183: references resolve against and what the page renders. A reader would be shown a plausible
+    src/adss/question.py:105: f"{question.id}: {{{{{token}}}}} resolves to nothing. A question references "
+### refers
+    src/adss/model.py:112: """Every definition, by the token that refers to it. Copied, never composed."""
+    src/adss/uss.py:478: """Every definition, by the token that refers to it. Copied verbatim, never composed.
+### refused
+    src/adss/uss.py:142: """Two edges into one key column is a silent loss, so it is refused rather than emitted.
+    src/adss/uss.py:267: child's measures, so the ranking is `row_number()` and the tie is refused by a data check.
+    src/adss/engine.py:30: """The engine refused. The message says what actually happened where we can tell."""
+    src/adss/mapping.py:141: """Refuse what M1-M5 and M7 refuse, naming the rule that refused it.
+### rejected
+    src/adss/model.py:80: state it: `cardinality` is rejected and `type` is dropped on compile. It is inferred from
+    src/adss/sqlformat.py:27: raise SqlFormatError(f"the generator emitted SQL the linter rejected: {broken}") from broken
+### rejects
+    src/adss/landing.py:22: # The load's own clock names the partition. Placeholders are the loader's, and it rejects
+### relationship
+    src/adss/cli.py:285: # Rename a relationship and the check named for the old one is still executed by `adss
+    src/adss/model.py:76: class Relationship:
+    src/adss/model.py:99: relationships: tuple[Relationship, ...] = ()
+    src/adss/model.py:107: def edges_from(self, entity_id: str) -> tuple[Relationship, ...]:
+### request
+    src/adss/source.py:11: import urllib.request
+    src/adss/source.py:18: # A request, answered. Injected so a replay and a live read differ in nothing else.
+    src/adss/source.py:53: with urllib.request.urlopen(url, timeout=60) as response:
+    src/adss/source.py:58: """Read the source and keep every response body verbatim, with the request beside it.
+### restates
+    src/adss/question.py:106: f"definitions and never restates one, so a token with no definition behind "
+### same
+    src/adss/source.py:3: A replay follows the same code path and the same requests as a live read: the only thing
+    src/adss/project.py:5: from here would break the moment a page opened the same warehouse from elsewhere.
+    src/adss/uss.py:145: from one entity to the same target -- or an edge to the entity itself -- would emit two
+    src/adss/uss.py:146: columns of the same name, and DuckDB resolves that ambiguity instead of raising, so one of
+### saying
+    src/adss/uss.py:380: That grouping means the contract does NOT only ever grow at the end, and saying otherwise
+    src/adss/engine.py:98: f"{TOOL} {' '.join(arguments)} failed saying the framework is not installed. It "
+    src/adss/platform.py:94: Every generated statement opens with a comment saying which artefact it came from, so
+    src/adss/checks.py:227: """One check per way an edge fails without saying so. ADR 0006.
+### says
+    src/adss/cli.py:221: The engine refuses a second install and says to drop its schemas, which is right for a
+    src/adss/contract.py:179: f"silently displace the provenance that says where the row came from."
+    src/adss/engine.py:21: # What the engine says when it cannot take the warehouse lock. It is not what went wrong.
+    src/adss/engine.py:30: """The engine refused. The message says what actually happened where we can tell."""
+### scale
+    src/adss/contract.py:58: scale: int | None = None
+    src/adss/contract.py:63: return f"DECIMAL({self.precision}, {self.scale})"
+    src/adss/contract.py:147: precision, scale = declared.get("precision"), declared.get("scale")
+    src/adss/contract.py:148: if column_type is ColumnType.DECIMAL and (precision is None or scale is None):
+### second
+    src/adss/cli.py:145: copy becoming a second truth.
+    src/adss/cli.py:221: The engine refuses a second install and says to drop its schemas, which is right for a
+    src/adss/cli.py:284: # This command is a second writer into checks/, so it sweeps what it no longer generates.
+    src/adss/model.py:5: and never composes one, because a composed definition is a second explanation that nobody
+### section
+    src/adss/names.py:47: run time, and the two conventions must be visually distinct. Conventions section 3.
+    src/adss/uss.py:389: position. Conventions section 3 forbids `SELECT *`, the questions name their columns and
+    src/adss/mapping.py:4: them accept it and then corrupt data quietly. Conventions section 1.4, ADR 0004.
+    src/adss/platform.py:10: section 9.
+### sends
+    src/adss/contract.py:1: """A contract: what a source sends, what it is called here, and what type it becomes.
+    src/adss/mapping.py:28: # A refusal whose stated reason is wrong sends someone looking for a problem that is not there.
+    tests/test_mapping_rules.py:63: whose reason is wrong sends someone looking for a problem that is not there. ADR 0007.
+### shape
+    src/adss/model.py:81: the mapping's shape and pinned by a data check. ADR 0006.
+    src/adss/uss.py:149: is a decision for the slice that first needs two such edges rather than a shape to guess at
+    src/adss/mapping.py:31: # A key expression is compared by shape, not by spelling: only the casting decides what
+    src/adss/mapping.py:144: here; its key-shape clause -- a concat without a separator collapses 'A1' + '23' and
+### silence
+    src/adss/mapping.py:316: f"skips a relationship whose source_table it cannot match, in silence, and "
+    src/adss/checks.py:259: # engine skips the relationship in silence and every inherited key is null.
+    tests/test_relationship_checks.py:133: """What a source_table the engine could not match looks like: nothing, in silence."""
+### silently
+    src/adss/contract.py:179: f"silently displace the provenance that says where the row came from."
+    src/adss/uss.py:158: f"{entity.key_column} twice under one name and lose one of them silently."
+    src/adss/uss.py:178: AND silently replaces one definition with the other in the glossary.
+    src/adss/mapping.py:182: # separators, so `{id: X, transformation_expression: f('a', b, c)}` silently
+### since
+    tests/test_engine_install.py:4: drop its schemas -- which is right for a person and wrong for a build, since a build has to be
+### skipped
+    src/adss/mapping.py:274: A mis-spelled `source_table` is skipped by the engine without a word, a differently shaped
+    tests/test_relationship_rules.py:3: A mis-spelled `source_table` is skipped without a word; a differently shaped target expression
+### something
+    src/adss/names.py:1: """The names this system owns. One place, so a flow check has something closed to check against."""
+    src/adss/source.py:25: """A replay was asked for something the recording does not hold."""
+    src/adss/uss.py:440: A calendar containing only the days something happened is not a calendar: a month with
+    src/adss/mapping.py:171: f"when the system observed it; anything else dates it by something that is "
+### source_entity_id
+    src/adss/model.py:85: source_entity_id: str
+    src/adss/model.py:92: return f"{self.source_entity_id}_{self.name}_{self.target_entity_id}"
+    src/adss/model.py:109: return tuple(r for r in self.relationships if r.source_entity_id == entity_id)
+    src/adss/model.py:143: source_entity_id=str(declared["source_entity_id"]),
+### source_table
+    src/adss/mapping.py:90: source_table: str
+    src/adss/mapping.py:126: source_table=str(declared["source_table"]),
+    src/adss/mapping.py:274: A mis-spelled `source_table` is skipped by the engine without a word, a differently shaped
+    src/adss/mapping.py:312: if edge.source_table not in tables:
+### spelled
+    src/adss/model.py:36: """How this attribute is spelled in the generated layer."""
+    src/adss/project.py:1: """Where things are. One place, so no path is spelled twice.
+    src/adss/mapping.py:205: Arithmetic and same-row functions do not, however they are spelled; a subquery, a join, a
+    src/adss/mapping.py:274: A mis-spelled `source_table` is skipped by the engine without a word, a differently shaped
+### spelling
+    src/adss/mapping.py:31: # A key expression is compared by shape, not by spelling: only the casting decides what
+    src/adss/mapping.py:240: expression. It is the *shape* that has to match, not the spelling: a foreign key column is
+    tests/test_relationship_rules.py:74: # M6 is about the shape of the expression, not the spelling of the column. A foreign key
+### spells
+    src/adss/mapping.py:25: # Standard SQL spells several same-row functions with FROM as part of their syntax, and their
+    src/adss/mapping.py:87: """One declared edge, as the mapping spells it."""
+### split
+    src/adss/contract.py:151: f"keys. A parenthesised type is split by the comma inside a flow mapping."
+    src/adss/landing.py:39: # split into columns, or promoted to a child table.
+    src/adss/names.py:31: return Layer(str(self).split("__", 1)[0])
+    src/adss/engine.py:66: recorded = (self.binary.parent / f"{self.binary.name}.sha256").read_text().split()[0]
+### stale
+    src/adss/cli.py:147: stale = False
+    src/adss/cli.py:182: stale = True
+    src/adss/cli.py:197: stale = True
+    src/adss/cli.py:202: if stale:
+### star
+    src/adss/cli.py:66: help="Data according to the requirements: the generated star schema.",
+    src/adss/cli.py:275: """Write the star schema's SQL from the model and its declarations."""
+    src/adss/uss.py:1: """The Unified Star Schema, generated: an event bridge, a peripheral per entity, a calendar.
+    src/adss/question.py:129: raise QuestionError(f"{question.id}: the answer query does not read the star schema")
+### start
+    src/adss/project.py:21: def discover(cls, start: Path | None = None) -> Project:
+    src/adss/project.py:22: here = (start or Path.cwd()).absolute()
+    src/adss/mapping.py:250: parts.append(_without_names(expression[last : literal.start()]))
+    src/adss/platform.py:95: "does not start with --" is exactly the wrong test: it would skip all of them.
+### start_timestamp
+    src/adss/model.py:24: START_TIMESTAMP = "START_TIMESTAMP"
+    src/adss/model.py:45: return self.type in (AttributeType.START_TIMESTAMP, AttributeType.END_TIMESTAMP)
+### statement
+    src/adss/platform.py:94: Every generated statement opens with a comment saying which artefact it came from, so
+    src/adss/platform.py:106: """Run generated SQL, one statement at a time so a failure names the statement."""
+    src/adss/platform.py:108: for statement in executed:
+    src/adss/platform.py:109: connection.execute(statement)
+### step
+    src/adss/cli.py:351: Each step is a separate command because the layers fail differently and are debugged
+### strings
+    src/adss/uss.py:96: f"strings verbatim, so one that does not exist becomes a blank row."
+### structure
+    src/adss/destination.py:70: # Not the default. Without it the thumbnail is the page's structure with none of
+### style
+    src/adss/mapping.py:191: f"has. Almost always this is YAML flow style splitting an expression on "
+    src/adss/mapping.py:193: f"style, or quote the expression."
+    tests/test_mapping_rules.py:3: Two of the seven are not style: FULL against a multi-row-per-key source duplicates silently
+    tests/test_mapping_rules.py:93: assert "flow style" in str(refused.value)
+### such
+    src/adss/uss.py:149: is a decision for the slice that first needs two such edges rather than a shape to guess at
+    src/adss/checks.py:168: # disagree by a bit, on some machines, some of the time. There is no such value today
+### system
+    src/adss/cli.py:4: debugged separately -- and because a reader who wants to know what this system does should be
+    src/adss/cli.py:48: help="Build and inspect the analytical data storage system.",
+    src/adss/cli.py:53: name="das", help="Data according to the system: capture and unpack.", no_args_is_help=True
+    src/adss/cli.py:99: """Build and inspect the analytical data storage system."""
+### target_entity_id
+    src/adss/model.py:86: target_entity_id: str
+    src/adss/model.py:92: return f"{self.source_entity_id}_{self.name}_{self.target_entity_id}"
+    src/adss/model.py:144: target_entity_id=str(declared["target_entity_id"]),
+    src/adss/uss.py:155: if edge.target_entity_id == entity.id:
+### target_transformation_expression
+    src/adss/mapping.py:127: target_expression=str(declared["target_transformation_expression"]),
+### than
+    src/adss/cli.py:5: able to find that out from `--help` rather than from a pipeline definition.
+    src/adss/cli.py:143: The views embed the lake's absolute path, so they are built rather than committed. The
+    src/adss/cli.py:161: # The views are built rather than committed, so --check has nothing to say about
+    src/adss/cli.py:326: # true by construction rather than by a check somebody has to run.
+### that
+    src/adss/cli.py:5: able to find that out from `--help` rather than from a pipeline definition.
+    src/adss/cli.py:8: blueprint's first promise is that every tool here is replaceable.
+    src/adss/cli.py:141: """Write the views the contracts describe, and the checks that go with them.
+    src/adss/model.py:4: moves them around -- into a glossary, into a check that a question's references resolve --
+### their
+    src/adss/contract.py:150: f"{table}.{target_name}: DECIMAL declares precision and scale as their own "
+    src/adss/uss.py:389: position. Conventions section 3 forbids `SELECT *`, the questions name their columns and
+    src/adss/mapping.py:25: # Standard SQL spells several same-row functions with FROM as part of their syntax, and their
+    src/adss/mapping.py:216: Only their arguments: everything around them still has to answer for itself, so
+### them
+    src/adss/cli.py:1: """The one entry point. Each subcommand drives exactly one layer; `build` drives them in order.
+    src/adss/cli.py:105: str | None, typer.Option(help="Contract stem; all of them if omitted.")
+    src/adss/cli.py:141: """Write the views the contracts describe, and the checks that go with them.
+    src/adss/cli.py:162: # them and should not write them either.
+### there
+    src/adss/model.py:3: The definitions in the model are the only explanation of the data there is. This module
+    src/adss/contract.py:4: transformation at once, so there is nothing beside it that can drift from it -- and it is
+    src/adss/engine.py:4: no secret. It self-reports as `nightly` with a commit hash, so there is no version to depend
+    src/adss/mapping.py:28: # A refusal whose stated reason is wrong sends someone looking for a problem that is not there.
+### these
+    src/adss/source.py:61: parser. When the source changes, the diff on these files is the change, visible.
+    src/adss/uss.py:95: f"{path}: event {event_id} has no definition. A glossary copies these "
+    src/adss/uss.py:314: # One row per inheriting row in each of these, so none of the joins can fan out. LEFT
+    src/adss/mapping.py:290: f"null, which reads as 'these rows have no target' rather than as a gap."
+### they
+    src/adss/cli.py:143: The views embed the lake's absolute path, so they are built rather than committed. The
+    src/adss/cli.py:144: checks carry no path, so they are committed -- and `--check` is what stops the committed
+    src/adss/cli.py:168: # The checks carry no path, so unlike the views they are committed and linted.
+    src/adss/cli.py:188: # other generator, not what they say.
+### thing
+    src/adss/names.py:38: came from, which is the one thing the name is for. Conventions 1.3.
+    src/adss/source.py:3: A replay follows the same code path and the same requests as a live read: the only thing
+    src/adss/uss.py:177: are the same thing; with two they are not, and the same id on both emits one column twice
+    src/adss/mapping.py:27: # natural idiom for the very thing M5 permits -- and tell the reader it reached beyond its row.
+### things
+    src/adss/project.py:1: """Where things are. One place, so no path is spelled twice.
+### this
+    src/adss/cli.py:4: debugged separately -- and because a reader who wants to know what this system does should be
+    src/adss/cli.py:110: The diff this produces is the upstream change, made visible.
+    src/adss/cli.py:187: # Names only: this is a DAS command, and it needs to know which files belong to the
+    src/adss/cli.py:284: # This command is a second writer into checks/, so it sweeps what it no longer generates.
+### time
+    src/adss/names.py:47: run time, and the two conventions must be visually distinct. Conventions section 3.
+    src/adss/project.py:4: directory: a relative path inside a persisted view resolves at query time, so a view created
+    src/adss/uss.py:10: as a special case the first time an edge exists.
+    src/adss/uss.py:259: time -- because that is the whole reason ADR 0006 chose the observation time over "now".
+### together
+    src/adss/uss.py:385: this contract derives what it expects from this same function, so both sides move together
+    tests/test_uss.py:378: table, so both sides move together. So the property is pinned here, on the one shape that
+### took
+    src/adss/source.py:4: swapped is what answers them. That sameness is the whole value -- a replay that took a
+### transaction
+    src/adss/uss.py:43: TRANSACTION = "transaction"
+    src/adss/uss.py:203: if event.kind is not EventKind.TRANSACTION:
+    src/adss/uss.py:206: f"transaction stages. It would emit a transaction stage anyway and mark "
+### transformation
+    src/adss/contract.py:4: transformation at once, so there is nothing beside it that can drift from it -- and it is
+    tests/test_contract.py:1: """A contract is documentation, schema and transformation in one artefact. ADR 0003."""
+### twice
+    src/adss/cli.py:222: person and wrong for a build: a build has to be runnable twice.
+    src/adss/project.py:1: """Where things are. One place, so no path is spelled twice.
+    src/adss/uss.py:158: f"{entity.key_column} twice under one name and lose one of them silently."
+    src/adss/uss.py:167: f"twice loses one of them with no error. Naming the column after the edge "
+### under
+    src/adss/cli.py:108: """Read the live source and keep every response verbatim under das/fixtures.
+    src/adss/contract.py:83: """One source entity set, landed under one name."""
+    src/adss/contract.py:178: f"({', '.join(sorted(RESERVED))}). A source field landing under it would "
+    src/adss/uss.py:158: f"{entity.key_column} twice under one name and lose one of them silently."
+### unless
+    src/adss/names.py:35: """Bare unless it is a reserved word, in which case quoted rather than abbreviated around.
+    tests/test_das_round_trip.py:60: assert lake_dir(root).is_dir(), "das__raw is normalised to das_raw unless that is disabled"
+### until
+    src/adss/mapping.py:145: 'A12' + '3' into one key -- is review-only until there is a composite key to check.
+    src/adss/checks.py:103: # until now: that `v_<edge>` hands over the RAW pairs. If a release added ranking inside
+### uses
+    tests/test_uss.py:263: """The engine's macro uses rank(), which returns both rows for a child whose source named
+### using
+    tests/test_das_executes.py:4: using a synthetic lake it builds itself. What the real warehouse contains is asserted by
+### value
+    src/adss/contract.py:115: for key, value in node.items():
+    src/adss/contract.py:122: _refuse_forbidden_keys(value, table)
+    src/adss/landing.py:3: Nothing here decides what a field is. The record arrives as one JSON value and stays that
+    src/adss/source.py:4: swapped is what answers them. That sameness is the whole value -- a replay that took a
+### variable
+    src/adss/question.py:67: # The id becomes a file name and an environment variable, so it may not be empty, contain a
+    src/adss/question.py:75: f"environment variable, so it must be lower-case letters, digits, hyphen and "
+    tests/test_questions.py:126: """The id names a screenshot and an environment variable, not just a row in a table.
+### vocabulary
+    src/adss/model.py:19: """The modelling language's whole type vocabulary. Semantic, not physical."""
+    src/adss/contract.py:24: """The closed vocabulary a contract may declare.
+    src/adss/contract.py:42: # cheapest way to keep the format honest is to refuse the vocabulary outright.
+    src/adss/contract.py:108: f"{table}.{target_name}: type {raw!r} is not in the vocabulary "
+### waiting
+    src/adss/platform.py:58: """Open the warehouse for writing, refusing rather than waiting if it is held."""
+### went
+    src/adss/engine.py:21: # What the engine says when it cannot take the warehouse lock. It is not what went wrong.
+    src/adss/platform.py:9: reports says the framework is not installed, which is not what went wrong. Conventions
+    src/adss/platform.py:32: "not installed', which is not what went wrong."
+    tests/test_platform.py:63: installed", which is not what went wrong, so the guard has to be ours.
+### were
+    src/adss/das.py:62: The payload is deliberately absent. If it were here a downstream mapping could read
+### what
+    src/adss/cli.py:4: debugged separately -- and because a reader who wants to know what this system does should be
+    src/adss/cli.py:138: bool, typer.Option("--check", help="Fail if the committed checks are not what regenerates.")
+    src/adss/cli.py:144: checks carry no path, so they are committed -- and `--check` is what stops the committed
+    src/adss/cli.py:180: f"{check.relative_to(project.root)} is not what the contract generates"
+### when
+    src/adss/__init__.py:7: except PackageNotFoundError:  # pragma: no cover - only when running from an unbuilt tree
+    src/adss/source.py:61: parser. When the source changes, the diff on these files is the change, visible.
+    src/adss/uss.py:4: onto every child row would multiply it when summed, which is the fan trap a bridge exists to
+    src/adss/uss.py:256: """One inherited key: the pair in force when the inheriting row was observed. ADR 0006.
+### whether
+    src/adss/engine.py:40: """Whether the framework is already in this warehouse.
+    src/adss/mapping.py:203: """Whether an expression leaves the row it is written on. M5.
+    tests/test_engine_install.py:1: """Whether the framework is already in a warehouse is asked of the warehouse.
+### which
+    src/adss/cli.py:187: # Names only: this is a DAS command, and it needs to know which files belong to the
+    src/adss/cli.py:221: The engine refuses a second install and says to drop its schemas, which is right for a
+    src/adss/cli.py:352: separately. This is them in order, which is the order a reader should meet them in.
+    src/adss/model.py:77: """A many-to-one edge, along which a key inherits and a measure does not.
+### whole
+    src/adss/cli.py:152: # orphan check aborts the whole run before any finding is printed.
+    src/adss/cli.py:250: """The whole generated layer, as file name to SQL. Nothing here is hand-written."""
+    src/adss/cli.py:286: # check` -- and an unrunnable check aborts the whole run before a finding is printed.
+    src/adss/cli.py:349: """Build the whole system, in the one direction data flows.
+### whose
+    src/adss/uss.py:266: for a child whose source named two parents at one instant. Two rows here would double that
+    src/adss/mapping.py:28: # A refusal whose stated reason is wrong sends someone looking for a problem that is not there.
+    src/adss/mapping.py:316: f"skips a relationship whose source_table it cannot match, in silence, and "
+    src/adss/destination.py:32: """Repoint a link, including one whose target has gone.
+### will
+    src/adss/source.py:36: The url is yielded because it is provenance: it is what the row will carry to say where
+    src/adss/uss.py:34: """A declaration the generator will not build from."""
+    src/adss/mapping.py:1: """The rules that keep a mapping honest, because the engine will not.
+    src/adss/destination.py:4: it. The exported HTML will not do: it loads its assets from a content network and renders
+### word
+    src/adss/contract.py:98: """The mechanical translation of a source's own word. Not a rename. Conventions 1.1."""
+    src/adss/names.py:35: """Bare unless it is a reserved word, in which case quoted rather than abbreviated around.
+    src/adss/mapping.py:258: def anonymous(word: re.Match[str]) -> str:
+    src/adss/mapping.py:259: found = word.group(0).lower()
+### would
+    src/adss/cli.py:151: # A renamed or removed contract would otherwise leave an orphan check behind, and an
+    src/adss/contract.py:20: """A contract that would compile but should not exist."""
+    src/adss/contract.py:41: # Keys that would let a contract carry an interpretation. Blueprint S1 forbids one, and the
+    src/adss/contract.py:118: f"{table}: key {key!r} would let this contract carry business logic, "
+### writing
+    src/adss/platform.py:58: """Open the warehouse for writing, refusing rather than waiting if it is held."""
+    tests/test_generated_sql_lints.py:5: every emitter produces, laid out the way the generator lays it out before writing.
+### written
+    src/adss/cli.py:164: written = project.das_sql / f"{declared.table}.sql"
+    src/adss/cli.py:165: written.write_text("\n".join(statements))
+    src/adss/cli.py:166: typer.echo(f"wrote {written.relative_to(project.root)}")
+    src/adss/cli.py:250: """The whole generated layer, as file name to SQL. Nothing here is hand-written."""
+### wrong
+    src/adss/cli.py:222: person and wrong for a build: a build has to be runnable twice.
+    src/adss/uss.py:184: sentence about the wrong number, and everything would pass.
+    src/adss/engine.py:21: # What the engine says when it cannot take the warehouse lock. It is not what went wrong.
+    src/adss/engine.py:44: person and wrong for a build, which must be runnable twice.
+### wrote
+    src/adss/cli.py:166: typer.echo(f"wrote {written.relative_to(project.root)}")
+    src/adss/cli.py:185: typer.echo(f"wrote {check.relative_to(project.root)}")
+    src/adss/cli.py:310: typer.echo(f"wrote {written.relative_to(project.root)}")
+    src/adss/model.py:6: wrote and nobody reviews.
+### yaml
+    src/adss/model.py:15: import yaml
+    src/adss/model.py:124: document = yaml.safe_load(path.read_text())["model"]
+    src/adss/contract.py:16: import yaml
+    src/adss/contract.py:131: document = yaml.safe_load(path.read_text())
+### zero
+    src/adss/uss.py:9: zero-edge walk is a valid walk, and the tests say so, because the alternative is meeting it
+    src/adss/engine.py:43: a second install exits non-zero and tells you to drop the schemas. That is correct for a
+    tests/test_engine_install.py:3: The engine answers that question by failing -- a second install exits non-zero telling you to

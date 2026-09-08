@@ -1,0 +1,2414 @@
+wf_1a633c3a-2c1.json | export const meta = {
+  name: 'slice-02-verify',
+  description: 'Verify slice 2 from six independent angles, then adversarially filter every finding',
+  phases: [
+    { title: 'Verify', detail: 'six lenses, each blind to the others' },
+    { title: 'Filter', detail: 'each finding attacked by an agent trying to kill it' },
+  ],
+}
+
+const REPO = '/home/user/adss-2026-09-07'
+const BASE = '28a6065'
+
+const COMMON = `
+You are one lens of a verification pass over a completed slice of work. Six of you run, each
+blind to the others. Report findings; do not fix anything.
+
+HARD RULES
+- Do NOT write, edit or create any file in ${REPO}. Do not run git commands that change state
+  (no commit, checkout, reset, add, stash). Reading, and the project's own read-only commands,
+  are fine. Work in /tmp if you need to write anything.
+- You may run: uv run pytest, uv run adss check, uv run ruff check, uv run sqlfluff lint, and
+  read-only DuckDB queries against ${REPO}/warehouse.duckdb (open it read_only=True).
+- Ground every finding in something you actually read or ran. Quote the file and line, or the
+  command and its output. A finding you cannot ground is not a finding.
+- Severity honestly: "blocking" means the slice should not be accepted as it stands.
+  "worth fixing" means fix it but it does not block. "note" is an observation.
+- Report NOTHING rather than padding. An empty list from a lens that genuinely found nothing
+  is the most useful possible result. Do not manufacture findings to look thorough.
+
+THE REPOSITORY
+${REPO}. An analytical data storage system in three layers:
+- DAS (das__raw, das__staged): dlt lands whole source records as one JSON column into
+  hive-partitioned parquet; contracts generate typed views over it.
+- DAB (dab, dab__stage, dab__meta): a focal/ensemble model built by a vendored engine binary.
+  dab/model.yaml is the only place the data is explained.
+- DAR (dar__uss): a generated Unified Star Schema -- one event bridge, one peripheral per
+  entity, one calendar.
+- destinations/app.py: a marimo page reading dar__uss only.
+
+SLICE 2 is every commit after ${BASE}. It answers: "What freight did we pay per customer
+country and order quarter?" It adds: a second contract (customers), a second entity (CUSTOMER),
+the FIRST RELATIONSHIP (ORDER_IS_PLACED_BY_CUSTOMER), the first inherited key, and the first
+sum measure. Use: git -C ${REPO} log --oneline ${BASE}..HEAD and
+git -C ${REPO} diff ${BASE}..HEAD
+
+READ THESE FIRST: ${REPO}/docs/blueprint.md, ${REPO}/docs/conventions.md,
+${REPO}/docs/deviations.md, ${REPO}/docs/adr/*.md -- especially docs/adr/0006, which is this
+slice's decision and states exactly what the generator is supposed to do and why. They are
+the standard you judge against.
+`
+
+const FINDINGS = {
+  type: 'object',
+  properties: {
+    lens: { type: 'string' },
+    verdict: { type: 'string', enum: ['accept', 'accept-with-fixes', 'do-not-accept'] },
+    summary: { type: 'string', description: 'Two or three sentences. What you checked and concluded.' },
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          severity: { type: 'string', enum: ['blocking', 'worth fixing', 'note'] },
+          where: { type: 'string', description: 'file:line, or the command that showed it' },
+          finding: { type: 'string' },
+          evidence: { type: 'string', description: 'What you actually read or ran, quoted' },
+          fix: { type: 'string' },
+        },
+        required: ['severity', 'where', 'finding', 'evidence', 'fix'],
+      },
+    },
+    checkedAndFound: { type: 'array', items: { type: 'string' }, description: 'Things you specifically looked for and did NOT find wrong.' },
+  },
+  required: ['lens', 'verdict', 'summary', 'findings', 'checkedAndFound'],
+}
+
+const VERDICT = {
+  type: 'object',
+  properties: {
+    survives: { type: 'boolean' },
+    confidence: { type: 'number', description: '0-10. How sure you are the finding is real AND worth acting on.' },
+    reasoning: { type: 'string' },
+    correction: { type: 'string', description: 'If the finding is wrong or overstated, what is actually true.' },
+  },
+  required: ['survives', 'confidence', 'reasoning'],
+}
+
+const LENSES = [
+  {
+    key: 'layering',
+    prompt: COMMON + `
+LENS -- LAYERING. Does anything read across a boundary it should not?
+
+F1 analytical usage reads only DAR. F2 DAR reads only DAB. F3 DAB reads only DAS.
+
+1. dar/uss/_bridge.sql now reads dab."v_ORDER_IS_PLACED_BY_CUSTOMER". That object is an
+   engine-internal view that INNER JOINs the pair table to dab__meta.atom_contx_desc. So DAR
+   transitively reads dab__meta. Is that a violation of F2, or is dab__meta part of DAB? Read
+   the blueprint and argue it either way, then say which you believe and why. This is the
+   sharpest layering question the slice raises -- do not wave it through.
+2. checks/order_is_placed_by_customer__*.sql read both dab.* and dar__uss.*. Is a conformance
+   check legitimately outside F1, and does the repository say so anywhere?
+3. Does destinations/app.py still touch nothing but dar__uss and the question files?
+4. Do dab/mappings/*.yaml read only das__staged? Does the new relationship block introduce any
+   reach that M1 or M5 would forbid?
+5. Does anything in DAS interpret rather than record? Look at das/sql/customers.sql.`,
+  },
+  {
+    key: 'conventions',
+    prompt: COMMON + `
+LENS -- CONVENTIONS. Does the slice obey the rules this repository set itself?
+
+1. Section 1.2: no source name anywhere in dab/model.yaml. The source calls things
+   CustomerId, CompanyName, Country, Freight. Does DAB echo any of them? Note FREIGHT_CHARGE
+   in particular: the source column is literally named Freight. Is that a violation, or a word
+   the business owns independently? Argue it, do not assume.
+2. Section 1.4, all seven mapping rules, against dab/mappings/*.yaml -- M6 for the first time.
+   Read src/adss/mapping.py check_relationships and decide whether it actually enforces what
+   the convention says, or something adjacent to it.
+3. Section 2: measure naming. Is FREIGHT_ORDERS_AMOUNT right? Check every clause of the rule.
+4. Section 5: NO data vocabulary anywhere under src/ or tests/. This is the one most likely to
+   be violated by this slice. Grep src/ and tests/ for: customer, freight, order, country,
+   ship, northwind, quarter. Distinguish a real violation from a machinery word that collides.
+   Check tests/fixtures/ -- are the new CHILD/PARENT/NEIGHBOUR fixtures genuinely neutral?
+5. Section 1.3: DAR naming; structural columns leading-underscore; reserved words quoted.
+6. Section 7: conventional commits, and an ADR BEFORE the code it decides. Check git log
+   ordering: was 0006 committed before the code that implements it? Note there is a second
+   ADR commit amending 0006 -- read both and judge whether that was handled honestly.
+7. Is anything in docs/ now stale? In particular: does docs/adr/0002 still assert things the
+   probe disproved, and does 0006 correct them adequately? Does the dab skill
+   (.claude/skills/dab/SKILL.md) still claim view_<E>_with_rel carries no relationship key?
+   That claim is now known to be false on a target side.`,
+  },
+  {
+    key: 'recomputation',
+    prompt: COMMON + `
+LENS -- INDEPENDENT RECOMPUTATION. Is the number right?
+
+The most valuable lens. Do NOT use any of this repository's code. Do not import adss. Do not
+read its SQL and re-run it. Write your own script in /tmp.
+
+1. Read the raw recorded payloads at ${REPO}/das/fixtures/orders/page-*.json and
+   ${REPO}/das/fixtures/customers/page-*.json. These are the response bodies as the source
+   returned them.
+2. In plain Python, compute: for every order with an OrderDate, the SUM of Freight grouped by
+   the calendar QUARTER of OrderDate (as YYYY-Qn) and by the COUNTRY OF THE CUSTOMER the order
+   names (join Orders.CustomerId to Customers.CustomerId yourself). Use Decimal, not float.
+3. Read what the system produced: open ${REPO}/warehouse.duckdb READ ONLY and run
+   ${REPO}/docs/questions/02-freight-per-customer-country-and-quarter/uss.sql
+4. Compare row for row. Report ANY difference: a missing row, an extra row, a different sum, a
+   different quarter boundary, a differently spelled country, a rounding difference.
+5. Verify the totals yourself: how many orders in the fixtures? How many customers? How many
+   orders whose CustomerId matches no customer? How many with a null Freight or a null
+   OrderDate? Does the page's headline (64,943 across 8 quarters and 21 customer countries)
+   match what YOU counted?
+6. Now the important one. The question file claims that in this recording, the customer's
+   country and the order's ShipCountry are EQUAL on every one of the 830 orders. VERIFY THAT
+   CLAIM YOURSELF from the fixtures. If it is false, that is a blocking finding, because the
+   question's honesty section is built on it. If it is true, say so with the number you got.
+7. Also check: does any order name a CustomerId that appears in more than one customer record
+   across the fixture pages? Could pagination have dropped or duplicated a customer?`,
+  },
+  {
+    key: 'inheritance',
+    prompt: COMMON + `
+LENS -- THE INHERITANCE MECHANISM. Does the generated SQL do what ADR 0006 says it does?
+
+This slice's whole risk is here. Read docs/adr/0006 carefully, then read dar/uss/_bridge.sql
+and src/adss/uss.py, and check each claim against the ACTUAL generated SQL and the ACTUAL
+warehouse.
+
+1. Is the pair read from v_<SRC>_<NAME>_<TGT> and NOT from view_<SRC>_<NAME>_<TGT> or the pair
+   table or view_<E>_with_rel? Confirm in the emitted SQL.
+2. Is the join LEFT? Prove that an order with no customer would keep its bridge row. You can
+   test this with your own DuckDB scratch database in /tmp replicating the shape.
+3. Is the ranking row_number() and not rank()? Is the tiebreak deterministic (eff_tmstp,
+   ver_tmstp, then the target key)?
+4. Is the as-of predicate correct? ADR 0006 says the pair is taken as of the OBSERVATION TIME
+   of the row that inherits. Read the emitted predicate and say whether it implements that or
+   something subtly different (e.g. as of now, or as of the event date rather than the
+   observation time -- those differ).
+5. Is row_st = 'Y' filtered?
+6. Is the relationship matched by rel_name and never by type_key?
+7. THE FAN-OUT QUESTION. The bridge must not multiply a measure. In THIS slice both entities
+   are at the same grain (one order, one customer), so a fan-out may be impossible here. Say
+   plainly whether this slice proves the property or merely fails to disprove it. Then check
+   whether anything in the CODE would fan out at a finer grain: read the generated joins and
+   reason about what happens when one source row has two pair rows at different timestamps.
+   Construct that case in a scratch DuckDB database and show what the generated pattern does.
+8. Run the three generated relationship checks yourself. Then try to make each one FAIL by
+   constructing the situation it is meant to catch, in a scratch database. A check that cannot
+   fail is not a check. Report, for each of the three, whether you made it fail and how.
+9. Does entity_keys()/entity_ids() put CUSTOMER in model order? What happens to the published
+   bridge column contract if someone reorders dab/model.yaml? Is that guarded?`,
+  },
+  {
+    key: 'tests',
+    prompt: COMMON + `
+LENS -- TEST QUALITY. Would these tests fail if the code were wrong?
+
+A test that has only ever been seen to pass is not evidence.
+
+1. Read every file in ${REPO}/tests/, especially the new test_relationship_rules.py and the
+   additions to test_uss.py. For each new test, name the change to src/ that would make it
+   fail. If you cannot, that is a finding.
+2. MUTATE AND SEE. Copy the repo to /tmp (cp -r excluding .venv, warehouse.duckdb, das/lake),
+   and run the suite there with ${REPO}/.venv/bin/python -m pytest. Break at least EIGHT
+   consequential behaviours one at a time and report whether the suite went red:
+   - change the pair join from LEFT JOIN to INNER JOIN in src/adss/uss.py
+   - change row_number() to rank() in the inherit CTE
+   - remove the row_st = 'Y' predicate
+   - change the as-of predicate from <= to >=
+   - remove the ver_tmstp tiebreak
+   - make entity_ids() return event entities only (dropping inheritance targets)
+   - make check_relationships skip the source_table byte-identity clause
+   - make key_shape() compare raw strings instead of shapes
+   - emit the inherited key column in a different position in one branch of the union
+   For each: red or green? A mutation that leaves the suite GREEN is the most important thing
+   you will find.
+3. Are the new fixtures neutral, and do they encode the same assumptions as the code under
+   test? tests/fixtures/dab/model.yaml now has three entities and two edges -- is that shape
+   actually exercised, or just present?
+4. Does anything in tests/ now depend on a built warehouse? Verify by running the suite in
+   your copy with no warehouse.duckdb present.
+5. The three generated data checks live in checks/, not tests/. Is the split from
+   conventions section 6 still real?`,
+  },
+  {
+    key: 'correctness',
+    prompt: COMMON + `
+LENS -- ORDINARY CODE REVIEW AND SECURITY. Bugs the other lenses are not looking for.
+
+Review git -C ${REPO} diff ${BASE}..HEAD as a senior reviewer would. You are looking for
+ordinary defects and for security problems, not for architecture.
+
+1. Correctness: off-by-one, wrong operator, a None that can reach something that cannot take
+   one, an exception path that swallows, a resource not closed, a dict ordering assumption, a
+   mutable default, a comparison that works only by luck of types (Decimal vs float in
+   particular -- the question compares query results row by row).
+2. src/adss/mapping.py: key_shape() and _without_names(). Attack them. What expression breaks
+   the literal-preserving loop? Nested quotes? An escaped quote inside a literal? An empty
+   expression? A cast with a parameterised type like DECIMAL(18, 4)? A unicode identifier?
+   Write cases in /tmp and run them against the real function.
+3. src/adss/checks.py relationship_checks(): is the emitted SQL correct for an edge whose
+   source and target are the SAME entity (a self-edge)? For two edges between the same pair?
+   Is _columns() safe if a view does not exist?
+4. destinations/app.py: does it break if a question list has fewer than two entries?
+   questions[1] is indexed unconditionally. What happens on a fresh clone with one question,
+   or if question directories are renamed and sort differently? Is that a real risk?
+5. src/adss/destination.py shoot(): the shot filename is now derived from question.id. What if
+   an id contains a path separator or is empty? Trace it.
+6. src/adss/cli.py: the orphan sweep in das unpack now unions in _generated_checks(). Is there
+   an ordering hazard -- can dar generate write a check that unpack then deletes, or vice
+   versa, in any command order (build, unpack alone, generate alone, unpack --check)?
+7. Security: is anything from outside the repository interpolated into SQL, a path, a
+   subprocess argument, or an environment variable? ADSS_QUESTION is now passed into a
+   subprocess env from question ids read out of files. Trace whether a hostile question id
+   could do anything. Check for shell=True, unsafe yaml, eval, path traversal.
+8. Anything in the diff that is dead, duplicated, or that contradicts a comment beside it.`,
+  },
+]
+
+phase('Verify')
+
+const lensResults = (await parallel(LENSES.map(lens => () =>
+  agent(lens.prompt, { label: lens.key, phase: 'Verify', schema: FINDINGS })
+))).filter(Boolean)
+
+phase('Filter')
+
+const claims = lensResults.flatMap(r =>
+  (r.findings || []).map(f => ({ ...f, lens: r.lens }))
+)
+
+const filtered = await parallel(claims.map(claim => () =>
+  agent(`You are an adversarial reviewer. Your job is to KILL this finding if it can be killed.
+
+A previous reviewer of ${REPO} reported:
+
+  LENS:     ${claim.lens}
+  SEVERITY: ${claim.severity}
+  WHERE:    ${claim.where}
+  FINDING:  ${claim.finding}
+  EVIDENCE: ${claim.evidence}
+  PROPOSED: ${claim.fix}
+
+Go and check it against the actual repository. Read the file. Run the command. Reproduce it or
+fail to.
+
+Kill it if: it is factually wrong; the behaviour it describes is deliberate and documented in
+docs/conventions.md, docs/blueprint.md or docs/adr/*.md; it is a style preference dressed as a
+defect; it is unreachable in practice; the severity is inflated; or the "fix" would break
+something else. Read docs/adr/0006 in particular -- several deliberate choices in this slice
+look like defects until you read why they were made.
+
+Keep it only if you personally reproduced the problem or verified the claim against the code.
+
+Do NOT modify anything in ${REPO}. Work in /tmp.
+
+Be honest in both directions: killing a real finding is as bad as keeping a fake one.`,
+    { label: `filter:${claim.lens}:${(claim.where || '').slice(0, 40)}`, phase: 'Filter', schema: VERDICT })
+      .then(v => ({ claim, verdict: v }))
+))
+
+const survived = filtered
+  .filter(Boolean)
+  .filter(x => x.verdict?.survives && (x.verdict.confidence ?? 0) >= 7)
+  .sort((a, b) => (b.verdict.confidence ?? 0) - (a.verdict.confidence ?? 0))
+
+return {
+  verdicts: lensResults.map(r => ({ lens: r.lens, verdict: r.verdict, summary: r.summary })),
+  covered: lensResults.flatMap(r => (r.checkedAndFound || []).map(c => `${r.lens}: ${c}`)),
+  raised: claims.length,
+  survived: survived.map(x => ({
+    severity: x.claim.severity,
+    lens: x.claim.lens,
+    where: x.claim.where,
+    finding: x.claim.finding,
+    evidence: x.claim.evidence,
+    fix: x.claim.fix,
+    confidence: x.verdict.confidence,
+    reasoning: x.verdict.reasoning,
+  })),
+  killed: filtered.filter(Boolean).filter(x => !x.verdict?.survives || (x.verdict.confidence ?? 0) < 7)
+    .map(x => `${x.claim.where}: ${x.claim.finding} -- ${x.verdict?.correction || x.verdict?.reasoning}`),
+}
+ | completed |  ->  | keys: ['runId', 'timestamp', 'taskId', 'script', 'scriptPath', 'result', 'agentCount', 'logs', 'durationMs', 'summary', 'workflowName', 'status']
+wf_44ca6cb0-758.json | export const meta = {
+  name: 'read-daana-blog',
+  description: 'Read every remaining post on blog.daana.dev, one agent per post, and extract what constrains the ADSS build',
+  phases: [
+    { title: 'Read', detail: 'one agent per post: fetch, read in full, extract mandates and concrete artifacts' },
+    { title: 'Synthesize', detail: 'merge into a single constraint map and open-question list' },
+  ],
+}
+
+const POSTS = [
+  'the-architectural-blueprint',
+  'consumption-layer-generates-itself',
+  'integration-by-design-analytical-identifiers',
+  'definitions-for-integration',
+  'daana-cli-0-7-0-release',
+  'the-rise-of-model-driven-data-engineer',
+  'ai-assisted-data-engineering',
+  'the-work-before-the-answer',
+  'context-isnt-enough',
+  'designing-for-agentic-experience',
+  'stop-being-naming-convention-police',
+  'why-we-built-daana',
+  'meet-lars-fredholm-principal-data-engineer-at-daana',
+  'meet-peiman-khorramshahi-cto-at-daana',
+]
+
+const EXTRACT = '/tmp/claude-0/-home-user-adss-2026-09-07/45a0041f-5559-570b-bd39-1d1517807233/scratchpad/blog'
+
+const POST_SCHEMA = {
+  type: 'object',
+  properties: {
+    slug: { type: 'string' },
+    title: { type: 'string' },
+    thesis: { type: 'string', description: 'The post argument in 2-4 sentences' },
+    relevance: { type: 'string', enum: ['high', 'medium', 'low'], description: 'How much this post constrains how one would BUILD an ADSS platform (DAS/DAB/DAR layers)' },
+    mandates: {
+      type: 'array',
+      description: 'Statements that constrain how an ADSS implementation must be built. Each must be traceable to the post, not inferred.',
+      items: {
+        type: 'object',
+        properties: {
+          claim: { type: 'string' },
+          layer: { type: 'string', enum: ['DAS', 'DAB', 'DAR', 'cross-cutting', 'process', 'tooling'] },
+          implication: { type: 'string', description: 'What this forces a builder to do or not do' },
+        },
+        required: ['claim', 'layer', 'implication'],
+      },
+    },
+    artifacts: {
+      type: 'array',
+      description: 'Concrete named things: file formats, YAML keys, CLI commands, schema/table names, SQL patterns, column names, directory layouts, naming rules. Verbatim where possible.',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          kind: { type: 'string' },
+          detail: { type: 'string' },
+        },
+        required: ['name', 'kind', 'detail'],
+      },
+    },
+    quotes: { type: 'array', items: { type: 'string' }, description: 'Up to 8 verbatim sentences that a builder would need to obey' },
+    openQuestions: { type: 'array', items: { type: 'string' }, description: 'Choices the post implies but does not settle' },
+  },
+  required: ['slug', 'title', 'thesis', 'relevance', 'mandates', 'artifacts', 'quotes', 'openQuestions'],
+}
+
+phase('Read')
+
+const readOne = (slug) => agent(
+  `Read ONE blog post in full and extract what it constrains about building an analytical data platform.
+
+Fetch and convert it to text with exactly these commands:
+
+  cd ${EXTRACT} && curl -sSL --max-time 60 "https://blog.daana.dev/blog/${slug}" -o "${slug}.html" && node extract.js "${slug}.html" > "${slug}.txt" && wc -c "${slug}.txt"
+
+Then read ${EXTRACT}/${slug}.txt IN FULL with the Read tool (or cat). Do not skim, do not use WebFetch, do not summarize from the title. If the .txt is under 1500 characters the extraction failed — retry by running node extract.js on the raw html without the <article> isolation, or curl the page again.
+
+Context you are serving: someone is about to BUILD the three-layer architecture this blog describes — DAS (data according to system), DAB (data according to business), DAR (data according to requirements) — using dlt for ingestion, a tool called daana-cli for the DAB focal model, and a generated Unified Star Schema for DAR. Your extraction is the only way this post reaches them. Be concrete and faithful.
+
+Rules:
+- mandates: only what the post actually says. Do not invent, do not generalize beyond the text.
+- artifacts: anything NAMED — YAML keys, CLI commands and flags, schema names, table/column naming rules, SQL constructs, directory layouts, type mappings. Copy them verbatim. This is the highest-value field; be exhaustive.
+- quotes: verbatim only, no paraphrase.
+- openQuestions: places where the post says "you must decide X" or clearly leaves a choice open.
+- If the post is an interview or company story with little build guidance, say so honestly via relevance:'low' and keep mandates short rather than padding.`,
+  { label: slug, phase: 'Read', schema: POST_SCHEMA }
+)
+
+const results = (await parallel(POSTS.map(slug => () => readOne(slug)))).filter(Boolean)
+
+log(`Read ${results.length}/${POSTS.length} posts`)
+
+phase('Synthesize')
+
+const synthesis = await agent(
+  `Below are structured extractions from ${results.length} posts on blog.daana.dev, produced by agents that each read one post in full.
+
+Four further posts were read separately and are NOT in this set (do not re-derive them, but you may reference them): "The Design of Analytical Data Storage Systems" (the three-layer DAS/DAB/DAR architecture + Ensemble Modeling), "From Business Question to Working Prototype in Hours" (the 5-step Agile Analytics methodology), "Contract-Driven Data Transformation" (YAML contracts generating staging SQL in DAS), "The Anatomy of a Business Question" (the [AGGREGATION] of [MEASURE] per [DIMENSION] form, stages 0-3).
+
+<extractions>
+${JSON.stringify(results, null, 2)}
+</extractions>
+
+Produce a single consolidated constraint map for someone about to build this architecture. Merge duplicates across posts, keep attribution (which slug said it), and resolve nothing you cannot resolve from the text — contradictions and gaps are the most valuable output.
+
+Be rigorous about the difference between what the blog SAYS and what a builder would have to INVENT. The second list is what matters most.`,
+  {
+    label: 'constraint-map',
+    phase: 'Synthesize',
+    schema: {
+      type: 'object',
+      properties: {
+        dasConstraints: { type: 'array', items: { type: 'string' } },
+        dabConstraints: { type: 'array', items: { type: 'string' } },
+        darConstraints: { type: 'array', items: { type: 'string' } },
+        crossCutting: { type: 'array', items: { type: 'string' } },
+        namingRules: { type: 'array', items: { type: 'string' } },
+        namedArtifacts: {
+          type: 'array',
+          description: 'Every concrete named thing across all posts, deduped, with the slug it came from',
+          items: {
+            type: 'object',
+            properties: { name: { type: 'string' }, kind: { type: 'string' }, detail: { type: 'string' }, source: { type: 'string' } },
+            required: ['name', 'kind', 'detail', 'source'],
+          },
+        },
+        contradictions: { type: 'array', items: { type: 'string' }, description: 'Places where posts disagree or a post disagrees with itself' },
+        mustBeInvented: {
+          type: 'array',
+          description: 'Decisions a builder must make that the blog does NOT settle. These become questions to the user. Be exhaustive and specific.',
+          items: {
+            type: 'object',
+            properties: {
+              decision: { type: 'string' },
+              whyBlogDoesNotSettleIt: { type: 'string' },
+              plausibleOptions: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['decision', 'whyBlogDoesNotSettleIt', 'plausibleOptions'],
+          },
+        },
+        postsWorthReadingInFull: { type: 'array', items: { type: 'string' }, description: 'slugs whose detail did not survive summarization and that the orchestrator should read directly' },
+      },
+      required: ['dasConstraints', 'dabConstraints', 'darConstraints', 'crossCutting', 'namingRules', 'namedArtifacts', 'contradictions', 'mustBeInvented', 'postsWorthReadingInFull'],
+    },
+  }
+)
+
+return { perPost: results, synthesis }
+ | completed |  ->  | keys: ['runId', 'timestamp', 'taskId', 'script', 'scriptPath', 'result', 'agentCount', 'logs', 'durationMs', 'summary', 'workflowName', 'status']
+wf_50e62224-d2b.json | export const meta = {
+  name: 'slice-02-frame',
+  description: 'Frame slice 2: how relationship keys enter the bridge, and what already binds the slice',
+  phases: [
+    { title: 'Frame', detail: 'the decision this slice forces, an audit of what binds it, and a probe of the real engine' },
+  ],
+}
+
+const REPO = '/home/user/adss-2026-09-07'
+const SPIKES = '/tmp/claude-0/-home-user-adss-2026-09-07/45a0041f-5559-570b-bd39-1d1517807233/scratchpad/spike-findings.json'
+const POSTS = '/tmp/claude-0/-home-user-adss-2026-09-07/45a0041f-5559-570b-bd39-1d1517807233/scratchpad/blog'
+const SCRATCH = '/tmp/claude-0/-home-user-adss-2026-09-07/45a0041f-5559-570b-bd39-1d1517807233/scratchpad/slice02'
+
+const COMMON = `
+THE REPOSITORY: ${REPO}. An analytical data storage system in three layers, built as
+blog.daana.dev describes one. Slice 1 is complete and green: one entity (ORDER), one
+transaction event, one count measure, one page.
+
+READ FIRST: ${REPO}/docs/blueprint.md, ${REPO}/docs/conventions.md,
+${REPO}/docs/deviations.md, ${REPO}/docs/adr/*.md, and the layer skills under
+${REPO}/.claude/skills/. Also ${SPIKES} (verbatim findings from spikes against the real
+tools -- treat as fact) and ${POSTS}/*.txt (the blog posts in full).
+
+SLICE 2 answers: "What freight did we pay per customer country and order quarter?"
+It adds a second contract (Northwind Customers), a second entity (CUSTOMER), the FIRST
+relationship (an order is placed by a customer), the FIRST inherited key, and the FIRST sum
+measure (freight, a NUMBER on ORDER).
+
+Why this question and not an easier one: the freight is on the ORDER and the country is on
+the CUSTOMER, and they are different countries -- Northwind's ship country is where the goods
+went, the customer's country is where the customer is. So the answer is unobtainable without
+the relationship actually carrying a key. That is the point of the slice.
+
+HARD RULES
+- Do NOT write, edit or create any file under ${REPO}. Do not run git commands that change
+  state. You may create and use scratch files under ${SCRATCH} (mkdir it yourself).
+- Do NOT read anything from the repository mattiasthalen/ADSS-fable-POC. A previous run at
+  this brief lives there and the user ruled it out of scope.
+- Ground every claim in something you read or ran. Where the blog says something, attribute
+  it to the post. Where neither the blog nor a spike settles it, SAY SO.
+`
+
+const ADR_SCHEMA = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    contextAndProblem: { type: 'string', description: '3-6 paragraphs on what makes this hard HERE' },
+    decisionDrivers: { type: 'array', items: { type: 'string' } },
+    consideredOptions: { type: 'array', items: { type: 'string' }, description: 'At least 3 real options' },
+    recommendation: { type: 'string' },
+    argument: { type: 'string', description: 'Several paragraphs. Argue the rejected options fairly.' },
+    consequences: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { kind: { type: 'string', enum: ['good', 'bad'] }, text: { type: 'string' } },
+        required: ['kind', 'text'],
+      },
+      description: 'At least two of kind bad, and real',
+    },
+    confirmation: { type: 'string', description: 'The test or check that proves this is implemented and still holds' },
+    concreteShape: { type: 'string', description: 'Literal YAML, SQL and column names to build from' },
+    evidence: { type: 'array', items: { type: 'string' }, description: 'What you actually ran or read, quoted' },
+    notSettled: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['title', 'contextAndProblem', 'decisionDrivers', 'consideredOptions', 'recommendation', 'argument', 'consequences', 'confirmation', 'concreteShape', 'evidence', 'notSettled'],
+}
+
+phase('Frame')
+
+const probe = agent(
+  COMMON + `
+
+YOU ARE THE PROBE. Your job is to find out what the real engine actually produces for a
+relationship, because ADR 0002 asserts things about it that nothing in the repository has
+ever exercised -- slice 1 had no relationships at all.
+
+Work in ${SCRATCH}/probe. Build a THROWAWAY daana project there (do NOT touch ${REPO}'s
+warehouse, model or mappings). The engine binary is at ${REPO}/bin/linux-amd64/daana-cli.
+${REPO}/dab/ has a working single-entity project you can copy and extend as a starting point,
+and ${SPIKES} records how a DuckDB connection profile is written and what slice-1's DAB
+output looked like.
+
+Make a two-entity model with ONE relationship -- neutral names, PARENT and CHILD, a
+relationship from CHILD to PARENT -- backed by das__staged views you create yourself with a
+handful of rows. Deploy and execute it. Then answer, with real output quoted:
+
+1. What objects does a relationship create? List EVERYTHING in the dab schema, and say which
+   are tables, which are views, and which are DuckDB table macros (macros do not appear in
+   information_schema.tables -- use duckdb_functions()).
+2. What are the exact columns and rows of the pair table (the one named like <SRC>_<TGT>_x)?
+   Quote a DESCRIBE and the rows.
+3. What are the exact columns and rows of the relationship VIEW (view_<SRC>_<NAME>_<TGT> or
+   whatever it is actually called -- report the real name)?
+4. THE IMPORTANT ONE. ADR 0002 claims the generator must read the pair TABLE rather than the
+   relationship VIEW, because the view "ranks pairs by the effective timestamp and keeps the
+   open rows", so a changed foreign key could drop out of the view entirely. TEST THAT.
+   Load a child pointing at parent A. Then change that child's foreign key to parent B with a
+   later effective timestamp and re-execute. Report exactly what the pair table holds and what
+   the view holds afterwards. Does the claim reproduce, or is it wrong?
+5. Does the pair table carry row_st / ver_tmstp / eff_tmstp, and what values? What does the
+   correct "latest open pair per child" query look like against it?
+6. What happens to a child with NO parent -- no relationship row at all? Does it appear in
+   the pair table, the view, neither?
+7. Does the model declare cardinality anywhere? Read the model grammar: is there any way to
+   say a relationship is many-to-one rather than one-to-many or many-to-many? If not, say so
+   plainly -- the generator has to know, and if the model cannot say it, something else must.
+8. What does the engine do with an entity attribute typed NUMBER? Quote the DESCRIBE of the
+   entity view and say the exact type. (Slice 2's first sum measure is a NUMBER.)
+
+Report findings, not opinions. If something in ADR 0002 turns out to be wrong, say so in
+those words -- that is the single most valuable thing you can return.`,
+  { label: 'engine-probe', phase: 'Frame', schema: {
+    type: 'object',
+    properties: {
+      reproduced: { type: 'string', enum: ['adr-0002-is-right', 'adr-0002-is-wrong', 'inconclusive'] },
+      headline: { type: 'string' },
+      objects: { type: 'array', items: { type: 'string' }, description: 'Every dab object a relationship creates, with its kind' },
+      pairTable: { type: 'string', description: 'DESCRIBE and rows, verbatim' },
+      relationshipView: { type: 'string', description: 'Real name, DESCRIBE and rows, verbatim' },
+      changedForeignKey: { type: 'string', description: 'What the pair table and the view each held after the change. The decisive evidence.' },
+      orphanChild: { type: 'string' },
+      cardinality: { type: 'string', description: 'Can the model declare it? Answer plainly.' },
+      numberType: { type: 'string' },
+      correctQuery: { type: 'string', description: 'The SQL that correctly gets the latest open pair per child, verified to run' },
+      gotchas: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['reproduced', 'headline', 'objects', 'pairTable', 'relationshipView', 'changedForeignKey', 'orphanChild', 'cardinality', 'numberType', 'correctQuery', 'gotchas'],
+  } }
+)
+
+const audit = agent(
+  COMMON + `
+
+YOU ARE THE AUDIT. Not a decision -- what is ALREADY in force, and where does slice 2 strain
+it? This runs at the start of every slice.
+
+Read the blueprint, the conventions, the deviations register and all six ADRs completely.
+Read the repository as it stands (excluding .venv, das/lake, warehouse.duckdb).
+
+1. List every principle and hard rule that binds slice 2, with what it forbids CONCRETELY.
+   Pay attention to the ones slice 1 never exercised: M6 (relationship id, byte-identical
+   source_table, mirrored target key expression) becomes live for the first time; the DAR
+   inherited-key join rule (INNER on own key, LEFT on inherited) becomes live; the measure
+   naming rules meet their first sum.
+2. Be ADVERSARIAL about tensions. Look hard. Candidates to test, and do not stop at these:
+   - conventions 1.2 forbids source names in dab/model.yaml. Northwind's customer table has
+     a Country column and the entity will need a country attribute. Is CUSTOMER_COUNTRY a
+     source name? Slice 1 renamed ship country to DESTINATION_COUNTRY for exactly this rule.
+   - the question groups by the CUSTOMER's country and sums a measure owned by ORDER. Which
+     stage owns the measure, which key is inherited, and does the answer query join INNER or
+     LEFT? Get this right on paper before anyone writes it.
+   - D-0001's argument rests on a walk over many-to-one edges. Slice 2 creates the first edge.
+     Does the deviation's justification become demonstrable now, or does it still wait for a
+     second grain in slice 4? Be precise: what exactly does one n:1 edge demonstrate and what
+     does it not?
+   - an order with no customer, and a customer with no orders. What does each do to the
+     answer, and does the question have to say?
+3. Review every open entry in deviations.md against its exit condition.
+4. Name rules the conventions document is MISSING that slice 2 will otherwise invent
+   silently.
+
+For each tension say which of the three recourses in conventions section 11 applies, and
+recommend one. Do not soften a real tension and do not manufacture one.`,
+  { label: 'binding-audit', phase: 'Frame', schema: {
+    type: 'object',
+    properties: {
+      binds: { type: 'array', items: { type: 'object', properties: { rule: { type: 'string' }, source: { type: 'string' }, whatItForbidsHere: { type: 'string' } }, required: ['rule', 'source', 'whatItForbidsHere'] } },
+      tensions: { type: 'array', items: { type: 'object', properties: { rule: { type: 'string' }, howSliceTwoStrainsIt: { type: 'string' }, resolution: { type: 'string' } }, required: ['rule', 'howSliceTwoStrainsIt', 'resolution'] } },
+      deviationReview: { type: 'string' },
+      theJoinOnPaper: { type: 'string', description: 'Which stage owns freight, which key is inherited, INNER or LEFT, and why -- worked through before anyone writes it' },
+      gaps: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['binds', 'tensions', 'deviationReview', 'theJoinOnPaper', 'gaps'],
+  } }
+)
+
+const decision = agent(
+  COMMON + `
+
+YOU ARE DRAFTING ONE DECISION RECORD: how relationship keys enter the bridge.
+
+This is the decision slice 2 forces, and it is the one ADR 0002 wrote a cheque for that
+nothing has cashed. Read ${REPO}/docs/adr/0002-dar-is-one-generated-unified-star-schema.md
+closely -- especially what it says about reading the pair table rather than the relationship
+view, and about a stage carrying the key of every entity it reaches along many-to-one
+relationships. Read ${POSTS}/consumption-layer-generates-itself.txt in full for what the
+Unified Star Schema says about keys propagating.
+
+Resolve these, and they are the whole difficulty:
+
+1. HOW DOES THE GENERATOR KNOW A RELATIONSHIP IS MANY-TO-ONE? The modelling language declares
+   a relationship as a name plus a source entity and a target entity. Read the grammar in
+   ${REPO}/dab/model.yaml and the model template. If it cannot express cardinality, then the
+   generator cannot walk "many-to-one edges" without being told something the model does not
+   say. Options include: treat source->target as n:1 by convention; declare the walk in
+   dab/uss.yaml; derive it from the data at build time and refuse when it does not hold.
+   Each has a real cost. Pick one and argue it.
+2. WHAT DOES A STAGE ACTUALLY SELECT? Write the SQL. A stage on ORDER must emit order_key
+   (its own) and customer_key (inherited). Where does customer_key come from, what is joined
+   to what, and what happens to an order whose customer is unknown -- is the row dropped or
+   kept with a null key? The bridge's whole value is that a sum is right, so dropping rows
+   silently is the failure to avoid.
+3. HOW FAR DOES THE WALK GO? Slice 5 has a two-hop chain. Does slice 2 build a general walk
+   or a one-hop special case? ADR 0001 says build for this slice only and resist modelling
+   later ones -- but ADR 0002 already published a column contract that says keys inherit.
+   Argue where the line is.
+4. THE FAN-OUT LINE. A measure is non-null only on the stage that owns it. With ORDER->CUSTOMER
+   there is nothing yet to multiply across, but the rule must be implemented now because
+   slice 4 depends on it. What exactly does slice 2 implement and what does it defer?
+
+concreteShape must give: the literal dab/uss.yaml for slice 2, the literal generated bridge
+SQL with both stages' columns, and the answer query for the question, all in the house SQL
+style (docs/conventions.md section 3).
+
+Note: a probe agent is running in parallel against the real engine to establish what a
+relationship actually produces. Write your argument so it does not depend on guessing that --
+where you need a fact about the engine, name the fact you need and say what you would do if
+it went either way.`,
+  { label: 'adr-relationships', phase: 'Frame', schema: ADR_SCHEMA }
+)
+
+const [probed, audited, drafted] = await Promise.all([probe, audit, decision])
+log('framed slice 2')
+return { probe: probed, audit: audited, decision: drafted }
+ | completed |  ->  | keys: ['runId', 'timestamp', 'taskId', 'script', 'scriptPath', 'result', 'agentCount', 'logs', 'durationMs', 'summary', 'workflowName', 'status']
+wf_5638b198-37a.json | export const meta = {
+  name: 'verify-slice-04',
+  description: 'Six independent lenses over slice 4 of the ADSS build, then adversarial verification of every finding',
+  phases: [{ title: 'Review', detail: 'Six lenses read the slice diff independently' }, { title: 'Verify', detail: 'Each finding is attacked adversarially and scored' }],
+}
+
+const BASE = 'claude/adss-slice-03-shipped-orders-and-days-to-ship'
+const HEAD = 'claude/adss-slice-04-revenue-per-order-month'
+
+const CONTEXT = `
+You are reviewing ONE SLICE of a build in the repository at /home/user/adss-2026-09-07.
+The slice is the range ${BASE}..${HEAD}. Use \`git diff ${BASE}..${HEAD}\` and
+\`git log ${BASE}..${HEAD}\` to see exactly what changed. Read whatever else you need.
+
+The system is an "Analytical Data Storage System" with three layers, one direction of flow:
+  DAS (das/, schemas das__raw + das__staged) -> DAB (dab/, schemas dab, dab__stage, dab__meta)
+  -> DAR (dar/, schema dar__uss) -> destinations/ (a marimo page).
+Flow rules, absolute: analytical usage reads ONLY dar__uss; dar reads only dab; dab reads only das.
+
+Slice 4 adds a third entity (ORDER_LINE) at a FINER GRAIN than the order, a derived measure
+(REVENUE), an inherited event date, a composed composite key, and the fan-out proof.
+
+Ground rules for your review:
+- Be specific. A finding names a file and a line and says what breaks and when.
+- Do not report style preferences, or things the repository's own tools already enforce
+  (ruff, ty, sqlfluff, yamllint, pytest all pass on this head -- verify that if you like).
+- Do not report anything that is already written down as a known limitation in
+  docs/adr/, docs/deviations.md, or the question documents. Read them before reporting.
+- Prefer ONE real finding to five speculative ones. An empty report is a valid report.
+`
+
+const LENSES = [
+  {
+    key: 'layering',
+    prompt: `${CONTEXT}
+
+YOUR LENS: LAYERING. Does anything in this slice read across a boundary it must not?
+
+Check every new or changed SQL string, generated file, mapping, contract, question query,
+page cell and Python module for: a DAR artefact reading das__ or dab; a destination reading
+anything but dar__uss; a question's control query (staged.sql) mentioning dab or dar__uss;
+a source name (a column or table name from the Northwind OData service) appearing anywhere
+under src/ or in dab/model.yaml or dab/uss.yaml -- those two are supposed to contain NO
+source word at all; machinery under src/ naming any business concept.
+
+Report only real crossings, with the file and line.`,
+  },
+  {
+    key: 'conventions',
+    prompt: `${CONTEXT}
+
+YOUR LENS: CONVENTIONS. Read docs/conventions.md in full, then check this slice against it.
+
+Pay particular attention to sections on naming (measures, events, entities), the mapping
+rules M1-M7, the question format, where definitions may live (dab/model.yaml is the ONLY
+place the data is explained -- nothing else may restate a definition), and the rule that a
+tool's config IS the rule where a tool can check one.
+
+Also check docs/adr/README.md's rule about how ADRs may be edited, and whether the ADRs
+added or edited in this slice obey it.
+
+Report only actual violations, with the file, the line, and the section of conventions.md.`,
+  },
+  {
+    key: 'recompute',
+    prompt: `${CONTEXT}
+
+YOUR LENS: INDEPENDENT RECOMPUTATION. Do not trust any of this repository's code.
+
+The fourth question claims: revenue per order month, 23 months, total 1,265,793.0395,
+from 2,155 order lines across 830 orders. See docs/questions/04-revenue-per-order-month/.
+
+Recompute it YOURSELF from the recorded source payloads under das/fixtures/ (JSON pages
+from an OData service) using plain Python -- json, collections, decimal. Do NOT import
+anything from src/adss, do NOT read the duckdb warehouse, do NOT run any adss command,
+and do NOT reuse the SQL in the question. Work out the revenue arithmetic from
+dab/model.yaml's definition of ORDER_LINE.REVENUE and the contract in
+das/contracts/order_details.yaml.
+
+Then compare your per-month numbers to docs/questions/04-revenue-per-order-month/uss.sql's
+claimed answer, which you can read out of the committed question.md and the screenshot's
+table. Report ANY disagreement, with your number and theirs. If they agree exactly, say so
+and show the first three and the last month.
+
+Also verify independently: the claim in ADR 0012 that summing the order peripheral's
+freight_charge over the bridge joined on order_key gives 207,306.10 where the true total is
+64,942.69. You can compute the true freight total from the fixtures. For the trap number you
+may reason about it arithmetically (freight per order, times the number of lines on that
+order) rather than running SQL.`,
+  },
+  {
+    key: 'tests',
+    prompt: `${CONTEXT}
+
+YOUR LENS: TEST QUALITY. Would these tests fail if the implementation were broken?
+
+Focus on what this slice added: tests/test_fan_out.py, tests/test_measure_checks.py,
+tests/test_composed_key_check.py, the new tests in tests/test_questions.py and
+tests/test_uss.py and tests/test_generated_sql_lints.py, and the generated checks under
+checks/.
+
+For each, work out a concrete mutation of the code under test that would make it wrong in a
+way a user would notice, and decide whether the test would go red. You may actually apply a
+mutation, run \`uv run pytest -q\`, and revert it -- that is the strongest evidence and is
+encouraged. ALWAYS revert any mutation you apply; leave the working tree clean and confirm
+with \`git status\`.
+
+Report every test that would survive a real defect, naming the mutation that survives.
+Also report any ADR "Confirmation" section in docs/adr/ that claims a check which does not
+exist, or which exists but could not fail for the reason stated. That has happened in this
+repository before and is treated as a serious defect.`,
+  },
+  {
+    key: 'correctness',
+    prompt: `${CONTEXT}
+
+YOUR LENS: ORDINARY CORRECTNESS. Review the diff as a careful engineer reviewing a pull
+request. Bugs, edge cases, wrong logic, things that work on this data and not on the next.
+
+Particular things worth attacking in this slice:
+- src/adss/uss.py: the inherited-date CTE and the stage CTE. What happens with two edges to
+  the same entity, an event dated by an entity two hops away, a parent with no history row,
+  a pair whose eff_tmstp is after the child's observation time?
+- src/adss/question.py: the new parse-tree aggregate refusal. What legitimate query does it
+  wrongly refuse? What illegitimate one does it accept? What happens with a CTE, a set
+  operation, a lateral join, a macro?
+- src/adss/checks.py: measure_checks and composed_key_checks. What contract or mapping shape
+  makes them emit SQL that does not run, or a check that cannot fail?
+- src/adss/das.py: the ROW() change to the composite key check.
+- The interaction between the two writers into checks/ and their sweeps: can one command
+  still delete a file the other generates?
+
+Report real defects with the file, the line, and the input that triggers them.`,
+  },
+  {
+    key: 'honesty',
+    prompt: `${CONTEXT}
+
+YOUR LENS: HONESTY OF THE RECORD. This repository's documents make load-bearing claims.
+
+Check every claim added or changed in this slice against the code and the data:
+- docs/adr/0009 through 0012, especially their Confirmation sections.
+- docs/deviations.md, entry D-0001 and the Review section.
+- docs/questions/04-revenue-per-order-month/question.md -- every number in it.
+- docs/questions/README.md.
+- .claude/skills/*/SKILL.md -- the claims added this slice.
+- The commit messages in \`git log ${BASE}..${HEAD}\`.
+
+A claim is dishonest if it is false, if it is true but implies something false, or if it
+describes a check that does not exist or cannot fail. Numbers are checkable: check them
+(you may run \`uv run adss check\` and query the warehouse at the path Project.discover()
+reports, read-only).
+
+Report each false or misleading claim with the exact sentence and what is actually true.`,
+  },
+]
+
+const FINDINGS_SCHEMA = {
+  type: 'object',
+  properties: {
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          file: { type: 'string' },
+          line: { type: 'number' },
+          detail: { type: 'string' },
+          why_it_matters: { type: 'string' },
+        },
+        required: ['title', 'file', 'detail', 'why_it_matters'],
+      },
+    },
+    summary: { type: 'string' },
+  },
+  required: ['findings', 'summary'],
+}
+
+const VERDICT_SCHEMA = {
+  type: 'object',
+  properties: {
+    isReal: { type: 'boolean' },
+    confidence: { type: 'number' },
+    reasoning: { type: 'string' },
+    suggested_fix: { type: 'string' },
+  },
+  required: ['isReal', 'confidence', 'reasoning'],
+}
+
+const results = await pipeline(
+  LENSES,
+  (lens) => agent(lens.prompt, { label: `review:${lens.key}`, phase: 'Review', schema: FINDINGS_SCHEMA }),
+  (review, lens) =>
+    parallel(
+      (review.findings || []).map((f) => () =>
+        agent(
+          `You are ADVERSARIALLY VERIFYING one review finding about the repository at
+/home/user/adss-2026-09-07, on branch ${HEAD}.
+
+FINDING: ${f.title}
+FILE: ${f.file}${f.line ? ':' + f.line : ''}
+DETAIL: ${f.detail}
+WHY IT MATTERS: ${f.why_it_matters}
+
+Your job is to try to DESTROY this finding. Read the actual code. Run the actual command or
+test if that settles it. Look for the reason the finding is wrong: a check elsewhere that
+already catches it, a documented decision that accepts it on purpose (docs/adr/,
+docs/deviations.md, docs/conventions.md, the question documents), an invariant that makes the
+bad input impossible, or a simple misreading.
+
+Do NOT modify any file. If you must experiment, copy to a scratch directory.
+
+Return isReal=true ONLY if the defect genuinely exists in this head and is not already
+recorded as a known limitation. confidence is 0-10: how sure you are, having tried to break
+your own conclusion. If isReal, give the smallest correct fix.`,
+          { label: `verify:${lens.key}:${(f.title || '').slice(0, 40)}`, phase: 'Verify', schema: VERDICT_SCHEMA }
+        ).then((v) => ({ lens: lens.key, ...f, verdict: v }))
+      )
+    )
+)
+
+const all = results.flat().filter(Boolean)
+const confirmed = all.filter((f) => f.verdict?.isReal && (f.verdict?.confidence ?? 0) >= 7)
+const dropped = all.filter((f) => !(f.verdict?.isReal && (f.verdict?.confidence ?? 0) >= 7))
+
+return {
+  confirmed: confirmed.sort((a, b) => (b.verdict.confidence - a.verdict.confidence)),
+  dropped_count: dropped.length,
+  dropped_titles: dropped.map((f) => `${f.lens}: ${f.title} (real=${f.verdict?.isReal}, conf=${f.verdict?.confidence})`),
+}
+ | completed |  ->  | keys: ['runId', 'timestamp', 'taskId', 'script', 'scriptPath', 'result', 'agentCount', 'logs', 'durationMs', 'summary', 'workflowName', 'status']
+wf_8c7d50e0-55b.json | export const meta = {
+  name: 'slice-01-verify',
+  description: 'Verify slice 1 from four independent angles: layering, conventions, an independent recomputation, and test quality',
+  phases: [
+    { title: 'Verify', detail: 'four lenses, each blind to the others' },
+  ],
+}
+
+const REPO = '/home/user/adss-2026-09-07'
+
+const COMMON = `
+You are one lens of a verification pass over a completed slice of work. Four of you run, each
+blind to the others. Report findings; do not fix anything.
+
+HARD RULES
+- Do NOT write, edit or create any file in ${REPO}. Do not run git commands that change state
+  (no commit, no checkout, no reset, no add). Reading, and running the project's own read-only
+  commands, is fine.
+- You may run: uv run pytest, uv run adss check, uv run ruff check, uv run sqlfluff lint,
+  and any read-only DuckDB query against ${REPO}/warehouse.duckdb (open it read_only=True).
+- Ground every finding in something you actually read or ran. Quote the file and line, or the
+  command and its output. A finding you cannot ground is not a finding.
+- Severity honestly: "blocking" means the slice should not be accepted as it stands.
+  "worth fixing" means it should be fixed but does not block. "note" is an observation.
+- Report NOTHING rather than padding. An empty list from a lens that genuinely found nothing
+  is the most useful possible result. Do not manufacture findings to look thorough.
+
+THE REPOSITORY
+${REPO}. An analytical data storage system in three layers:
+- DAS (schemas das__raw, das__staged): dlt lands whole source records as one JSON column into
+  hive-partitioned parquet; contracts generate typed views over it.
+- DAB (dab, dab__stage, dab__meta): a focal/ensemble model built by a vendored engine binary.
+  dab/model.yaml is the only place the data is explained.
+- DAR (dar__uss): a generated Unified Star Schema -- one event bridge, one peripheral per
+  entity, one calendar.
+- destinations/app.py: a marimo page reading dar__uss only.
+
+Slice 1 answers: "How many orders were placed per order month and destination country?"
+
+READ THESE FIRST: ${REPO}/docs/blueprint.md, ${REPO}/docs/conventions.md,
+${REPO}/docs/deviations.md, and ${REPO}/docs/adr/*.md. They are the standard you judge against.
+
+The slice is every commit on the current branch after the one titled
+"chore(repo): scaffold the repository, its principles and its gate".
+Use: git -C ${REPO} log --oneline and git -C ${REPO} diff <scaffold-sha>..HEAD --stat
+`
+
+const FINDINGS = {
+  type: 'object',
+  properties: {
+    lens: { type: 'string' },
+    verdict: { type: 'string', enum: ['accept', 'accept-with-fixes', 'do-not-accept'] },
+    summary: { type: 'string', description: 'Two or three sentences. What you checked and what you concluded.' },
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          severity: { type: 'string', enum: ['blocking', 'worth fixing', 'note'] },
+          where: { type: 'string', description: 'file:line, or the command that showed it' },
+          finding: { type: 'string' },
+          evidence: { type: 'string', description: 'What you actually read or ran, quoted' },
+          fix: { type: 'string' },
+        },
+        required: ['severity', 'where', 'finding', 'evidence', 'fix'],
+      },
+    },
+    checkedAndFound: { type: 'array', items: { type: 'string' }, description: 'Things you specifically looked for and did NOT find wrong. This is how the next reader knows what this lens covered.' },
+  },
+  required: ['lens', 'verdict', 'summary', 'findings', 'checkedAndFound'],
+}
+
+const LENSES = [
+  {
+    key: 'layering',
+    prompt: COMMON + `
+
+LENS 1 of 4 -- LAYERING. Does anything read across a boundary it should not?
+
+The three flow rules are absolutes in docs/blueprint.md:
+- F1 analytical usage reads only DAR
+- F2 DAR reads only DAB
+- F3 DAB reads only DAS
+and each movement does exactly ONE job: ingest, integrate, specialise.
+
+Check, concretely and by reading the actual artefacts:
+1. Does destinations/app.py touch anything but dar__uss? Grep it for das, dab, the lake, the
+   contracts. Note that reading the QUESTION FILE is legitimate; reading das__staged is not.
+2. Does anything in dar/uss/*.sql reference das__ or the lake? Does the USS generator
+   (src/adss/uss.py) read anything but dab.view_*?
+3. Do dab/mappings/*.yaml read only das__staged objects?
+4. Does anything in DAS interpret rather than record? Look at das/sql/orders.sql and
+   src/adss/das.py: is there a filter, a default, a coalesce, a business rule, a rename that
+   is not mechanical?
+5. Does any layer's code know about another layer's vocabulary in a way that couples them?
+6. THE INTERESTING ONE: the acceptance check computes each question twice, once from
+   das__staged. Read docs/adr/0005 and the tension it acknowledges. Is the way it is actually
+   implemented consistent with what that record claims? Does the control query genuinely
+   avoid the layers it checks?
+7. Read src/adss/checks.py. Does it read across boundaries in a way the blueprint forbids, or
+   is a conformance check legitimately outside F1? Say which and why.`,
+  },
+  {
+    key: 'conventions',
+    prompt: COMMON + `
+
+LENS 2 of 4 -- CONVENTIONS. Does the slice obey the rules this repository set itself?
+
+docs/conventions.md is the standard. Every hard rule in it is in scope. Check especially,
+and by actually reading the files rather than assuming:
+
+1. Section 1.2: "No source name appears anywhere in dab/model.yaml -- not in an id, not in a
+   name, not in a definition, not in a description." Read dab/model.yaml against the source's
+   own field names in das/contracts/orders.yaml. Is the rule kept? Be strict: the source
+   calls something ShipCountry; does anything in DAB echo it?
+2. Section 1.4: the seven mapping rules, against dab/mappings/*.yaml.
+3. Section 2: measure naming, <descriptor>_<entities>_<unit>, entity PLURAL, no scope or
+   aggregation words. Check dab/uss.yaml and the generated column names.
+4. Section 5: "No data vocabulary anywhere under src/ or in test code." This is the one most
+   likely to be violated. Grep src/ and tests/ for any business word -- order, country,
+   freight, ship, customer, northwind. Distinguish a genuine violation from a machinery word
+   that happens to collide. Check tests/fixtures/ too: are the fixtures neutral?
+5. Section 1.1: DAS keeps the source's words; the layer's own columns are named for what they
+   record; no loader vocabulary crosses into das__staged. Check das/sql/orders.sql.
+6. Section 1.3: DAR naming, structural columns with a leading underscore, reserved words
+   quoted rather than abbreviated around.
+7. Section 7: conventional commits with a scope from the allowed list; an ADR before the code
+   it decides. Check the actual git log.
+8. Is anything in docs/ now stale -- describing something that was changed later in the
+   slice? Check the README and the ADRs against what the code actually does.`,
+  },
+  {
+    key: 'recomputation',
+    prompt: COMMON + `
+
+LENS 3 of 4 -- INDEPENDENT RECOMPUTATION. Is the number right?
+
+This is the most valuable lens and the least like the others. Do NOT use any of this
+repository's code. Do not import adss. Do not read its SQL and re-run it.
+
+1. Read the RAW RECORDED PAYLOADS at ${REPO}/das/fixtures/orders/page-*.json. These are the
+   response bodies exactly as the source returned them.
+2. In plain Python (json + collections, or pandas if you prefer -- your own script in /tmp,
+   NOT in the repository), compute from those files: for every order that has an OrderDate,
+   the count of orders grouped by the calendar month of OrderDate and by ShipCountry.
+3. Now read what the system produced. Open ${REPO}/warehouse.duckdb READ ONLY and run the
+   question's uss.sql from
+   ${REPO}/docs/questions/01-orders-per-month-and-destination-country/uss.sql
+4. Compare, row for row. Report ANY difference: a missing row, an extra row, a different
+   count, a different month boundary, a differently spelled country.
+5. Also verify the totals independently: how many orders are in the fixtures? How many have a
+   null OrderDate? How many distinct countries? Does the page's headline number (830) match
+   what you counted yourself?
+6. Look for what a row-for-row match would NOT catch. Is there an order in the fixtures that
+   is absent from both? A duplicate in the fixtures that both silently collapse? Check whether
+   any OrderId appears more than once across the pages, and whether the pagination could have
+   dropped or duplicated a record at a page boundary (top=100, nine pages, 830 records --
+   verify that arithmetic against the actual files).
+7. Report the numbers you computed, not just whether they matched.`,
+  },
+  {
+    key: 'tests',
+    prompt: COMMON + `
+
+LENS 4 of 4 -- TEST QUALITY. Would these tests fail if the code were wrong?
+
+A test that has only ever been seen to pass is not evidence. Your job is to find the ones
+that would pass no matter what.
+
+1. Read every file in ${REPO}/tests/. For each test, ask: what change to src/ would make this
+   fail? If you cannot name one, that is a finding.
+2. MUTATE AND SEE. This is the core of this lens. Pick at least SIX consequential behaviours
+   and break them one at a time -- IN A COPY of the repository under /tmp, never in ${REPO}
+   itself (cp -r, excluding .venv and warehouse.duckdb and das/lake, then run the suite there
+   with the repo's venv: ${REPO}/.venv/bin/python -m pytest). Suggested mutations, and add
+   your own:
+   - remove "union_by_name => true" from the raw view
+   - change FULL_LOG to FULL in the mapping rule checker's required value
+   - make a non-owning branch of the bridge emit 0 instead of a typed NULL
+   - drop the "IS NOT NULL" filter from the event stage
+   - reorder two columns in the bridge column contract
+   - make the contract reader accept a renamed target_name
+   - make the question checker skip the "control query must not mention dar__uss" rule
+   Report, for each: did the suite go red? If a mutation left it green, that is a hole and it
+   is the most important thing you will find.
+3. Check for the forbidden shapes: pytest.skip, imperative xfail, a test asserting something
+   trivially true, a test whose assertion is weaker than its name claims.
+4. Are the fixtures genuinely neutral, or do they encode the same assumptions as the code
+   under test?
+5. docs/conventions.md section 6 names two suites, tests/ and checks/. Is the split real, or
+   does something in tests/ depend on a built warehouse (and so would fail in a fresh clone)?
+   Verify by running the suite in your copy WITHOUT a warehouse.duckdb present.`,
+  },
+]
+
+phase('Verify')
+
+const results = (await parallel(LENSES.map(lens => () =>
+  agent(lens.prompt, { label: lens.key, phase: 'Verify', schema: FINDINGS })
+))).filter(Boolean)
+
+log(`${results.length}/${LENSES.length} lenses reported`)
+
+return results
+ | completed |  ->  | keys: ['runId', 'timestamp', 'taskId', 'script', 'scriptPath', 'result', 'agentCount', 'logs', 'durationMs', 'summary', 'workflowName', 'status']
+wf_91ac952a-fb2.json | export const meta = {
+  name: 'adss-spikes',
+  description: 'Four throwaway spikes answering what the interview could not: dlt raw landing, daana-cli on DuckDB, marimo as a destination, and the tooling gate',
+  phases: [
+    { title: 'Spike', detail: 'four independent probes, each in its own scratch directory, reporting findings only' },
+  ],
+}
+
+const SCRATCH = '/tmp/claude-0/-home-user-adss-2026-09-07/45a0041f-5559-570b-bd39-1d1517807233/scratchpad/spikes'
+
+const RULES = `
+HARD RULES FOR THIS SPIKE
+- You are a SPIKE. Your output is KNOWLEDGE, not code. Everything you write is thrown away.
+- Work ONLY inside your own directory under ${SCRATCH}. Create it yourself.
+- NEVER write, edit or create anything under /home/user/adss-2026-09-07. Never run git commands there.
+- Do not install anything system-wide. Use \`uv\` for Python: \`uv init\`, \`uv add <pkg>\`, \`uv run <cmd>\` inside your own directory.
+- Network works through a pre-configured proxy; plain https requests are fine.
+- TIME-BOX: aim for roughly 20 focused tool calls. If something is not working by then, STOP and report exactly where it failed and what you saw. An honest "this does not work, here is the error" is a SUCCESSFUL spike. Do not grind.
+- Report VERBATIM evidence: real command output, real file listings, real error text. Never describe what you expect; only what you observed. If you did not run it, say you did not run it.
+
+CONTEXT
+Someone is about to build a three-layer analytical platform in a fresh repo:
+- DAS: dlt ingests a public OData API, lands parquet, unpacked into DuckDB as views. Schemas das__raw, das__staged.
+- DAB: daana-cli (a Go binary) builds a focal/ensemble model. Schemas dab, dab__stage, dab__meta.
+- DAR: a generated Puppini Unified Star Schema. Schema dar__uss.
+- Destination: a marimo app reading dar__uss.
+Everything lives in ONE DuckDB file. Python is managed with uv. Your findings decide the architecture, so precision matters more than success.
+
+Already established (do not re-verify):
+- daana-cli is at /home/user/adss-fable-poc/bin/linux-amd64/daana-cli and works.
+- \`daana-cli install\` against a DuckDB connection profile works and creates schemas dab, dab__stage, dab__meta.
+- A DuckDB connection profile looks like:
+    connections:
+      dev:
+        type: duckdb
+        database: ./warehouse.duckdb
+        target_schema: dab
+        stage_schema: dab__stage
+        metadata_schema: dab__meta
+- A full daana loop (install, deploy, execute) was proven against PostgreSQL and produced views view_<entity>, view_<entity>_hist, view_<entity>_with_rel, view_<src>_<rel>_<tgt>, and base tables <entity>_focal, <entity>_desc, <entity>_idfr, <src>_<tgt>_x.
+- A working PostgreSQL example project (model.yaml, mappings/, workflow.yaml) is at
+  /tmp/claude-0/-home-user-adss-2026-09-07/45a0041f-5559-570b-bd39-1d1517807233/scratchpad/cli-probe/quickstart-demo
+  Copy from it rather than writing YAML from scratch. Read its files first.
+`
+
+const FINDING_SCHEMA = {
+  type: 'object',
+  properties: {
+    spike: { type: 'string' },
+    verdict: { type: 'string', enum: ['works', 'works-with-caveats', 'blocked', 'inconclusive'] },
+    headline: { type: 'string', description: 'One sentence: the single most decision-relevant thing you learned' },
+    findings: {
+      type: 'array',
+      description: 'Each an observed fact with the evidence that established it',
+      items: {
+        type: 'object',
+        properties: {
+          claim: { type: 'string' },
+          evidence: { type: 'string', description: 'Verbatim command and its real output, trimmed to what matters' },
+          confidence: { type: 'string', enum: ['observed', 'inferred', 'assumed'] },
+        },
+        required: ['claim', 'evidence', 'confidence'],
+      },
+    },
+    recipe: { type: 'string', description: 'The minimal working recipe you established, as commands and file contents someone could reproduce. Empty if blocked.' },
+    gotchas: { type: 'array', items: { type: 'string' }, description: 'Things that will waste a day if not known up front' },
+    openQuestions: { type: 'array', items: { type: 'string' }, description: 'What you could not settle in the time-box' },
+    versions: { type: 'array', items: { type: 'string' }, description: 'Exact versions of everything you installed' },
+  },
+  required: ['spike', 'verdict', 'headline', 'findings', 'recipe', 'gotchas', 'openQuestions', 'versions'],
+}
+
+const SPIKES = [
+  {
+    key: 'dlt-raw-landing',
+    prompt: `${RULES}
+
+SPIKE 1 — dlt landing a whole payload as parquet, read back through DuckDB views.
+
+The architecture requires FORGIVING INGESTION and STRICT UNPACKING: dlt must NOT infer a schema and normalise the source into typed columns. Each source record must land as ONE row holding the record as a single JSON value, plus provenance columns, written to parquet, append-only, never updated.
+
+Answer these, in order:
+1. Does \`uv add dlt\` work here, and what version lands? Does it need extras for parquet/filesystem/duckdb?
+2. Can a dlt resource be made to land ONE column containing the whole record as JSON, with normalisation NOT splitting it into columns? Try the approaches that exist (yielding a dict whose single field is a json string; a column hint of type json/text; disabling/limiting normalisation via max_table_nesting or a column schema) and report which actually works.
+3. Land at least 50 real records from https://demodata.grapecity.com/northwind/odata/v1/Orders (the rows are under the "value" key; \`$count=true\` and \`$top\`/\`$skip\` work) into parquet on the local filesystem via the filesystem destination.
+4. What does the resulting directory and parquet file actually look like? Show the file layout and \`DESCRIBE\` of the parquet from DuckDB.
+5. Which dlt-added metadata columns appear (_dlt_load_id, _dlt_id, others)? Are they enough to answer "which load, from where, when" for a single row, or must the pipeline add its own provenance columns? Recommend the exact provenance columns to add.
+6. Confirm write_disposition="append" leaves earlier files intact across two runs. Run it TWICE and show both loads present.
+7. From DuckDB (\`uv add duckdb\`), create a view over the parquet glob and then a second view that extracts and casts a few typed columns out of the JSON column. Show the SQL that works and the query results. Note the exact JSON functions DuckDB wants.
+
+Report the minimal working recipe verbatim.`,
+  },
+  {
+    key: 'daana-on-duckdb',
+    prompt: `${RULES}
+
+SPIKE 2 — daana-cli deploy + execute against DuckDB, reading VIEWS as mapping sources, and what historization it produces.
+
+This is the highest-risk spike: the whole DAB layer depends on it.
+
+Setup: make your own directory, put a DuckDB connections profile in it (shape given above), and copy model.yaml, mappings/ and workflow.yaml from the PostgreSQL example project named above. Then:
+
+1. Create a DuckDB file yourself first (\`uv add duckdb\`), and inside it create a schema named das__staged containing the source data the mappings expect. IMPORTANT: create them as VIEWS, not tables — DAB must read a view. The PostgreSQL example's mappings read stage.customers, stage.customer_addresses, stage.loyalty_memberships and stage.sales_orders; the data SQL is at /tmp/claude-0/-home-user-adss-2026-09-07/45a0041f-5559-570b-bd39-1d1517807233/scratchpad/cli-probe/quickstart-demo/data/ but it is PostgreSQL DDL, so it may be quicker to invent a handful of equivalent rows yourself with matching column names than to port it. Either is fine — say which you did.
+2. Point the mappings at das__staged.<table> instead of stage.<table>, and set connection to your duckdb profile name.
+3. Run \`daana-cli install\`, \`daana-cli check workflow\`, \`daana-cli deploy\`, \`daana-cli execute\` (all with --no-tui). Report the OUTCOME OF EACH, including any failure verbatim.
+4. If it works: list every object daana created in dab, dab__stage and dab__meta, and show \`DESCRIBE\` plus a few rows of view_<entity>, view_<entity>_hist and the relationship view. Are the names and shapes IDENTICAL to the PostgreSQL run described above, or do they differ on DuckDB?
+5. THE HISTORIZATION QUESTION. The real build will date every DAB version by WHEN DAS OBSERVED THE ROW — a load timestamp column on the staged view — using \`entity_effective_timestamp_expression: <that column>\`. Test this: give your staged views a load-timestamp column, map it as the effective timestamp, execute; then CHANGE one attribute value for one key AND give it a later load timestamp, execute again. Report exactly what view_<entity> and view_<entity>_hist contain afterwards. Does the history keep both versions? Does the current view show the new one?
+6. Do this for BOTH \`ingestion_strategy: FULL\` and \`ingestion_strategy: FULL_LOG\` if the time-box allows — the difference between them on a re-load is a decision the build depends on. If you only have time for one, do FULL and say so.
+7. Note anything DuckDB-specific: identifier casing and quoting, whether daana needs the file to not be open by another process, concurrency errors, whether execute is re-runnable.
+
+This spike's findings matter more than its tidiness. Report failures in full.`,
+  },
+  {
+    key: 'marimo-destination',
+    prompt: `${RULES}
+
+SPIKE 3 — marimo as the destination: reading DuckDB, exporting, and being screenshotted headless.
+
+Each slice ends in a marimo app that presents a business question and its answer, read from a DuckDB warehouse. Acceptance happens by screenshots posted to a pull request, and the user also wants to run the app themselves.
+
+1. Does \`uv add marimo\` work, and what version? What does it pull in?
+2. Make a tiny DuckDB file with one table of a few rows (\`uv add duckdb\`). Write a marimo notebook that reads it and shows: a title, the question as prose, a table of the answer, and a chart. Which plotting library works most cleanly inside marimo without extra setup — altair, plotly, matplotlib? Report what you actually got working.
+3. Can the notebook be run as an APP (\`marimo run\`) rather than an editable notebook, headless, on a fixed port with no browser opening? Show the exact command and that it serves.
+4. EXPORT: what export formats does this version support (\`marimo export --help\`)? Get an actual export to static HTML working and report the resulting file SIZE. Does the export include the rendered chart and table output, or only the code? Try the flags that control that.
+5. SCREENSHOTS — this is the acceptance mechanism, so establish it properly. Chromium is at /opt/pw-browsers/chromium with PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers and PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 already set; do NOT run \`playwright install\`. Using \`uv add playwright\`, drive headless Chromium to open the running marimo app (or the exported HTML) and save a PNG. Confirm the PNG is a real rendering of the app — check its byte size and dimensions, and say how you know it is not blank. Report the exact script that worked.
+6. Note the gotchas: does marimo need a writable config dir, does it complain without a TTY, does the app need a moment before the chart renders, does the export need the notebook to have been executed first?
+
+The deliverable is a reproducible recipe for "build the app, run it, screenshot it, export it".`,
+  },
+  {
+    key: 'tooling-gate',
+    prompt: `${RULES}
+
+SPIKE 4 — the quality gate, on the exact artefacts this repository will contain.
+
+The repository will be gated by ruff, a strict type checker, sqlfluff over ALL SQL including generated SQL, yamllint, and pytest, run by pre-commit locally and in CI. Establish that each of these actually works on the shapes involved, and find where they fight.
+
+1. \`uv init\` a project and \`uv add --dev ruff sqlfluff yamllint pytest pre-commit\` plus a type checker. For the type checker, try \`ty\` first (Astral's, likely fastest and newest); if it is not viable report why and fall back to mypy. Report versions of everything.
+2. RUFF: confirm lint and format run. Nothing subtle expected — just confirm and report the version.
+3. TYPE CHECKER — the important part. The build has a typed domain model of the machinery: frozen dataclasses with enums, tuples of nested dataclasses, and a discriminated union of stage kinds. Write a ~60-line module in that shape, plus one deliberate type error, and confirm the checker in STRICT mode flags the error and passes when fixed. Report the exact configuration needed and any friction with frozen dataclasses or unions.
+4. SQLFLUFF — the highest-risk of these. The repository will generate DuckDB SQL. Determine: does this sqlfluff version have a \`duckdb\` dialect (\`uv run sqlfluff dialects\`)? If not, which dialect is the least-wrong stand-in? Then lint a piece of SQL in the style this build will emit — a UNION ALL of several SELECT branches, each branch aliasing every column of one fixed column list with AS, \`cast(x AS DECIMAL(28, 8))\`, lower-case function names, UPPER-case keywords, double-quoted mixed-case identifiers crossing over from the business layer, a \`QUALIFY row_number() OVER (...)\` clause, and a quoted reserved word used as a table name (\`"order"\`). Report EVERY rule that fires, and for each say whether the right fix is to change the SQL the generator emits or to configure the rule off — with the reason.
+5. YAMLLINT: lint a YAML file in the shape of a data contract — nested block mappings, some short flow mappings like \`{source_path: OrderId, target_name: order_id, type: INTEGER}\`, lines up to ~150 chars. Report which default rules fire and the minimal sane configuration.
+6. PRE-COMMIT: get a .pre-commit-config.yaml running all of the above locally with \`uv run pre-commit run --all-files\`. Report whether the hooks work offline / from local venv rather than fetching remote repos, since CI determinism matters.
+
+The deliverable is: exact versions, exact config files, and the list of sqlfluff rules that will fight generated SQL.`,
+  },
+]
+
+phase('Spike')
+
+const results = (await parallel(SPIKES.map(s => () =>
+  agent(s.prompt, { label: s.key, phase: 'Spike', schema: FINDING_SCHEMA })
+))).filter(Boolean)
+
+log(`${results.length}/${SPIKES.length} spikes reported`)
+
+return results
+ | completed |  ->  | keys: ['runId', 'timestamp', 'taskId', 'script', 'scriptPath', 'result', 'agentCount', 'logs', 'durationMs', 'summary', 'workflowName', 'status']
+wf_98e86dff-34e.json | export const meta = {
+  name: 'slice-01-security-review',
+  description: 'Security review of the slice-1 diff: find, then adversarially filter for false positives',
+  phases: [
+    { title: 'Find', detail: 'three lenses over the new attack surface' },
+    { title: 'Filter', detail: 'one adversarial filter per candidate finding' },
+  ],
+}
+
+const REPO = '/home/user/adss-2026-09-07'
+
+const CONTEXT = `
+THE CODE UNDER REVIEW: ${REPO}, on branch claude/adss-slice-02-freight-per-customer-country-and-quarter.
+Everything from commit eaea5fd to HEAD is new in this change. Diff it with:
+  git -C ${REPO} diff eaea5fd..HEAD --stat
+  git -C ${REPO} diff eaea5fd..HEAD -- <path>
+
+WHAT IT IS: an analytical data-platform build tool. A CLI (\`adss\`) that reads YAML data
+contracts, fetches records over HTTP from a public OData service, lands them as parquet,
+generates SQL, invokes a vendored Go binary as a subprocess, builds a local DuckDB file, and
+renders a local marimo page. It is a developer/CI tool, not a network service. It has no
+users, no sessions, no authentication and no inbound requests.
+
+IGNORE almost all of the diff. uv.lock, das/fixtures/*.json (recorded response bodies),
+docs/**, *.md, tests/** and dar/uss/*.sql carry no new attack surface. The real surface is:
+  src/adss/*.py          -- the CLI and its machinery
+  destinations/app.py    -- the marimo page
+  .github/workflows/*    -- CI
+  bin/linux-amd64/*      -- a vendored 174 MB binary and its checksum
+  .pre-commit-config.yaml, pyproject.toml
+
+THE TRUST MODEL, which you must reason about rather than assume:
+Contracts (das/contracts/*.yaml), the model (dab/model.yaml), the sidecar (dab/uss.yaml),
+mappings and question SQL are REPOSITORY CONTENT, reviewed in pull requests. Anyone who can
+change them can already run arbitrary code via CI. So "a malicious contract could inject SQL"
+is generally NOT a real finding here -- say so explicitly if you considered and rejected it.
+What WOULD be real: something that turns EXTERNAL data (an HTTP response body from the OData
+service, a recorded fixture, a file path from outside the repo) into code execution, a
+subprocess argument, a file write outside the intended tree, or a request to an attacker-chosen
+host or protocol.
+`
+
+const RULES = `
+HARD RULES
+- Read only. Do NOT write, edit or create any file. Do not run git commands that change state.
+- Only flag what you are >80% confident is concretely exploitable in THIS system's trust model.
+- Do NOT report: denial of service, resource exhaustion, secrets-at-rest, rate limiting,
+  outdated dependencies, findings in tests or documentation, missing hardening, theoretical
+  races, log spoofing, regex injection, or SSRF that controls only a URL path.
+- Environment variables and CLI flags are TRUSTED. An attack requiring control of one is invalid.
+- If you find nothing real, say so. An empty list from an honest look is the correct answer and
+  is far more useful than a padded one.
+`
+
+const FINDING = {
+  type: 'object',
+  properties: {
+    lens: { type: 'string' },
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          file: { type: 'string' },
+          line: { type: 'integer' },
+          severity: { type: 'string', enum: ['HIGH', 'MEDIUM', 'LOW'] },
+          category: { type: 'string' },
+          description: { type: 'string' },
+          exploitScenario: { type: 'string', description: 'A concrete path from an attacker-controlled input to the impact. If you cannot write one, it is not a finding.' },
+          recommendation: { type: 'string' },
+          confidence: { type: 'integer', description: '1-10' },
+        },
+        required: ['title', 'file', 'line', 'severity', 'category', 'description', 'exploitScenario', 'recommendation', 'confidence'],
+      },
+    },
+    consideredAndRejected: { type: 'array', items: { type: 'string' }, description: 'Patterns you looked at and decided were not findings, with why. This is how the next reader knows what was covered.' },
+  },
+  required: ['lens', 'findings', 'consideredAndRejected'],
+}
+
+phase('Find')
+
+const LENSES = [
+  {
+    key: 'injection-and-execution',
+    focus: `Injection and code execution. Trace every path from data this system does not
+control to something that executes or is interpreted:
+- subprocess.run in src/adss/engine.py and src/adss/destination.py: where does every argument
+  come from? Can any be attacker-influenced? Is shell=True used anywhere?
+- src/adss/source.py: urllib.request.urlopen on a URL built from the contract. Can the HOST or
+  the PROTOCOL be controlled by anything external (a redirect, a response body)? Path-only
+  control is explicitly not a finding.
+- The recorded fixture replay: replay() reads a manifest and returns file bytes keyed by URL.
+  Is there a path-traversal there -- can a manifest value escape the fixtures directory?
+- yaml.safe_load vs yaml.load anywhere.
+- SQL generation in src/adss/das.py and src/adss/uss.py: is any value that reaches emitted SQL
+  sourced from OUTSIDE the repository (a response body, a filename, an environment value)?
+- src/adss/platform.py install(): it splits a string and executes each part. What can reach it?
+- src/adss/sqlformat.py: sqlfluff.fix on generated SQL.
+- Any eval, exec, pickle, or dynamic import.`,
+  },
+  {
+    key: 'supply-chain-and-ci',
+    focus: `Supply chain and CI. This change vendors a 174 MB binary and adds two GitHub Actions
+workflows:
+- bin/linux-amd64/daana-cli, its .sha256 and .version, and src/adss/engine.py's verify(). Is the
+  checksum actually enforced before execution on every path? Can verify() be bypassed? Is there
+  a TOCTOU between verifying and executing that is CONCRETELY exploitable here?
+- .github/workflows/ci.yml: read every step. The cache keyed on a checksum read from a file in
+  the repo -- can a fork or a pull_request_target flow poison it? What triggers does it use, and
+  does any step run untrusted PR content with elevated permissions or secrets?
+- .github/workflows/source.yml: it runs on a schedule and re-records from a live third-party
+  service, then diffs. Does anything from that response reach a shell?
+- .pre-commit-config.yaml: hooks run local commands. Anything unsafe there?
+- The engine is invoked with cwd=dab/. What does it read from that directory, and could a file
+  there change what executes?
+- Is the checksum verification using a constant-time comparison, and does that matter here?`,
+  },
+  {
+    key: 'files-and-exposure',
+    focus: `File handling and data exposure:
+- Path handling in src/adss/project.py, source.py record()/replay(), destination.py shim() and
+  landing.py. Can any write land outside the intended directory? shim() creates symlinks from a
+  build number parsed out of a subprocess's stderr with a regex -- trace that: what if the
+  matched group contained a path separator or traversal?
+- source.py record() deletes files: \`for stale in directory.glob("page-*.json"): stale.unlink()\`.
+  What directory can that be pointed at?
+- destinations/app.py: it opens a DuckDB file and renders values into a page. Is there any
+  injection into the rendered output, and does it matter for a locally-rendered notebook?
+- Does anything log, print, or commit a credential, token, or personal data? Check what
+  das/fixtures and the generated SQL actually contain, and what CI prints.
+- The contract's ownership block and the connections.yaml: any credential handling, and is the
+  DuckDB profile's shape a problem?`,
+  },
+]
+
+const found = await parallel(LENSES.map(lens => () =>
+  agent(`${CONTEXT}\n${RULES}\n\nYOUR LENS: ${lens.focus}`, {
+    label: lens.key, phase: 'Find', schema: FINDING,
+  })
+))
+
+const candidates = found.filter(Boolean).flatMap(r => r.findings || [])
+log(`${candidates.length} candidate findings to filter`)
+
+if (!candidates.length) {
+  return { verdict: 'no findings survived the finding stage', rejected: found.filter(Boolean).flatMap(r => r.consideredAndRejected || []) }
+}
+
+phase('Filter')
+
+const VERDICT = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    isReal: { type: 'boolean' },
+    confidence: { type: 'integer', description: '1-10, your OWN assessment after checking' },
+    reasoning: { type: 'string', description: 'What you checked in the actual code, and what it showed' },
+    severity: { type: 'string', enum: ['HIGH', 'MEDIUM', 'LOW'] },
+    file: { type: 'string' },
+    line: { type: 'integer' },
+    category: { type: 'string' },
+    description: { type: 'string' },
+    exploitScenario: { type: 'string' },
+    recommendation: { type: 'string' },
+  },
+  required: ['title', 'isReal', 'confidence', 'reasoning', 'severity', 'file', 'line', 'category', 'description', 'exploitScenario', 'recommendation'],
+}
+
+const verdicts = await parallel(candidates.map((candidate, index) => () =>
+  agent(`${CONTEXT}
+
+YOU ARE AN ADVERSARIAL FILTER. Another reviewer raised the finding below. Your job is to try
+to REFUTE it by reading the actual code. Default to refuting: most raised findings in a
+developer tool like this one are not real.
+
+<finding index="${index}">
+${JSON.stringify(candidate, null, 2)}
+</finding>
+
+Read the named file and everything it calls. Then answer honestly:
+1. Is there a CONCRETE attacker-controlled input that reaches the sink? Name it and trace it.
+   "Repository content" is not attacker-controlled here -- see the trust model above.
+2. Is the impact real in a local developer/CI tool with no inbound network surface?
+3. Does an existing guard already prevent it? Look for one before concluding there is none.
+
+${RULES}
+
+Set isReal false unless you have traced a real path end to end. Your confidence is YOUR
+assessment after checking, not the original reviewer's.`, {
+    label: `filter:${candidate.file}:${candidate.line}`, phase: 'Filter', schema: VERDICT,
+  })
+))
+
+const survived = verdicts.filter(Boolean).filter(v => v.isReal && v.confidence >= 8)
+log(`${survived.length} of ${candidates.length} survived filtering at confidence >= 8`)
+
+return {
+  survived,
+  refuted: verdicts.filter(Boolean).filter(v => !(v.isReal && v.confidence >= 8))
+    .map(v => ({ title: v.title, confidence: v.confidence, why: v.reasoning })),
+  consideredAndRejected: found.filter(Boolean).flatMap(r => r.consideredAndRejected || []),
+}
+ | completed |  ->  | keys: ['runId', 'timestamp', 'taskId', 'script', 'scriptPath', 'result', 'agentCount', 'logs', 'durationMs', 'summary', 'workflowName', 'status']
+wf_a570cc64-407.json | export const meta = {
+  name: 'slice-04-frame',
+  description: 'Frame slice 4: the fan-out proof, a composite source key, and a float discount',
+  phases: [{ title: 'Frame', detail: 'options and consequences; and an audit of what already binds' }],
+}
+
+const REPO = '/home/user/adss-2026-09-07'
+
+const COMMON = `
+${REPO} is an analytical data storage system in three layers, built in thin vertical slices,
+each answering one business question end to end. DAS records what a source sent; DAB is the
+business model (dab/model.yaml is THE ONLY PLACE THE DATA IS EXPLAINED, no source word in it);
+DAR is a GENERATED Unified Star Schema -- one event bridge with a row per measurement event,
+one peripheral per entity, one calendar. Keys inherit along many-to-one edges; measures do not.
+destinations/app.py is a marimo page reading dar__uss only.
+
+Slices 1-3 are done: orders placed per month and destination country; freight per customer
+country and quarter (first relationship, first inherited key); orders shipped per month and days
+to ship (second event on one entity, first derived value).
+
+READ FIRST, they are the standard: ${REPO}/docs/blueprint.md, ${REPO}/docs/conventions.md,
+${REPO}/docs/deviations.md, ALL of ${REPO}/docs/adr/*.md (0000-0008), ${REPO}/dab/model.yaml,
+${REPO}/dab/uss.yaml, ${REPO}/dab/mappings/*.yaml, ${REPO}/src/adss/uss.py,
+${REPO}/src/adss/mapping.py, ${REPO}/dar/uss/_bridge.sql, ${REPO}/das/contracts/*.yaml, and the
+three directories under ${REPO}/docs/questions/.
+
+SLICE 4's question: "What revenue did we take per order month?" -- asked by a finance analyst.
+
+It is the slice the whole architecture has been deferring to. THREE things land at once:
+
+1. THE FAN-OUT PROOF. D-0001 (docs/deviations.md) departs from a DAR principle by putting every
+   process in ONE shared dar__uss. Its whole justification is that a measure cannot multiply
+   across a many-to-one walk. Slices 1-3 could not test it -- every entity was at one grain.
+   Order lines are FINER than orders, so freight (on the order) and revenue (on the line) are
+   the first two measures at different grains in one bridge. docs/deviations.md says in as many
+   words that slice 4 is where the argument stops being carried on assertion.
+
+2. A COMPOSITE SOURCE KEY. The source's OrderDetails entity has key (OrderId, ProductId) --
+   both Edm.Int32. Conventions M2 permits exactly ONE primary_keys entry and says its VARCHAR
+   result may be "a concat of casts with a separator", warning that a concat without a
+   separator makes 'A1'+'23' and 'A12'+'3' the same key. That clause has been REVIEW-ONLY
+   since slice 1 because nothing had a composite key. With integer ids the collision is live:
+   order 121 product 3 versus order 12 product 13.
+
+3. A FLOAT IN THE SOURCE. OrderDetail.Discount is Edm.Single -- a float. Revenue is
+   quantity x unit price x (1 - discount). Slice 3 established (ADR 0007, and a data check in
+   src/adss/checks.py) that a question's two answers are compared row by row BY VALUE, and that
+   a float makes that comparison order-dependent because DuckDB's sum over doubles is not
+   associative. Read that check and that ADR before deciding anything here.
+
+HARD RULES FOR YOU
+- Do NOT write, edit or create any file in ${REPO}; no git commands that change state. Work in
+  /tmp. Reading and read-only commands are fine (uv run pytest, uv run adss check, read-only
+  DuckDB against ${REPO}/warehouse.duckdb).
+- Ground everything in what you actually read or ran. Quote file and line.
+`
+
+phase('Frame')
+
+const [options, audit] = await parallel([
+  () => agent(COMMON + `
+YOUR JOB: draft the options and consequences for the decisions this slice forces, so a MADR can
+be written from each. You are not writing the records; you are doing the work they rest on.
+
+DECISION A -- how a composite source key becomes one entity key.
+M2 permits a concat of casts with a separator. Work out, concretely:
+  - the exact expression, and what separator. Is a separator that can appear IN a value safe?
+    Both parts are integers here, so is that reasoning "fine today, wrong at the first string
+    key" -- and does that matter, given the key is loaded once and cannot be changed after?
+  - M2 says two primary_keys entries are read as two ALTERNATE IDENTIFIERS and "cannot be undone
+    once loaded". Verify that claim if you can, or say it is unverified.
+  - What does the entity's key look like in dar__uss, and does anything downstream have to
+    parse it back apart? If a question ever needs "which product", is the key the wrong place
+    to get it from, and what is the right place?
+  - Is there an option OTHER than concat? Consider: a surrogate, the source's own row identity,
+    or refusing composite keys entirely and modelling the line differently. Say which you would
+    argue for.
+
+DECISION B -- how the fan-out proof is actually made.
+This is the one that matters. D-0001 rests on "a measure is non-null only on the stage of the
+(entity, event) that owns it, and every other branch emits a typed NULL". Work out:
+  - the exact query a reader would write that COULD multiply freight across lines, and what the
+    bridge returns for it instead. Construct both in a scratch DuckDB from the real warehouse
+    if you can.
+  - What TEST makes the property fail if the generator broke it? ADR 0002's Confirmation has
+    been promising this test since slice 1. Where does it live -- tests/ (machinery, no
+    business words, no warehouse) or checks/ (data, against the real build)? Draft it.
+  - Is the property actually TRUE of the design, or only of the data? Say plainly if there is a
+    shape in which it fails, and what that shape is.
+  - What would a reader have to do WRONG to multiply the measure anyway, and does anything stop
+    them? A bridge does not stop a bad query; it makes the good query natural. Is that enough
+    for D-0001 to be closed, or does the deviation stay open with a narrower argument?
+
+DECISION C -- the float discount.
+  - What type should DAS give it? What does the engine do with a NUMBER attribute (the dab
+    skill says DECIMAL(28,8), verify)? Where does the float stop being a float?
+  - Revenue = quantity x price x (1 - discount). If discount is a float anywhere in that chain,
+    is the product exact? Test it: compute revenue both ways over the real order lines, once
+    with the discount as DOUBLE and once as DECIMAL, and see whether the totals differ and
+    whether summing in different orders differs.
+  - Does the exactness data check added in slice 3 catch it, and at which layer would it fire?
+  - Is there a rounding decision to make -- and if so, whose is it, the model's or the
+    question's? Money to how many places, and what does the model have to say for a check to be
+    able to verify it?
+
+For EACH decision: the options, what each costs in slices 5 and 6, which blueprint principle or
+convention it satisfies and which it strains (QUOTE them), and the failure mode a reader six
+months later hits. Draft the actual YAML and SQL.
+
+Finally: name any decision this slice forces that I have NOT listed. Look hard at what a third
+entity at a finer grain does to the bridge's published column contract, to the calendar, and to
+entity_ids/entity_keys in src/adss/uss.py.`,
+    { label: 'options', phase: 'Frame' }),
+
+  () => agent(COMMON + `
+YOUR JOB: audit what ALREADY BINDS this slice, and report any rule it would break -- before the
+rules are discovered by violating them.
+
+1. docs/deviations.md D-0001, in full, and its Review paragraph. What EXACTLY does it commit
+   slice 4 to? What would have to be true for the entry to be CLOSED rather than carried? Quote
+   its exit condition. If the exit condition as written cannot be met by this slice, say so --
+   that is the single most useful thing you can report.
+2. docs/adr/0002, especially its Confirmation section and everything it says about measures not
+   being copied down. It has promised a fan-out test since slice 1 and said twice that the test
+   is not possible yet. Is it possible now, exactly as 0002 describes it? Quote 0002 and say.
+3. Conventions M1-M7 against a mapping for a composite-keyed entity, and M2's key-shape clause
+   in particular. Also §2 measure naming for a revenue measure at line grain -- what MUST it be
+   called, given the entity part is plural and the unit is a real unit?
+4. §1.2: a line entity and its attributes in business language, with no source word. The source
+   calls them OrderDetails, UnitPrice, Quantity, Discount. What can DAB call them? Is "line"
+   itself a business word or a source word here?
+5. §5/§6: what may not appear under src/ or tests/. A new entity at a finer grain will tempt
+   machinery changes -- name what would be a violation.
+6. §10 and src/adss/question.py: what the question file must carry, and what is mechanically
+   checked. Note that the control query must not mention dab or dar__uss and must read
+   das__staged -- for a revenue question that means joining two staged views. Is that still
+   independent enough to be worth anything? ADR 0005 flags a shelf life; has it expired?
+7. The generated layer: work out EXACTLY, from src/adss/uss.py, what the bridge's published
+   column contract becomes with a third entity and a fourth/fifth measure. Does it append or
+   rearrange? What does the peripheral for a composite-keyed entity look like?
+8. The engine: anything daana-cli needs for an entity whose key is a concat? Check the probe
+   findings and the dab skill; verify read-only against the built warehouse where you can.
+9. The exactness data check in src/adss/checks.py and ADR 0007: what does a float discount do to
+   it, and at which command does it fire?
+10. Finally, the thing most likely to be missed: what does adding a THIRD entity do to
+    destinations/app.py, which indexes questions positionally and has one cell block per
+    question? And to 'adss shoot', which renders once per question?`,
+    { label: 'audit', phase: 'Frame' }),
+])
+
+return { options, audit }
+ | completed |  ->  | keys: ['runId', 'timestamp', 'taskId', 'script', 'scriptPath', 'result', 'agentCount', 'logs', 'durationMs', 'summary', 'workflowName', 'status']
+wf_a6eb8a07-e52.json | export const meta = {
+  name: 'slice-03-frame',
+  description: 'Frame slice 3: where a measure derived from two attributes of one row is computed, and what already binds the slice',
+  phases: [{ title: 'Frame', detail: 'options and consequences; and an audit of what already binds' }],
+}
+
+const REPO = '/home/user/adss-2026-09-07'
+
+const COMMON = `
+${REPO} is an analytical data storage system in three layers, built in thin vertical slices.
+Each slice answers one business question end to end.
+
+- DAS (das__raw, das__staged): dlt lands whole source records as one JSON column into
+  hive-partitioned parquet; contracts generate typed views. Keeps the source's own words.
+- DAB (dab, dab__stage, dab__meta): an ensemble/focal model built by a vendored engine binary.
+  dab/model.yaml is THE ONLY PLACE THE DATA IS EXPLAINED, and no source word may appear in it.
+- DAR (dar__uss): a GENERATED Unified Star Schema -- one event bridge (a row per measurement
+  event), one peripheral per entity, one calendar. Keys inherit along many-to-one edges;
+  measures do not.
+- destinations/app.py: a marimo page reading dar__uss only.
+
+Slices 1 and 2 are done and merged-pending:
+- Slice 1: how many orders were placed per order month and destination country? One entity,
+  one transaction event (PLACED), one count measure.
+- Slice 2: what freight did we pay per customer country and order quarter? A second entity
+  (CUSTOMER), the first relationship, the first inherited key, the first sum measure.
+
+READ THESE FIRST, they are the standard: ${REPO}/docs/blueprint.md,
+${REPO}/docs/conventions.md, ${REPO}/docs/deviations.md, ${REPO}/docs/adr/*.md (all six),
+${REPO}/dab/model.yaml, ${REPO}/dab/uss.yaml, ${REPO}/dab/mappings/*.yaml,
+${REPO}/src/adss/uss.py, ${REPO}/dar/uss/_bridge.sql, and the two directories under
+${REPO}/docs/questions/.
+
+SLICE 3's question: "How many orders shipped per shipping month, and how many days did they
+take?" -- asked by an operations manager.
+
+It widens the system by: a SECOND EVENT on the SAME entity (ORDER is both placed and shipped),
+so a second stage in the bridge; the first case where an event DID NOT HAPPEN for some
+entities (21 of 830 orders have no shipped date, so they have no shipment event at all); and a
+RATIO that conventions section 2 forbids storing -- it must be computed at query time from two
+additive measures.
+
+Facts measured from the recording just now, which you may rely on:
+- 830 orders, 21 with a null shipped date
+- no order ships before it was placed; the lag runs 1 to 37 days, mean 8.49
+- 23 distinct shipping months
+- 37 orders shipped after the date the source says they were required
+
+HARD RULES FOR YOU
+- Do NOT write, edit or create any file in ${REPO}, and do not run git commands that change
+  state. Work in /tmp if you need to write. Reading and the project's read-only commands are
+  fine (uv run pytest, uv run adss check, read-only DuckDB against warehouse.duckdb).
+- Ground everything in what you actually read. Quote file and line.
+`
+
+phase('Frame')
+
+const [options, audit] = await parallel([
+  () => agent(COMMON + `
+YOUR JOB: draft the options and consequences for the ONE decision this slice forces, so that a
+MADR can be written from it. You are not writing the record; you are doing the work it rests on.
+
+THE DECISION. The question needs "how many days did they take" -- a number derived from TWO
+attributes of one row (the day it was placed and the day it shipped). Every measure so far has
+been either a count (one per row) or a sum of a single existing attribute. This is the first
+derived one, and there is no obvious place for it. Candidate homes, and there may be others:
+
+(a) A NUMBER attribute on ORDER in dab/model.yaml, computed in the mapping's
+    transformation_expression from the two source date columns. Note mapping rule M5 permits an
+    expression that reads its own row, and both dates ARE on that row -- so this is LEGAL. But
+    is it RIGHT? Read blueprint B5 (atomic) and B6 (reusable) and argue whether a lag is an
+    atomic fact about an order or a derived one, and what precedent this sets: every future
+    derived value would have the same argument available to it.
+(b) An expression in dab/uss.yaml, so the DAR generator emits the arithmetic into the bridge.
+    This needs a new capability in the generator: a measure that names an expression over two
+    attributes rather than one attribute. What does that do to src/adss/uss.py's Measure, to
+    the refusal that a summed attribute must be a NUMBER, and to the rule that dab/model.yaml
+    is the only place the data is explained -- is an expression in uss.yaml an explanation?
+(c) Computed in the question's uss.sql at query time from two date columns on the peripheral.
+    What does that do to "the destination reads dar__uss only" (it still would), and to the
+    control-query independence the acceptance check depends on? Is date arithmetic in a
+    question the thing conventions section 2 is trying to prevent, or a different thing?
+(d) Anything you think is better than all three. Say so plainly if one exists.
+
+For EACH option, in the repository's own terms:
+1. What exactly would change, file by file, with the actual YAML or code it would need.
+2. Which blueprint principle or convention it satisfies and which it strains. QUOTE them.
+3. What it costs in the slices already planned: slice 4 adds order lines at a finer grain and
+   a derived revenue measure (quantity x price x discount); slice 5 a two-hop chain; slice 6 a
+   second source. Which option makes slice 4 easier and which makes it worse?
+4. The failure mode a reader six months later would hit.
+
+THEN, separately, name any SECOND decision this slice forces that I have not seen. Two events
+on one entity is new; an event that did not happen is new. Look hard at src/adss/uss.py for
+what breaks or becomes ambiguous with two stages from one entity -- especially the peripheral
+(one per entity, but now two events read it), _is_current, and the bridge's column contract.
+Say plainly if there is no second decision.
+
+Return prose, organised, quoting the repository. Be concrete: draft the actual YAML.`,
+    { label: 'options', phase: 'Frame' }),
+
+  () => agent(COMMON + `
+YOUR JOB: audit what ALREADY BINDS this slice, and report any rule it would break. You are the
+check on a decision that has not been made yet -- find the constraints before they are
+discovered by violating them.
+
+Go through, and for each say concretely what it forbids or requires IN THIS SLICE:
+1. docs/blueprint.md: every principle, especially the flow rules F1/F2/F3, B5 atomic, B6
+   reusable, B7 additive change, B8 defined exactly once.
+2. docs/conventions.md: all eleven sections. Section 2's measure naming is the sharpest here --
+   "Ratios are not stored. Store numerator and denominator as additive measures and divide at
+   query time" -- and its own worked example is literally 'avg_days_to_ship' becoming
+   'ship_lag_orders_days'. What EXACTLY does that example commit this slice to? What must the
+   two measures be called, and what is the division that produces the answer?
+3. The six ADRs. ADR 0002 (the bridge) is the one that most constrains a second stage. What
+   does it already say about an entity an event never happened to? Quote it, then check the
+   CODE actually does that -- src/adss/uss.py's stage CTE and its WHERE clause.
+4. docs/deviations.md D-0001 and its review paragraph.
+5. The generated layer's own contract: what does adding a second event to ORDER do to
+   dar__uss._bridge's published columns? Work it out exactly, in order, from
+   src/adss/uss.py bridge_columns(). Does it APPEND, or does it move existing columns? (Read
+   the docstring, which was corrected in slice 2 -- and check the docstring against the code
+   rather than trusting it.)
+6. The engine: does daana-cli need anything new for a second event on one entity? A second
+   START_TIMESTAMP attribute on ORDER -- is that allowed, and what does it do to the entity's
+   effective timestamp and to view_ORDER_hist? Check what the DMDL type vocabulary permits
+   (docs/adr/0004, .claude/skills/dab/SKILL.md) and, if you can do it read-only, verify
+   against the built warehouse rather than assuming.
+7. The destination: destinations/app.py indexes questions positionally and renders one page per
+   question. What does a third question require of it?
+8. The acceptance check: src/adss/checks.py and src/adss/question.py. A ratio computed at query
+   time is a FLOAT. The two answers are compared row by row as Python values. Is float equality
+   going to make this check flaky, and if so what is the fix -- in the question, or in the
+   comparison? This is the kind of thing that passes on the machine that wrote it. Test it.
+
+Report every rule the slice would break under each of the three options in the sibling brief
+(a NUMBER attribute in DAB; an expression in uss.yaml; arithmetic in the question's SQL), and
+anything that is simply forbidden regardless of which is chosen.`,
+    { label: 'audit', phase: 'Frame' }),
+])
+
+return { options, audit }
+ | completed |  ->  | keys: ['runId', 'timestamp', 'taskId', 'script', 'scriptPath', 'result', 'agentCount', 'logs', 'durationMs', 'summary', 'workflowName', 'status']
+wf_ad360891-255.json | export const meta = {
+  name: 'slice-01-frame',
+  description: 'Frame slice 1: draft the argument for each founding decision, and audit what already binds them',
+  phases: [
+    { title: 'Frame', detail: 'one agent per founding decision, plus an audit of what already binds this slice' },
+  ],
+}
+
+const REPO = '/home/user/adss-2026-09-07'
+const SPIKES = '/tmp/claude-0/-home-user-adss-2026-09-07/45a0041f-5559-570b-bd39-1d1517807233/scratchpad/spike-findings.json'
+const BLOG = '/tmp/claude-0/-home-user-adss-2026-09-07/45a0041f-5559-570b-bd39-1d1517807233/scratchpad/blog-synthesis.json'
+const POSTS = '/tmp/claude-0/-home-user-adss-2026-09-07/45a0041f-5559-570b-bd39-1d1517807233/scratchpad/blog'
+
+const COMMON = `
+You are drafting the ARGUMENT for one architecture decision record. You are NOT writing code and
+NOT writing the ADR file. Your output is the reasoning someone else will turn into a MADR.
+
+READ FIRST, all of them, properly:
+- ${REPO}/docs/blueprint.md      the absolute principles. These bind you. You may not contradict them.
+- ${REPO}/docs/conventions.md    the one convention document.
+- ${REPO}/docs/deviations.md     the register, and its one open entry.
+- ${SPIKES}                      verbatim findings from four spikes run against the real tools. TREAT THESE AS FACT; they were observed, not guessed.
+- ${BLOG}                        a consolidated constraint map from 18 blog posts, with per-post attribution and a list of what the blog does NOT settle.
+- ${POSTS}/design-of-analytical-systems.txt and the other .txt files there are the posts themselves, in full. Read the ones relevant to your decision.
+
+HARD RULES
+- Do NOT write, edit or create ANY file. Do not run git. Read and reason only.
+- Do NOT read anything from the repository mattiasthalen/ADSS-fable-POC other than the daana-cli binary's own --help output. A previous run at this brief lives on its branches and the user has explicitly ruled it out of scope. If you find yourself there, stop.
+- Ground every claim. Where the blog says something, attribute it to the post. Where a spike observed something, quote the observation. Where neither settles it, SAY SO - that is the most useful thing you can tell me.
+- Argue the options you reject as strongly as the one you recommend. A record whose alternatives are strawmen is worthless.
+- The Consequences must include real costs. A recommendation with only good consequences has not been thought about.
+
+THE SYSTEM BEING BUILT
+One DuckDB file. DAS (schemas das__raw, das__staged) ingests Northwind OData via dlt into
+hive-partitioned parquet and unpacks it as views. DAB (dab, dab__stage, dab__meta) is a daana-cli
+focal/ensemble model; dab/model.yaml is the only place the data is explained. DAR (dar__uss) is a
+generated Puppini Unified Star Schema. Destinations are marimo pages reading dar__uss only.
+Python 3.12 + uv. Slices are vertical: one business question, end to end, widened one at a time.
+
+SLICE 1 is the thinnest possible whole spine, answering: "How many orders were placed per order
+month and ship country?" One contract (Northwind Orders), one DAB entity, one transaction event,
+one count measure, one bridge + peripheral + calendar, one marimo page.
+
+ALREADY DECIDED (do not reopen; design within these):
+- DuckDB, one file, platform behind one seam.
+- dlt lands the whole source record as ONE json column; contracts drive strict unpacking.
+- Landing is hive-partitioned one level: <table>/extracted_on=YYYY-MM-DD/<load>.parquet.
+- _dlt_load_id is a unix-epoch string and is the single provenance fact: extracted_on is its date, and das__staged.extracted_at is to_timestamp(cast(_dlt_load_id AS DOUBLE)). DAB history is dated by extracted_at.
+- USS declarations (events, measures) live in a sidecar dab/uss.yaml, not in model.yaml.
+- Source is recorded once to fixtures and replayed everywhere; CI is offline.
+- One shared dar__uss (deviation D-0001 already registered).
+- Machinery is test-first; data checks land with the build that satisfies them.
+- Each question is computed twice, from das__staged and from dar__uss, and the two must agree.
+- One CLI: uv run adss ...
+`
+
+const ADR_SCHEMA = {
+  type: 'object',
+  properties: {
+    title: { type: 'string', description: 'The decision as a full sentence in the present tense, the way a MADR title is written' },
+    contextAndProblem: { type: 'string', description: '3-6 paragraphs. What makes this hard. Name the specific things about THIS system that make the obvious answer wrong.' },
+    decisionDrivers: { type: 'array', items: { type: 'string' } },
+    consideredOptions: { type: 'array', items: { type: 'string' }, description: 'At least 3, each a real option someone might choose' },
+    recommendation: { type: 'string', description: 'Which option, named exactly as in consideredOptions' },
+    argument: { type: 'string', description: 'Why that one. Several paragraphs. Argue the rejected options fairly and say what each would cost.' },
+    consequences: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', enum: ['good', 'bad'] },
+          text: { type: 'string' },
+        },
+        required: ['kind', 'text'],
+      },
+      description: 'At least two of kind bad, and they must be real',
+    },
+    confirmation: { type: 'string', description: 'Concretely: which test or check would prove this decision is actually implemented and still holds' },
+    concreteShape: { type: 'string', description: 'The concrete artefact this implies: file names, YAML keys, column names, SQL shapes. Be specific enough to build from.' },
+    groundedIn: { type: 'array', items: { type: 'string' }, description: 'Attributed evidence: "post-slug: quote" or "spike N observed: ..."' },
+    notSettled: { type: 'array', items: { type: 'string' }, description: 'What neither the blog nor the spikes settle, that the implementer will have to choose' },
+  },
+  required: ['title', 'contextAndProblem', 'decisionDrivers', 'consideredOptions', 'recommendation', 'argument', 'consequences', 'confirmation', 'concreteShape', 'groundedIn', 'notSettled'],
+}
+
+const DECISIONS = [
+  {
+    key: 'adr-0001-domain-model',
+    prompt: COMMON + `
+
+DECISION 0001 - The machinery has its own typed domain model, and no business vocabulary appears in code.
+
+The user asked for "the domain model, which does not restate dab/model.yaml", and chose: a typed
+Python model of what the SYSTEM is made of - contract, pipeline, landing, staged view, mapping,
+plan, stage, peripheral, bridge, question, destination - with no business word (no ORDER, no
+CUSTOMER, no freight) anywhere under src/ or in test code.
+
+Argue this decision. Cover:
+- Why a machinery domain model is not a restatement of the business model, and what would make it become one.
+- What "no business vocabulary in src/" actually buys, and how it is enforced (conventions.md has it as a hard rule - is a rule enough, or should something check it?).
+- How test fixtures avoid business vocabulary while still testing real behaviour: neutral models held as DATA FILES rather than as names in code. What does a neutral fixture model look like?
+- The typed shape itself: frozen dataclasses, StrEnum, discriminated unions of stage kinds - spike 4 confirmed "ty --error all" handles all of these with zero false positives. What are the actual types this system needs in slice 1, and which are premature?
+- The cost: a machinery vocabulary is a second thing to learn, and an over-abstracted domain model is a named failure mode of model-driven platforms (see the-rise-of-model-driven-data-engineer on "overly generic models lacking domain specificity").
+
+concreteShape must name the modules and the types for slice 1 ONLY. Resist modelling slices 2-6.`,
+  },
+  {
+    key: 'adr-0002-uss',
+    prompt: COMMON + `
+
+DECISION 0002 - DAR is one generated Unified Star Schema: an event bridge, peripherals, one calendar, and a fixed column contract.
+
+This is the most consequential record in the build: every question, every marimo page and every
+future consumer is written against the columns this decision fixes, and will not survive them
+changing. Read ${POSTS}/consumption-layer-generates-itself.txt IN FULL - it is the post that
+describes the USS - plus Puppini's design as the blog relays it.
+
+Argue this decision. You MUST resolve these three, and they are the whole difficulty:
+
+1. FAN-OUT. The post says keys and measures "propagate downward" along many-to-one relationships.
+   Keys can. Measures cannot: copying a parent's measure onto every child row multiplies it when
+   summed. Work out precisely what propagates and what does not, and what test proves it.
+
+2. HISTORY. daana keeps a version of every entity row (view_<E>_hist, dated eff_tmstp) and a
+   current view (view_<E>). A question about something that HAPPENED and a question about a state
+   as OBSERVED need different treatment. Decide how the bridge represents both.
+
+3. WHERE THE RELATIONSHIP KEYS COME FROM. Spike 2 observed two things that constrain you hard:
+   view_<entity>_with_rel carries NO relationship key columns despite its name, and
+   <entity>_focal / <entity>_idfr are CREATED BUT NEVER POPULATED on DuckDB. Read those findings
+   in ${SPIKES}. Decide what the generator reads, and justify it.
+
+Then fix the column contract exactly: every column of _bridge, of a peripheral, and of _calendar,
+with types. Name the convention for measure columns and key columns (conventions.md section 1.3
+already fixes some of this - obey it, and say if it is wrong). Say what the generator emits as
+files, and whether generated SQL is committed.
+
+Also decide: how is a stage's event date chosen, and what happens to an entity row whose event
+date is null (an order never shipped has no shipment event)?
+
+concreteShape must give the literal column list of _bridge and _calendar with types, and one
+worked example of the SQL for a single transaction stage, in the house SQL style.`,
+  },
+  {
+    key: 'adr-0003-das',
+    prompt: COMMON + `
+
+DECISION 0003 - DAS: a data contract is documentation, schema and transformation in one artefact; ingestion is forgiving and unpacking is strict.
+
+Read ${POSTS}/contract-driven-data-transformation.txt IN FULL - it is the post that defines the
+contract - and the DAS constraints in ${BLOG}.
+
+Argue this decision. Cover:
+- The contract file: its exact keys and their meaning, adapted from the blog's shape (endpoints.source, endpoints.target, ownership, schema.primary_keys, schema.columns with source_path/target_name/type/mode/description) to an OData source landing into DuckDB rather than a Kafka/BigQuery one. What changes, and what must NOT change?
+- The type vocabulary the contract may use, and the exact DuckDB expression each type generates when extracting from the json payload column. Spike 1 observed DuckDB json arrow operators: the double-arrow yields VARCHAR needing a cast, the single-arrow yields JSON. Give the full mapping table.
+- What das__raw is and what das__staged is, as SQL. Spike 1 observed that read_parquet over a glob SILENTLY DROPS columns present only in later files without "union_by_name => true", and that hive partition columns come back VARCHAR without "hive_types". Both must be in the emitted SQL.
+- THE OPEN ONE, and it matters most: DAS is append-only, so after two loads das__staged holds two rows per source record. Does das__staged expose ALL loads (a change log, one row per record per load) or the LATEST per key? The blog's contract declares BOTH a "historized" and a "latest" target model. Decide which das__staged is, and what the other one is called if it exists. Consider that DAB's ingestion strategy and its history depend entirely on this answer, and that spike 2 observed daana's FULL_LOG is idempotent against a multi-row-per-key source while FULL silently duplicates forever.
+- Provenance: which columns DAS adds itself, and why each is needed to answer "where did this row come from and when".
+- Recording and replay: what a fixture is, where it lives, and how "adss das ingest --offline" differs from a live run. What makes a recording honest?
+
+concreteShape must give the full contract YAML for Northwind Orders, and the literal SQL of the
+das__raw and das__staged views it generates, in the house SQL style.`,
+  },
+  {
+    key: 'adr-0004-dab',
+    prompt: COMMON + `
+
+DECISION 0004 - daana-cli is the DAB engine: how the binary is obtained, and the mapping conventions that keep it honest.
+
+Read ${POSTS}/design-of-analytical-systems.txt (the Ensemble Modeling sections) and the daana-cli
+findings in ${SPIKES} - spike 2 exercised the real binary against DuckDB and found several things
+that WILL bite. Also note the DMDL type vocabulary is exactly STRING, NUMBER, UNIT,
+START_TIMESTAMP, END_TIMESTAMP and nothing else.
+
+Argue this decision. Cover:
+- Obtaining the binary. It is a 174MB git-LFS object on the "binaries" branch of mattiasthalen/ADSS-fable-POC (DO NOT read anything else from that repo). Options: vendor it into this repo via LFS, fetch it at build time, require a local path, or something else. CI has to work. Decide, and say how the version is pinned and verified - there is a .sha256 beside it.
+- The mapping conventions. daana accepts several kinds of wrong mapping without complaint, so this is where the layer is kept honest. Derive a numbered rule set covering at minimum: which table a mapping may read; how the entity key is expressed; which ingestion_strategy and why (spike 2's FULL-duplicates finding is decisive and you must engage with it); what dates a version; what an attribute expression may and may not do; how a relationship id and its source_table are formed. Each rule needs a why and a severity.
+- Single-writer discipline. Spike 2 found that ANY other open connection to the .duckdb file - including read-only - makes "daana-cli execute" fail with a misleading error claiming the framework is not installed. Decide how the build enforces one writer, and how a human operator learns what that error really means.
+- What DAB objects DAR is allowed to read, given _focal and _idfr are empty on DuckDB.
+- Whether model.yaml entity ids should be UPPER_SNAKE_CASE (conventions.md says so) given spike 2 found DuckDB PRESERVES that casing in object names (view_CUSTOMER, not view_customer) while PostgreSQL folds it. Does the convention survive contact with this? Argue it either way but decide.
+
+concreteShape must give the model.yaml for a single ORDER entity, its mapping, workflow.yaml and
+connections.yaml, as they will actually be written in slice 1.`,
+  },
+  {
+    key: 'adr-0005-questions',
+    prompt: COMMON + `
+
+DECISION 0005 - A business question is the unit of delivery, and it carries the two queries that must agree on its answer.
+
+Read ${POSTS}/anatomy-of-business-question.txt and ${POSTS}/from-business-question-to-prototype-in-hours.txt
+IN FULL. They define what a well-formed question is (the Stage 0 to Stage 3 progression, the
+"[AGGREGATION] of [MEASURE] per [DIMENSION]" form, the W framework, the named failure modes) and
+the five-step methodology that produces one.
+
+Argue this decision. Cover:
+- The question file: its front matter and its sections. It must carry enough that the question is answerable without conversation - measure, dimensions, aggregation, time grain, persona, the W's, and the definitions it depends on. Design the front matter keys concretely.
+- DEFINITIONS. dab/model.yaml is the only place the data is explained, so a question must REFERENCE definitions rather than restate them. Design that reference mechanism, and say what proves every reference resolves. What happens when a question needs a term the model does not define?
+- THE TWO QUERIES. One computes the answer from das__staged, bypassing DAB and DAR entirely; the other from dar__uss. CI asserts they agree row for row. Work out honestly: what does this actually catch, what does it NOT catch, and what makes the das__staged query independent rather than a transcription of the other? Is there a risk the two are written to agree rather than to be right, and what reduces it?
+- How a question relates to a slice, a branch, a commit and a marimo page.
+- The lifecycle: a question can be validated, refined, or pivoted after the business sees the answer (step 5 of the methodology). How is that recorded? Does a question have a status?
+
+concreteShape must give the complete question file for slice 1 - "How many orders were placed per
+order month and ship country?" - with both queries written out against the schemas as this build
+will actually have them, in the house SQL style.`,
+  },
+]
+
+phase('Frame')
+
+const BINDING_SCHEMA = {
+  type: 'object',
+  properties: {
+    binds: {
+      type: 'array',
+      description: 'Rules and principles already in force that constrain slice 1, each with where it comes from and what it forbids',
+      items: {
+        type: 'object',
+        properties: {
+          rule: { type: 'string' },
+          source: { type: 'string' },
+          whatItForbidsHere: { type: 'string' },
+        },
+        required: ['rule', 'source', 'whatItForbidsHere'],
+      },
+    },
+    tensions: {
+      type: 'array',
+      description: 'Places where slice 1 as described would break, strain, or sit awkwardly against an existing rule. Be adversarial: look for them.',
+      items: {
+        type: 'object',
+        properties: {
+          rule: { type: 'string' },
+          howSliceOneStrainsIt: { type: 'string' },
+          resolution: { type: 'string', description: 'clarify the rule / register a deviation / change the design - and which you recommend' },
+        },
+        required: ['rule', 'howSliceOneStrainsIt', 'resolution'],
+      },
+    },
+    deviationReview: { type: 'string', description: 'D-0001 is open. Has its exit condition been met? Answer from the register itself.' },
+    gaps: { type: 'array', items: { type: 'string' }, description: 'Rules the conventions document should have but does not, that slice 1 will otherwise have to invent' },
+  },
+  required: ['binds', 'tensions', 'deviationReview', 'gaps'],
+}
+
+const bindings = agent(
+  COMMON + `
+
+YOUR JOB IS DIFFERENT FROM THE OTHERS. You are not drafting a decision. You are the audit that
+runs at the start of every slice: what is ALREADY in force, and where does this slice strain it?
+
+Read ${REPO}/docs/blueprint.md, ${REPO}/docs/conventions.md, ${REPO}/docs/deviations.md and
+${REPO}/docs/adr/0000-use-madr.md completely and carefully. Also read the repository as it stands
+(${REPO}, excluding .venv) so you know what exists.
+
+Then, for slice 1 as described above:
+1. List every principle and hard rule that binds it, with what it forbids CONCRETELY here.
+2. Be ADVERSARIAL about tensions. Look hard for places the slice as described would break or
+   strain a rule. Some candidates to test, and do not stop at these: conventions.md requires
+   UPPER_SNAKE_CASE DAB identifiers but DuckDB preserves that casing into object names; the
+   blueprint says DAS does capture-and-persist ONLY while the contract layer casts types; the
+   blueprint says DAR is generated and hand-edits are forbidden, yet generated SQL is to be
+   committed; blueprint S4 requires per-data-point provenance and it is worth checking whether
+   one json payload column per record actually satisfies that; conventions.md forbids business
+   vocabulary in test code while the acceptance test compares two business queries.
+3. Review D-0001 against its own exit condition.
+4. Name rules the conventions document is MISSING that slice 1 will otherwise invent silently.
+
+For each tension, say which of the three recourses in conventions.md section 9 applies, and
+recommend one. Do not soften a real tension into a non-issue, and do not manufacture one.`,
+  { label: 'binding-audit', phase: 'Frame', schema: BINDING_SCHEMA }
+)
+
+const drafts = parallel(DECISIONS.map(d => () =>
+  agent(d.prompt, { label: d.key, phase: 'Frame', schema: ADR_SCHEMA })
+))
+
+const [audit, adrs] = await Promise.all([bindings, drafts])
+
+log('framed ' + adrs.filter(Boolean).length + '/' + DECISIONS.length + ' decisions')
+
+return { audit, adrs: adrs.filter(Boolean) }
+ | completed |  ->  | keys: ['runId', 'timestamp', 'taskId', 'script', 'scriptPath', 'result', 'agentCount', 'logs', 'durationMs', 'summary', 'workflowName', 'status']
+wf_b6c87e84-2e3.json | export const meta = {
+  name: 'slice-03-verify',
+  description: 'Verify slice 3 from six independent angles, then adversarially filter every finding',
+  phases: [
+    { title: 'Verify', detail: 'six lenses, each blind to the others' },
+    { title: 'Filter', detail: 'each finding attacked by an agent trying to kill it' },
+  ],
+}
+
+const REPO = '/home/user/adss-2026-09-07'
+const BASE = '9b34378'
+
+const COMMON = `
+You are one lens of a verification pass over a completed slice of work. Six of you run, each
+blind to the others. Report findings; do not fix anything.
+
+HARD RULES
+- Do NOT write, edit or create any file in ${REPO}. Do not run git commands that change state
+  (no commit, checkout, reset, add, stash). Reading, and the project's own read-only commands,
+  are fine. Work in /tmp if you need to write anything.
+- You may run: uv run pytest, uv run adss check, uv run ruff check, uv run sqlfluff lint, and
+  read-only DuckDB queries against ${REPO}/warehouse.duckdb (open it read_only=True).
+- Ground every finding in something you actually read or ran. Quote the file and line, or the
+  command and its output. A finding you cannot ground is not a finding.
+- Severity honestly: "blocking" means the slice should not be accepted as it stands.
+  "worth fixing" means fix it but it does not block. "note" is an observation.
+- Report NOTHING rather than padding. An empty list from a lens that genuinely found nothing
+  is the most useful possible result. Do not manufacture findings to look thorough.
+
+THE REPOSITORY
+${REPO}. An analytical data storage system in three layers:
+- DAS (das__raw, das__staged): dlt lands whole source records as one JSON column into
+  hive-partitioned parquet; contracts generate typed views over it.
+- DAB (dab, dab__stage, dab__meta): a focal/ensemble model built by a vendored engine binary.
+  dab/model.yaml is the only place the data is explained.
+- DAR (dar__uss): a generated Unified Star Schema -- one event bridge, one peripheral per
+  entity, one calendar.
+- destinations/app.py: a marimo page reading dar__uss only.
+
+SLICE 3 is every commit after ${BASE}. It answers: "How many orders shipped per shipping
+month, and how many days did they take?" It adds: a SECOND EVENT on the SAME entity (ORDER is
+both placed and shipped), so a second stage in the bridge; the first case where an event DID
+NOT HAPPEN for some entities (21 of 830 orders never shipped, so they have no shipment row at
+all); a value DERIVED from two columns of one row (SHIP_LAG_DAYS, computed in the mapping); and
+a ratio that is deliberately NOT stored -- the answer returns two additive measures and the
+page divides them. Use: git -C ${REPO} log --oneline ${BASE}..HEAD and
+git -C ${REPO} diff ${BASE}..HEAD
+
+READ THESE FIRST: ${REPO}/docs/blueprint.md, ${REPO}/docs/conventions.md,
+${REPO}/docs/deviations.md, ${REPO}/docs/adr/*.md -- especially docs/adr/0006, which is this
+slice's decision and states exactly what the generator is supposed to do and why. They are
+the standard you judge against.
+`
+
+const FINDINGS = {
+  type: 'object',
+  properties: {
+    lens: { type: 'string' },
+    verdict: { type: 'string', enum: ['accept', 'accept-with-fixes', 'do-not-accept'] },
+    summary: { type: 'string', description: 'Two or three sentences. What you checked and concluded.' },
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          severity: { type: 'string', enum: ['blocking', 'worth fixing', 'note'] },
+          where: { type: 'string', description: 'file:line, or the command that showed it' },
+          finding: { type: 'string' },
+          evidence: { type: 'string', description: 'What you actually read or ran, quoted' },
+          fix: { type: 'string' },
+        },
+        required: ['severity', 'where', 'finding', 'evidence', 'fix'],
+      },
+    },
+    checkedAndFound: { type: 'array', items: { type: 'string' }, description: 'Things you specifically looked for and did NOT find wrong.' },
+  },
+  required: ['lens', 'verdict', 'summary', 'findings', 'checkedAndFound'],
+}
+
+const VERDICT = {
+  type: 'object',
+  properties: {
+    survives: { type: 'boolean' },
+    confidence: { type: 'number', description: '0-10. How sure you are the finding is real AND worth acting on.' },
+    reasoning: { type: 'string' },
+    correction: { type: 'string', description: 'If the finding is wrong or overstated, what is actually true.' },
+  },
+  required: ['survives', 'confidence', 'reasoning'],
+}
+
+const LENSES = [
+  {
+    key: 'layering',
+    prompt: COMMON + `
+LENS -- LAYERING. Does anything read across a boundary it should not?
+
+F1 analytical usage reads only DAR. F2 DAR reads only DAB. F3 DAB reads only DAS.
+
+1. The sharpest question this slice raises: SHIP_LAG_DAYS is ARITHMETIC performed in
+   dab/mappings/order-mapping.yaml. ADR 0007 argues that is where it belongs, and draws a line
+   -- arithmetic over one row is permitted; a CASE on values, a default, a filter or a bucket
+   is not. Read the ADR, then read the mapping, and say whether the line is coherent and
+   whether this expression is on the right side of it. Do not wave it through and do not
+   reflexively condemn it: argue it.
+2. Does the question's uss.sql read only dar__uss? Does staged.sql avoid dab and dar__uss?
+   Note that BOTH now compute a lag -- one with date_diff, one from the stored attribute. Is
+   the control query still independent of what it checks?
+3. Does destinations/app.py still touch nothing but dar__uss and the question files? It now
+   performs a division. Is arithmetic in a destination a layering problem or the thing
+   conventions section 2 explicitly asks for?
+4. checks/*.sql and src/adss/checks.py: same question as before about a conformance check
+   spanning layers.
+5. Does anything in DAS interpret rather than record?`,
+  },
+  {
+    key: 'conventions',
+    prompt: COMMON + `
+LENS -- CONVENTIONS. Does the slice obey the rules this repository set itself?
+
+1. Section 1.2: no source name anywhere in dab/model.yaml. The source calls things
+   CustomerId, CompanyName, Country, Freight. Does DAB echo any of them? Note FREIGHT_CHARGE
+   in particular: the source column is literally named Freight. Is that a violation, or a word
+   the business owns independently? Argue it, do not assume.
+2. Section 1.4, all seven mapping rules, against dab/mappings/*.yaml -- M6 for the first time.
+   Read src/adss/mapping.py check_relationships and decide whether it actually enforces what
+   the convention says, or something adjacent to it.
+3. Section 2: measure naming. Is FREIGHT_ORDERS_AMOUNT right? Check every clause of the rule.
+4. Section 5: NO data vocabulary anywhere under src/ or tests/. This is the one most likely to
+   be violated by this slice. Grep src/ and tests/ for: customer, freight, order, country,
+   ship, northwind, quarter. Distinguish a real violation from a machinery word that collides.
+   Check tests/fixtures/ -- are the new CHILD/PARENT/NEIGHBOUR fixtures genuinely neutral?
+5. Section 1.3: DAR naming; structural columns leading-underscore; reserved words quoted.
+6. Section 7: conventional commits, and an ADR BEFORE the code it decides. Check git log
+   ordering: was 0006 committed before the code that implements it? Note there is a second
+   ADR commit amending 0006 -- read both and judge whether that was handled honestly.
+7. Is anything in docs/ now stale? In particular: does docs/adr/0002 still assert things the
+   probe disproved, and does 0006 correct them adequately? Does the dab skill
+   (.claude/skills/dab/SKILL.md) still claim view_<E>_with_rel carries no relationship key?
+   That claim is now known to be false on a target side.`,
+  },
+  {
+    key: 'recomputation',
+    prompt: COMMON + `
+LENS -- INDEPENDENT RECOMPUTATION. Is the number right?
+
+The most valuable lens. Do NOT use any of this repository's code. Do not import adss. Do not
+read its SQL and re-run it. Write your own script in /tmp.
+
+1. Read the raw recorded payloads at ${REPO}/das/fixtures/orders/page-*.json and
+   ${REPO}/das/fixtures/customers/page-*.json. These are the response bodies as the source
+   returned them.
+2. In plain Python, compute: for every order with an OrderDate, the SUM of Freight grouped by
+   the calendar QUARTER of OrderDate (as YYYY-Qn) and by the COUNTRY OF THE CUSTOMER the order
+   names (join Orders.CustomerId to Customers.CustomerId yourself). Use Decimal, not float.
+3. Read what the system produced: open ${REPO}/warehouse.duckdb READ ONLY and run
+   ${REPO}/docs/questions/02-freight-per-customer-country-and-quarter/uss.sql
+4. Compare row for row. Report ANY difference: a missing row, an extra row, a different sum, a
+   different quarter boundary, a differently spelled country, a rounding difference.
+5. Verify the totals yourself: how many orders in the fixtures? How many customers? How many
+   orders whose CustomerId matches no customer? How many with a null Freight or a null
+   OrderDate? Does the page's headline (64,943 across 8 quarters and 21 customer countries)
+   match what YOU counted?
+6. Now the important one. The question file claims that in this recording, the customer's
+   country and the order's ShipCountry are EQUAL on every one of the 830 orders. VERIFY THAT
+   CLAIM YOURSELF from the fixtures. If it is false, that is a blocking finding, because the
+   question's honesty section is built on it. If it is true, say so with the number you got.
+7. Also check: does any order name a CustomerId that appears in more than one customer record
+   across the fixture pages? Could pagination have dropped or duplicated a customer?`,
+  },
+  {
+    key: 'second-stage',
+    prompt: COMMON + `
+LENS -- THE SECOND STAGE. Does a second event on one entity behave the way it is claimed to?
+
+1. THE ABSENT EVENT. ADR 0002 claims an entity an event never happened to has no row for it
+   "by construction rather than by a filter somebody has to remember". Verify that on the real
+   warehouse: 830 placed rows, 809 shipped rows, and exactly zero shipment rows for the 21
+   orders with no shipped date. Then break it -- remove the IS NOT NULL from the generator in a
+   /tmp copy and show what appears. What WOULD those rows have contained? Is the absence really
+   structural, or does it depend on the date being null in a way a different source might not
+   reproduce (an empty string, an epoch-zero date, a sentinel like 1900-01-01)?
+2. MEASURE OWNERSHIP ACROSS TWO STAGES. Each stage must emit its own measures and a typed NULL
+   for every other stage's. With two stages on ONE entity that is newly non-trivial. Verify in
+   the emitted SQL, then verify in the warehouse that summing a placed-stage measure over
+   shipped rows gives NULL and not zero -- and say what a reader who wrote
+   sum(coalesce(m, 0)) would get.
+3. THE DERIVED VALUE. SHIP_LAG_DAYS is computed once in the mapping and stored. Verify against
+   the raw fixtures that it equals the two dates it claims to, on all 809 shipped orders.
+   Then ask what nothing checks: is there any path by which the stored value could disagree
+   with the dates beside it? ADR 0007 records that no check pins this and says why. Is that
+   honest, or is it a gap that bites sooner than slice 6?
+4. THE RATIO. The answer deliberately stores no average. Confirm the two additive measures are
+   what the question returns, and that the division happens only in the page. Then check the
+   claim in the new "both answers hold only exact values" check -- can you make it fail? Write
+   a question whose answer carries a float, in /tmp, and show the check reporting it.
+5. Two events on one entity now share a peripheral and a key column. Confirm the bridge's
+   published contract APPENDED and moved nothing that existed, using bridge_columns and the
+   committed dar/uss/_bridge.sql from before and after.
+6. Does anything about the second stage make the FIRST question's answer change? Verify q01
+   and q02 return exactly what they returned before this slice.`,
+  },
+  {
+    key: 'tests',
+    prompt: COMMON + `
+LENS -- TEST QUALITY. Would these tests fail if the code were wrong?
+
+A test that has only ever been seen to pass is not evidence.
+
+1. Read every file in ${REPO}/tests/, especially the new test_relationship_rules.py and the
+   additions to test_uss.py. For each new test, name the change to src/ that would make it
+   fail. If you cannot, that is a finding.
+2. MUTATE AND SEE. Copy the repo to /tmp (cp -r excluding .venv, warehouse.duckdb, das/lake),
+   and run the suite there with ${REPO}/.venv/bin/python -m pytest. Break at least EIGHT
+   consequential behaviours one at a time and report whether the suite went red:
+   - change the pair join from LEFT JOIN to INNER JOIN in src/adss/uss.py
+   - change row_number() to rank() in the inherit CTE
+   - remove the row_st = 'Y' predicate
+   - change the as-of predicate from <= to >=
+   - remove the ver_tmstp tiebreak
+   - make entity_ids() return event entities only (dropping inheritance targets)
+   - make check_relationships skip the source_table byte-identity clause
+   - make key_shape() compare raw strings instead of shapes
+   - emit the inherited key column in a different position in one branch of the union
+   For each: red or green? A mutation that leaves the suite GREEN is the most important thing
+   you will find.
+3. Are the new fixtures neutral, and do they encode the same assumptions as the code under
+   test? tests/fixtures/dab/model.yaml now has three entities and two edges -- is that shape
+   actually exercised, or just present?
+4. Does anything in tests/ now depend on a built warehouse? Verify by running the suite in
+   your copy with no warehouse.duckdb present.
+5. The three generated data checks live in checks/, not tests/. Is the split from
+   conventions section 6 still real?`,
+  },
+  {
+    key: 'correctness',
+    prompt: COMMON + `
+LENS -- ORDINARY CODE REVIEW AND SECURITY. Bugs the other lenses are not looking for.
+
+Review git -C ${REPO} diff ${BASE}..HEAD as a senior reviewer would. You are looking for
+ordinary defects and for security problems, not for architecture.
+
+1. Correctness: off-by-one, wrong operator, a None that can reach something that cannot take
+   one, an exception path that swallows, a resource not closed, a dict ordering assumption, a
+   mutable default, a comparison that works only by luck of types (Decimal vs float in
+   particular -- the question compares query results row by row).
+2. src/adss/mapping.py: key_shape() and _without_names(). Attack them. What expression breaks
+   the literal-preserving loop? Nested quotes? An escaped quote inside a literal? An empty
+   expression? A cast with a parameterised type like DECIMAL(18, 4)? A unicode identifier?
+   Write cases in /tmp and run them against the real function.
+3. src/adss/checks.py relationship_checks(): is the emitted SQL correct for an edge whose
+   source and target are the SAME entity (a self-edge)? For two edges between the same pair?
+   Is _columns() safe if a view does not exist?
+4. destinations/app.py: does it break if a question list has fewer than two entries?
+   questions[1] is indexed unconditionally. What happens on a fresh clone with one question,
+   or if question directories are renamed and sort differently? Is that a real risk?
+5. src/adss/destination.py shoot(): the shot filename is now derived from question.id. What if
+   an id contains a path separator or is empty? Trace it.
+6. src/adss/cli.py: the orphan sweep in das unpack now unions in _generated_checks(). Is there
+   an ordering hazard -- can dar generate write a check that unpack then deletes, or vice
+   versa, in any command order (build, unpack alone, generate alone, unpack --check)?
+7. Security: is anything from outside the repository interpolated into SQL, a path, a
+   subprocess argument, or an environment variable? ADSS_QUESTION is now passed into a
+   subprocess env from question ids read out of files. Trace whether a hostile question id
+   could do anything. Check for shell=True, unsafe yaml, eval, path traversal.
+8. Anything in the diff that is dead, duplicated, or that contradicts a comment beside it.`,
+  },
+]
+
+phase('Verify')
+
+const lensResults = (await parallel(LENSES.map(lens => () =>
+  agent(lens.prompt, { label: lens.key, phase: 'Verify', schema: FINDINGS })
+))).filter(Boolean)
+
+phase('Filter')
+
+const claims = lensResults.flatMap(r =>
+  (r.findings || []).map(f => ({ ...f, lens: r.lens }))
+)
+
+const filtered = await parallel(claims.map(claim => () =>
+  agent(`You are an adversarial reviewer. Your job is to KILL this finding if it can be killed.
+
+A previous reviewer of ${REPO} reported:
+
+  LENS:     ${claim.lens}
+  SEVERITY: ${claim.severity}
+  WHERE:    ${claim.where}
+  FINDING:  ${claim.finding}
+  EVIDENCE: ${claim.evidence}
+  PROPOSED: ${claim.fix}
+
+Go and check it against the actual repository. Read the file. Run the command. Reproduce it or
+fail to.
+
+Kill it if: it is factually wrong; the behaviour it describes is deliberate and documented in
+docs/conventions.md, docs/blueprint.md or docs/adr/*.md; it is a style preference dressed as a
+defect; it is unreachable in practice; the severity is inflated; or the "fix" would break
+something else. Read docs/adr/0006 in particular -- several deliberate choices in this slice
+look like defects until you read why they were made.
+
+Keep it only if you personally reproduced the problem or verified the claim against the code.
+
+Do NOT modify anything in ${REPO}. Work in /tmp.
+
+Be honest in both directions: killing a real finding is as bad as keeping a fake one.`,
+    { label: `filter:${claim.lens}:${(claim.where || '').slice(0, 40)}`, phase: 'Filter', schema: VERDICT })
+      .then(v => ({ claim, verdict: v }))
+))
+
+const survived = filtered
+  .filter(Boolean)
+  .filter(x => x.verdict?.survives && (x.verdict.confidence ?? 0) >= 7)
+  .sort((a, b) => (b.verdict.confidence ?? 0) - (a.verdict.confidence ?? 0))
+
+return {
+  verdicts: lensResults.map(r => ({ lens: r.lens, verdict: r.verdict, summary: r.summary })),
+  covered: lensResults.flatMap(r => (r.checkedAndFound || []).map(c => `${r.lens}: ${c}`)),
+  raised: claims.length,
+  survived: survived.map(x => ({
+    severity: x.claim.severity,
+    lens: x.claim.lens,
+    where: x.claim.where,
+    finding: x.claim.finding,
+    evidence: x.claim.evidence,
+    fix: x.claim.fix,
+    confidence: x.verdict.confidence,
+    reasoning: x.verdict.reasoning,
+  })),
+  killed: filtered.filter(Boolean).filter(x => !x.verdict?.survives || (x.verdict.confidence ?? 0) < 7)
+    .map(x => `${x.claim.where}: ${x.claim.finding} -- ${x.verdict?.correction || x.verdict?.reasoning}`),
+}
+ | completed |  ->  | keys: ['runId', 'timestamp', 'taskId', 'script', 'scriptPath', 'result', 'agentCount', 'logs', 'durationMs', 'summary', 'workflowName', 'status']

@@ -3,9 +3,14 @@
 This branch carries the raw logs of the Claude Code session that built this repository.
 
 It is an orphan branch, deliberately. It shares no commit history with `main` or with any
-of the slice branches, so these 25 MB of transcripts never appear in a code diff and never
+of the slice branches, so these 148 MB of transcripts never appear in a code diff and never
 get dragged into a slice's pull request. Nothing here is part of the codebase. Nothing here
 is imported, executed, or referenced by the code on the other branches.
+
+There are two snapshots on this branch. The first, `3772779`, was taken at 22:33 UTC on
+2026-09-07, when slice 1 was delivered and slice 2 was being framed. This one extends it. The
+first was not rewritten: what an earlier snapshot said, and what it chose to leave out, is
+itself part of the record.
 
 ## What the session was
 
@@ -23,11 +28,22 @@ It was run under the user's own `grill-to-build` skill, which sets the shape of 
 - red and green in a single conventional commit;
 - code review and security review before the user sees the work.
 
-The session opened at 14:50 UTC on 2026-09-07 and this snapshot was taken at 22:33 UTC the
-same day. In that time it read the blog, exercised daana-cli end to end, ran four spikes,
-scaffolded the repository, and built slice 1 (orders per month and ship country) through to
-a screenshotted marimo page. Sixteen commits. Slice 2 (freight per customer country and
-quarter) was in progress when the snapshot was taken.
+The session opened at 14:50 UTC on 2026-09-07 and this snapshot was taken at 07:23 UTC on
+2026-09-08 — sixteen and a half hours. In that time it read the blog, exercised daana-cli end
+to end, ran four spikes, scaffolded the repository, and built four slices, each stacked on the
+last as a pull request:
+
+| slice | question | what it widened | commits | PR |
+| ----- | -------- | --------------- | ------: | -- |
+| 1 | orders per month and destination country | the whole spine, one entity, one event | 15 | [#1](https://github.com/mattiasthalen/adss-2026-09-07/pull/1) |
+| 2 | freight per customer country and order quarter | a second entity, the first relationship, the first inherited key, the first sum measure | 11 | [#2](https://github.com/mattiasthalen/adss-2026-09-07/pull/2) |
+| 3 | shipped orders and days to ship | a second event on one entity, and the first number the source does not contain | 6 | [#3](https://github.com/mattiasthalen/adss-2026-09-07/pull/3) |
+| 4 | revenue per order month | a third entity at a **finer** grain, and the fan-out proof the star schema had been resting on since slice 1 | 29 | [#4](https://github.com/mattiasthalen/adss-2026-09-07/pull/4) |
+
+Sixty-two commits on the stack, the scaffold included. All four pull requests are open and green —
+both CI jobs, `gate` and `build and check`, pass on each. Slice 5 (revenue per product category
+and quarter, a two-hop chain from line to product to category) was at its framing step when the
+snapshot was taken; its branch carries no commits of its own yet.
 
 ## Why the logs are here
 
@@ -43,7 +59,7 @@ ones already known at the bottom of this file.
 ```
 README.md                     this file
 session/
-  transcript.jsonl            the main session transcript (1,965 events, 6.9 MB)
+  transcript.jsonl            the main session transcript (5,375 events, 18 MB)
   subagents/                  one transcript per subagent
     agent-<id>.jsonl            transcript
     agent-<id>.meta.json        agent type, description, spawn depth
@@ -59,25 +75,39 @@ session/
 ```
 
 The main transcript is the spine: the interview, the plan, the user's messages, the
-orchestration, and every one of the sixteen commits, which were all issued from the main
-session rather than from a subagent. The subagents did the reading, the spikes, the framing of
-each slice and the verification, and there is roughly three times as much tool work in their
-transcripts as in the main one, so that is where the reasoning behind a given change usually
-is.
+orchestration, and every one of the commits, which were all issued from the main session or
+from a workflow's own agents rather than typed by anybody. The subagents did the reading, the
+spikes, the framing of each slice, the verification and the security reviews. There are 149
+subagent transcripts against one main one, and roughly three times as much of them by volume,
+so that is where the reasoning behind a given change usually is.
 
-Six workflow runs, in the order they happened:
+Twelve workflow runs, in the order they happened:
 
-| run id            | script name                | what it did                                          |
-| ----------------- | -------------------------- | ---------------------------------------------------- |
-| `wf_44ca6cb0-758` | `read-daana-blog`          | one agent per remaining blog post, then a synthesis   |
-| `wf_91ac952a-fb2` | `adss-spikes`              | four time-boxed spikes, thrown away after            |
-| `wf_ad360891-255` | `slice-01-frame`           | framed and built slice 1                              |
-| `wf_8c7d50e0-55b` | `slice-01-verify`          | four verification lenses over slice 1                 |
-| `wf_98e86dff-34e` | `slice-01-security-review` | the security review, run late (see below)             |
-| `wf_50e62224-d2b` | `slice-02-frame`           | framed slice 2                                        |
+| run id            | script name                | what it did                                              |
+| ----------------- | -------------------------- | -------------------------------------------------------- |
+| `wf_44ca6cb0-758` | `read-daana-blog`          | one agent per remaining blog post, then a synthesis        |
+| `wf_91ac952a-fb2` | `adss-spikes`              | four time-boxed spikes, thrown away after                  |
+| `wf_ad360891-255` | `slice-01-frame`           | framed and built slice 1                                   |
+| `wf_8c7d50e0-55b` | `slice-01-verify`          | four verification lenses over slice 1                      |
+| `wf_98e86dff-34e` | `slice-01-security-review` | the security review, run late (see below)                  |
+| `wf_50e62224-d2b` | `slice-02-frame`           | framed slice 2                                             |
+| `wf_1a633c3a-2c1` | `slice-02-verify`          | six lenses, then every finding attacked; refused the slice |
+| `wf_a6eb8a07-e52` | `slice-03-frame`           | framed slice 3                                             |
+| `wf_b6c87e84-2e3` | `slice-03-verify`          | six lenses over slice 3, 39 agents; refused the slice      |
+| `wf_a570cc64-407` | `slice-04-frame`           | framed slice 4                                             |
+| `wf_5638b198-37a` | `verify-slice-04`          | six lenses over slice 4, 30 agents; 22 findings confirmed  |
+| `wf_d4e0390c-acf` | `frame-slice-05`           | framing slice 5; still running at the snapshot             |
 
-Four of the six have a `wf_<run-id>.json` run record. The last two do not: they were still
-running when the snapshot was taken, and the record is written when a run finishes.
+Two things about that table. Only eleven of the twelve have a `wf_<run-id>.json` run record —
+`wf_d4e0390c-acf` was still running, and the record is written when a run finishes. And only
+eight have a standalone script under `workflows/scripts/`; the other four
+(`slice-02-verify`, `slice-03-frame`, `slice-03-verify`, `slice-04-frame`) have their script
+text embedded verbatim inside their own run record, so nothing is lost — it is just in a
+different file than you would expect.
+
+Slice 4's security review is not in that table. It ran as a plain subagent rather than a
+workflow: `session/subagents/agent-a5d211a7031ad4522.jsonl`, described in its `.meta.json` as
+"Security review of slice 4", started one minute after the verification workflow.
 
 ## Reading a `.jsonl` transcript
 
@@ -99,7 +129,7 @@ jq -r 'select(.type == "queue-operation" and .operation == "enqueue")
        | "\(.timestamp)\n\(.content)\n"' session/transcript.jsonl
 ```
 
-That returns five messages, which is all the free text the user sent in seven and a half
+That returns ten messages, which is all the free text the user sent in sixteen and a half
 hours. The rest of the user's input came through structured prompts, and it is worth reading
 too — the whole interview lives in the results of `AskUserQuestion` calls, as a map from the
 question asked to the option chosen:
@@ -110,7 +140,8 @@ jq -r 'select((.toolUseResult | type) == "object" and .toolUseResult.answers != 
    session/transcript.jsonl
 ```
 
-The plan and its approval are in the `ExitPlanMode` calls and their results, in the same file.
+That returns twenty-six answers. The plan and its approval are in the `ExitPlanMode` calls and
+their results, in the same file.
 
 **Every commit made.** Commits were issued as `git -c user.name=... commit -q -F - <<'MSG'`,
 so the literal string `git commit` will not find them, and most were made by subagents rather
@@ -121,61 +152,215 @@ find session -name '*.jsonl' -exec jq -r '
   select(.type == "assistant") | .message.content[]?
   | select(.type == "tool_use" and .name == "Bash")
   | .input.command | select(test("git .*commit"))' {} + \
-  | grep -E "^(feat|fix|docs|chore)\("
+  | grep -E "^(feat|fix|docs|chore|test)[(:]" | sort -u
 ```
 
-That returns the sixteen conventional-commit subject lines in the order they were written.
-Drop the `grep` to see the full commands and the commit bodies.
+That returns sixty-two conventional-commit subject lines: sixty-one of the sixty-two on the
+slice stack, plus this branch's own snapshot commit. Drop the `grep` to see the full commands
+and the commit bodies. The one it misses is `docs(questions): record the answer as it was
+accepted`, the single commit written with an inline `-m "..."` rather than a heredoc, so its
+subject is not at the start of a line. A recipe that greps for a shape misses the thing that
+did not take that shape, which is a small instance of the theme running through the section
+below.
 
 ## Snapshot caveat
 
 These files were copied while the session was still running. The tail of every transcript is
-whatever had been written at 22:33 UTC on 2026-09-07, and the session continued afterwards.
-The last events in `session/transcript.jsonl` are the ones that produced this branch. Nothing
-here is a complete record of the session's end, and the two unfinished workflow runs have no
-run record for the reason given above.
+whatever had been written at 07:23 UTC on 2026-09-08, and the session continued afterwards.
+The last events in `session/transcript.jsonl` are the ones that produced this commit. Nothing
+here is a complete record of the session's end, and the one unfinished workflow run has no run
+record for the reason given above.
 
-One file from `tool-results/` was left out: `bs5ovt1mz.txt`, a spilled tool result that was
-still being written at the moment of the snapshot and had reached exactly 64 MiB, the cap at
-which such a result is truncated. It began as a fixture manifest and ran on into the raw bytes
-of a compiled binary. It is not readable text, it is not greppable, and at 64 MiB it was larger
-than everything else on this branch put together. Every other file in those four directories is
-here, uncompressed and unmodified.
+Unlike the first snapshot, this one holds every file in all four source directories, with
+nothing omitted. That includes `tool-results/bs5ovt1mz.txt`, which the first snapshot left out:
+a spilled tool result that reached exactly 64 MiB, the cap at which such a result is truncated,
+and then stopped. It begins as a fixture manifest and runs on into the raw bytes of a compiled
+binary. It is not readable text, it is not greppable, and on its own it is larger than
+everything else on this branch put together. It is here because a snapshot that says "these
+four directories, uncompressed and unmodified" and then quietly holds back the largest file in
+them is making the reader trust a claim it does not meet. It is under GitHub's 100 MB hard
+limit and over its 50 MB advisory one, so `git push` warns about it. Everything else on this
+branch is text.
 
 ## Known process failures
 
-The point of the branch. These are the ones already identified, all of them checkable against
+The point of the branch. These are the ones identified so far, all of them checkable against
 the commits on the slice branches and against the transcripts here.
+
+### Assertions that could not fail
+
+The single largest category, and it recurred in every slice that was verified.
+
+**It is what slice 3's verification was mostly about.** Three mutations to the version CTE —
+the SQL that picks which version of an entity an event is measured on — left the whole suite
+green: `row_number` to `rank`, `DESC` to `ASC`, and adding the timestamp to the partition,
+which makes every retained version a bridge row. The three assertions guarding it were
+whole-file substrings that the *inherit* CTE also satisfies, so they were about a different
+window than the one they named. Measure ownership was pinned the same way. Two ADR Confirmation
+sections named tests that could not fail for the reason given: one claimed that the same
+measure id on two different entities is still accepted, but no fixture contained that case, so
+keying the refusal on the id alone — exactly what the record says it must not do — left the
+suite green; the other compared the declarations with themselves. All of it in `f363004`.
+
+**Then slice 4 found three more Confirmation sections in the same state**, and one of them
+named a check that did not exist at all: nothing in `src/adss/checks.py` emitted it and no such
+file was in `checks/`. That one was written rather than withdrawn (`14677a6`), which is the
+right call — the sentence is now true — but it had stood as a load-bearing claim for two and a
+half hours.
+
+**A rule against exactly this was added to the skill mid-slice, and did not stop it.**
+`ca3f329`, at 04:57 on 2026-09-08, added to `.claude/skills/adss/SKILL.md`: "Run the mutation
+before the ADR's Confirmation section claims one. A confirmation that names a test which could
+not fail for the reason given is worse than none, because it stops anybody looking again."
+After that:
+
+- A guard test written around 05:30 and committed as `25283f1` asserted only that the fixture
+  loaded. Every measure on the event it covered was a `count`, and a count names no attribute,
+  so the guard it was written for was never entered. The security review ran the original
+  mutation and all thirty-four tests in the file passed.
+- ADR 0013, written at 06:44 to record the fix for the worst bug in the slice, shipped a data
+  check that said `extracted_on <> cast(extracted_at AS DATE)`. On the rows it exists to find
+  the column is null, and a null is neither equal nor unequal to anything, so it counted
+  neither side of them. `IS DISTINCT FROM` seven minutes later, in `7057850`.
+
+**And the account of it in the pull request is itself wrong.** PR #4's body, and the message
+that reported the slice to the user, both say that one of the three Confirmation sections was
+written *after* that rule landed, and name ADR 0009. It was not: ADR 0009's Confirmation was
+written at 04:00:46 in `c40557d`, fifty-seven minutes *before* the rule. The claim is false in
+the same paragraph that reports a class of false claims. The two genuine post-rule instances
+are the ones above, and neither is the one named. This is worth more attention than the
+original defect: the agent is capable of noticing this failure mode, writing a rule against it,
+and then mis-describing its own instance of it while summarising — which is the failure mode
+one level up, and no review in the process looks at the pull request body.
+
+### Local green for reasons that were not the code
+
+Three, and two of them are in slice 4.
+
+**A gitignored data lake that had accumulated across runs.** `extracted_at` was derived from
+the loader's id, and there is one loader per contract, so a single `das ingest` produced three
+clocks a fraction of a second apart in `sorted()` order — `order_details` always before
+`orders`. Slice 4 is the first slice that reads one entity's history *as of another entity's
+observation*, so no ORDER version preceded any ORDER_LINE row, all 2,155 lines lost their date,
+and ADR 0009's own rule removed every one of them from the bridge. A clean clone built an empty
+stage and q04 returned nothing against 23 months of source data. It was green in the working
+tree because `das/lake/` had sixteen `orders` loads, twelve of them older than the earliest
+`order_details` load, and one surviving ORDER version from the previous day satisfied the
+comparison. In the commit's own words: *a lake that accumulates across runs is a machine for
+turning a broken build green* (`1e885a2`, `7057850`).
+
+**A warm ruff cache.** The gate was green locally and red in CI on an import ordering that
+resolves differently depending on whether a name is a local module. Deleting the cache
+reproduced CI exactly (`362d25b`). That same commit is the first time this branch proved the
+whole clean-clone build in CI rather than in a scratch copy — which is to say the clean-clone
+guarantee arrived at the very end of slice 4, not at the start of slice 1.
+
+**A check that could not run for three slices.** Slice 1's composite-key check emitted grouping
+parentheses; the formatter removed them as redundant; the emitted string and the executed
+string diverged, and the check stopped running while every local gate stayed green. An
+unrunnable check aborts the whole run before a finding is printed, so it surfaces as a binder
+error in CI rather than as a finding anybody can read (`b9af81f`).
+
+### A security fix that broke an hour after it landed
+
+ADR 0012 decides that an answer query may aggregate `_measure__` columns and nothing else,
+because the bridge protects a measure column and protects nothing on the peripheral beside it.
+The refusal that enforced it read the whole dotted reference, so a table aliased `_measure__x`
+laundered its own attributes straight through: `sum(_measure__x.freight_charge)` was accepted —
+the exact aggregate the record exists to refuse, wearing a name the author chose for himself.
+An alias is the one part of a reference an author picks freely, and what the bridge protects is
+a column, so only the last part decides now (`f5b60dc`). One hole is left open and measured
+rather than assumed, and the record says so: a column aliased to a `_measure__` name inside a
+subquery still gets through.
+
+Two things about the same rule, from the same review round. It was refusing `row_number()` and
+`rank()` as aggregates, because DuckDB lists them as such — so "rank the months" was blocked
+with a stated reason that was not true (`46668a9`). And the refusals were reachable from pytest
+and from nowhere else, so `adss check` read a question's SQL and executed it having refused
+nothing, while ADR 0012's Confirmation said the rule "is enforced rather than published"
+(`0f86824`).
+
+### Where the process earned its cost
+
+Not all of this section is failure, and the balance matters for judging the skill.
+
+Slice 4's verification ran six independent lenses — layering, conventions, independent
+recomputation, test quality, ordinary correctness, honesty of the record — each blind to the
+others, and then every finding was attacked by a separate agent trying to kill it. Twenty-two
+survived. A security review running alongside found seven more. The blocking one — the slice
+does not build from a clean clone — came from the recomputation lens, and it came from
+rebuilding the warehouse in a clean tree and running the queries, not from reading anything.
+No amount of reading would have found it, because the code was correct-looking and the data was
+wrong.
+
+The two earlier verifications refused their slices outright. Slice 2's refused on test quality:
+the test named for the no-fan-out property never looked at the window's `PARTITION BY`, and the
+three generated data checks had no tests at all. Slice 3's refused on layering, on the sharpest
+possible grounds — the agent's own fix for a false refusal in mapping rule M5 had opened a real
+hole in M5 an hour earlier, making a reach into another table invisible to the checker
+(`26d8af3`).
+
+### The three from the first snapshot, unchanged
 
 **Five architecture decision records were batched into one commit.** Commit `e81a9af`,
 `docs(adr): decide the five records slice 1 rests on`, adds `docs/adr/0001` through `0005` in a
-single commit. The skill says a MADR is written at the decision and never batched. The decisions
-were taken at different moments during the framing of slice 1 and written up together
-afterwards, which is exactly what the rule exists to prevent. They did at least land before the
-code they justify — the first feature commit is six minutes later — so the sequencing survived
-and only the granularity was lost. The record now shows five decisions arriving simultaneously,
-which is not what happened, and the reasoning in each was reconstructed rather than captured.
+single commit. The skill says a MADR is written at the decision and never batched. They did
+land before the code they justify — the first feature commit is six minutes later — so the
+sequencing survived and only the granularity was lost. The record now shows five decisions
+arriving simultaneously, which is not what happened.
 
-**The security review was not run when the skill requires it.** The skill puts code review and
-security review before the user sees the work. The code review did run in place, and it found a
-real bug: commit `3a6ab5b`, `fix(repo): act on the code review, which found a bug that only
-bites elsewhere`. The security review did not. Its workflow script,
-`session/workflows/scripts/slice-01-security-review-wf_98e86dff-34e.js`, was not written until
-22:23 — after slice 1 had been presented to the user, after the last slice-1 commits at 22:15
-and 22:17, and a minute after the slice 2 framing workflow had already been authored. It was
-started retroactively, as a thing remembered rather than a gate passed.
+**The security review was not run when the skill requires it.** The code review did run in
+place for slice 1 and found a real bug (`3a6ab5b`). The security review did not: its workflow
+script was not written until 22:23, after slice 1 had been presented to the user and a minute
+after the slice 2 framing workflow had already been authored. It was started retroactively, as
+a thing remembered rather than a gate passed. Worth adding now that this was flagged during
+planning and then happened anyway — at 19:30 the agent wrote, of leaving code and security
+review out of the verification design, "that was an omission, not a decision", and then built
+the slice without them.
 
 **The first slice's build was not idempotent, and no review caught it.** `adss build` worked on
-a clean checkout and failed on the second run. It surfaced only when slice 2 reran it, and was
-fixed in commit `058faa6`, `fix(dab): let the build be run twice, which is the only way it gets
-run`. Neither the slice-01 verification workflow (`wf_8c7d50e0-55b`, four lenses over the slice)
-nor the code review noticed. This is the most useful of the three, because it is a gap in what
-the reviews look for rather than a step that was skipped: they established that the build worked,
-not that it could be repeated, and running a build twice is the normal case, not the edge case.
+a clean checkout and failed on the second run. It surfaced only when slice 2 reran it
+(`058faa6`). Neither the slice-01 verification nor the code review noticed: they established
+that the build worked, not that it could be repeated.
 
-For balance, the process did catch things on its own. The verification workflow found two
-problems worth fixing (`3d2fa7e`) and the code review found one (`3a6ab5b`). The failures above
-are the places where it did not.
+### Smaller ones, in the same families
+
+**An ADR landed in the same commit as the code it decides.** ADR 0008, in slice 3 (`3c2dd25`),
+typed `docs`. Same rule as the batching above, broken a different way. It is called out in PR
+#3 by the agent itself rather than found by a review, which is better than nothing and is not
+a review.
+
+**A check that silently halved itself.** The generator iterates a mapping's tables and keyed
+composed-key checks on the entity, so an entity loaded from two composite-key tables kept only
+the last check — and `adss check` printed PASS for the one that survived while saying nothing
+about the one that had gone (`97cbdb1`). Not hypothetical here: slice 6 assembles one customer
+from two systems.
+
+**A check that agrees with a broken generator.** `dar generate --check` compares the committed
+SQL against the same generator that produced it, so it cannot notice a weakened generator. It
+was found in slice 2, recorded, and worked around by testing each generated check against a
+scratch warehouse built to fail it.
+
+**The delivered artefact was not reproducible.** Slice 1's `answer.png` changed during slice 3
+with no change to its answer, because the heatmap ordered countries by a sort with ties, which
+is not stable. The picture a slice was accepted on moved between runs from identical data, and
+a reviewer diffing the PNG could not tell a re-sorted tie from a new number. Ties break by name
+now (`f363004`).
+
+**A refusal whose stated reason was wrong.** `extract(DAY FROM b - a)` was refused by the M5
+checker with a message saying the expression reached beyond its row. A refusal that names the
+wrong reason sends the reader looking for a problem that is not there; slice 3 recorded it
+rather than leaving it.
+
+**Security review coverage is uneven across the four slices, and the announcement did not
+match the run.** Slice 1's ran late. Slices 2 and 3 had none at all — their six lenses are
+layering, conventions, recomputation, tests, correctness and one slice-specific lens, and no
+`/security-review` was invoked in either — yet at 23:05 on 2026-09-07 the agent told the user
+"now the reviews the skill requires before you see this — four lenses, plus code and security
+review" and then launched a workflow with no security lens in it. Slice 4 did get a real one,
+as a subagent, and it produced seven findings including the alias bypass above. The pattern is
+that the security gate is the one that gets dropped when the agent is moving fast, and that
+what it reports having done is not reliably what it did.
 
 ## Privacy
 
