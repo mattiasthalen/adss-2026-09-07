@@ -19,8 +19,15 @@ from adss.mapping import Mapping, Table
 from adss.model import Model, read_model
 from adss.names import Relation, Schema, crossing
 from adss.project import Project
-from adss.question import Status, read_questions, without_comments
-from adss.uss import BRIDGE, Uss, bridge_columns, read_uss
+from adss.question import (
+    Question,
+    QuestionError,
+    Status,
+    check_question,
+    read_questions,
+    without_comments,
+)
+from adss.uss import BRIDGE, Uss, bridge_columns, definitions, read_uss
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +63,21 @@ def _zero(connection: duckdb.DuckDBPyConnection, sql: str) -> tuple[bool, str]:
     rows = _rows(connection, sql)
     value = rows[0][0] if rows and rows[0] else None
     return value == 0, f"{value}"
+
+
+def answerable_finding(question: Question, defined: dict[str, str]) -> Finding:
+    """Whether this question is answerable as written, as a finding rather than a traceback.
+
+    The static refusals -- the flow rules, the definitions, ADR 0012's aggregate rule -- were
+    reachable from the test suite alone, so `adss check` executed a question's SQL that nothing
+    had refused. A question can be added to a working tree without anybody running pytest; the
+    build is where it is used, so the build is where it is refused.
+    """
+    try:
+        check_question(question, defined)
+    except QuestionError as refused:
+        return Finding(f"{question.id}: answerable as written", False, str(refused))
+    return Finding(f"{question.id}: answerable as written", True, "nothing to refuse")
 
 
 def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[Finding]:
@@ -162,6 +184,7 @@ def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[
             )
         )
 
+    defined = definitions(model, uss)
     for question in read_questions(project.questions):
         if question.status in (Status.DRAFT, Status.SUPERSEDED):
             findings.append(
@@ -172,6 +195,10 @@ def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[
                     "running either would fail the build on something nobody is answering",
                 )
             )
+            continue
+        answerable = answerable_finding(question, defined)
+        findings.append(answerable)
+        if not answerable.passed:
             continue
         control = _rows(connection, question.staged_sql)
         answer = _rows(connection, question.uss_sql)
@@ -376,7 +403,7 @@ def measure_checks(uss: Uss) -> dict[str, str]:
 
     It counts leaks only. A measure that is null everywhere would pass here, and is not this
     check's to catch: a bridge that lost its rows disagrees with the source, which is what
-    `adss questions check` compares on every build.
+    `adss check` compares on every build.
     """
     return {
         f"{column.removeprefix('_')}__isolated": (

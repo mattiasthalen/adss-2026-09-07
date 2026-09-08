@@ -286,3 +286,30 @@ def test_an_answer_query_nested_beyond_what_python_can_walk_is_refused_not_crash
     nested = "abs(" * 700 + "1" + ")" * 700
     directory = variant(tmp_path, "01-deep", uss_sql=answering(f"{nested} AS month_label"))
     check_question(read_question(directory), neutral_definitions())
+
+
+def test_a_question_the_build_would_refuse_is_a_finding_and_not_a_traceback(tmp_path: Path):
+    """`adss check` runs the refusals now, so one has to arrive as a finding like any other.
+
+    The refusals were reachable from this suite alone, which meant `adss check` executed SQL
+    nothing had refused -- and a question can be added to a working tree without pytest running.
+    """
+    from adss.checks import answerable_finding
+
+    good = answerable_finding(read_question(NEUTRAL), neutral_definitions())
+    assert good.passed and good.check == "qn1: answerable as written"
+
+    directory = variant(tmp_path, "01-trapped-again", uss_sql=answering("sum(p.parent_size) AS n"))
+    bad = answerable_finding(read_question(directory), neutral_definitions())
+    assert not bad.passed
+    assert "parent_size" in bad.detail, "the finding says what was wrong, not that something was"
+
+
+def test_every_question_in_this_repository_is_answerable_at_build_time_too():
+    """The same assertion the build makes, so a regression fails here rather than in CI."""
+    from adss.checks import answerable_finding
+
+    defined = project_definitions()
+    for question in read_questions(PROJECT.questions):
+        finding = answerable_finding(question, defined)
+        assert finding.passed, finding.detail
