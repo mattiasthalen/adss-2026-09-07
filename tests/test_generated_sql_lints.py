@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from adss.checks import measure_checks, relationship_checks
+from adss.checks import inherited_date_checks, measure_checks, relationship_checks
 from adss.contract import read_contract
 from adss.das import clock_check_sql, current_view_sql, key_check_sql, raw_view_sql, staged_view_sql
 from adss.model import read_model
@@ -41,6 +41,12 @@ def emitters() -> dict[str, str]:
         "calendar": calendar_sql(),
         **{f"relationship_{n}": s for n, s in relationship_checks(model).items()},
         **{f"measure_{n}": s for n, s in measure_checks(uss).items()},
+        **{
+            f"inherited_{n}": s
+            for n, s in inherited_date_checks(
+                model, read_uss(dab / "inherited_date.yaml", model)
+            ).items()
+        },
     }
     return {name: formatted(sql, ROOT / ".sqlfluff") for name, sql in laid_out.items()}
 
