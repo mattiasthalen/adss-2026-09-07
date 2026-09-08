@@ -62,7 +62,10 @@ uv run pre-commit run --all-files
 1. **Frame** — read the deviations register and the conventions. Name the one decision this
    slice forces.
 2. **Decide** — write the ADR. Before the code, always: writing the alternatives out while
-   they are still live regularly changes the answer, which is the whole return.
+   they are still live regularly changes the answer, which is the whole return. **Open the pull
+   request as a draft at the slice's first commit**, not when the slice lands: the stack is the
+   thing a reviewer needs to see, and a stack that only appears at the end is one nobody could
+   have steered.
 3. **Build** — machinery is test-first, the failing test and the code in one commit. Data
    checks land in the commit that makes them true; TDD is for functions, not for a `SELECT`.
    **Run the mutation before the ADR's Confirmation section claims one.** A confirmation that
