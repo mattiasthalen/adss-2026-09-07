@@ -41,7 +41,7 @@ def raw_view_sql(contract: Contract, lake: Path) -> str:
     """
     relation = Relation(Schema.DAS_RAW, contract.table)
     glob = lake / contract.table / "extracted_on=*" / "*.parquet"
-    landed = ["payload", *PROVENANCE, "extracted_on", "_dlt_load_id", "_dlt_id"]
+    landed = ["payload", *PROVENANCE, "extracted_at", "extracted_on", "_dlt_load_id", "_dlt_id"]
     selected = ",\n".join(f"    landed.{name} AS {name}" for name in landed)
     return (
         f"{_GENERATED.format(table=contract.table)}\n"
@@ -68,7 +68,7 @@ def staged_view_sql(contract: Contract) -> str:
         for column in contract.columns
     ]
     lines += [f"    landed.{name} AS {name}" for name in PROVENANCE]
-    lines.append("    to_timestamp(cast(landed._dlt_load_id AS DOUBLE)) AS extracted_at")
+    lines.append("    landed.extracted_at AS extracted_at")
     lines.append("    landed.extracted_on AS extracted_on")
     selected = ",\n".join(lines)
     return (
@@ -118,6 +118,11 @@ def clock_check_sql(contract: Contract) -> str:
     loader's UTC date -- and the check would then fail on every machine east or west of
     Greenwich for a warehouse that is perfectly correct.
 
+    `IS DISTINCT FROM` rather than `<>`, because a null is not equal to anything and is not
+    unequal to anything either: with `<>` a row whose clock is missing satisfied neither side
+    and was counted by neither, so the check passed on exactly the rows it exists to find. A
+    load that predates ADR 0013's landed column is that row.
+
     Emitted per contract rather than written in Python: the machinery must work for any
     source, so it may not name one, and SQL in a string is SQL the linter never sees.
     """
@@ -126,7 +131,8 @@ def clock_check_sql(contract: Contract) -> str:
         f"{_GENERATED.format(table=contract.table)}\n"
         f"SELECT count(*) AS disagreements\n"
         f"FROM {relation.sql} AS staged\n"
-        f"WHERE staged.extracted_on <> cast(timezone('UTC', staged.extracted_at) AS DATE);\n"
+        f"WHERE staged.extracted_on IS DISTINCT FROM "
+        f"cast(timezone('UTC', staged.extracted_at) AS DATE);\n"
     )
 
 

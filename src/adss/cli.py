@@ -39,7 +39,7 @@ from adss.das import (
 )
 from adss.destination import shoot
 from adss.engine import Engine, is_installed, metadata_schema
-from adss.landing import land
+from adss.landing import land, observation
 from adss.mapping import read_mapping
 from adss.model import read_model
 from adss.names import Schema
@@ -132,10 +132,15 @@ def das_ingest(
 ) -> None:
     """Append one load of every contract to the lake."""
     project = Project.discover()
+    # Taken once, before anything is fetched. One run of this command is one observation of
+    # the source, so every contract it lands carries the same time -- otherwise an as-of join
+    # between two entities depends on the order their file names happen to sort in. ADR 0013.
+    observed_at = observation()
+    typer.echo(f"observing at {observed_at.isoformat()}")
     for path in project.contract_paths():
         declared = read_contract(path)
         fetch = over_http if live else replay(project.fixtures / declared.table)
-        loads = land(declared, fetch, project.lake, project.pipelines)
+        loads = land(declared, fetch, project.lake, project.pipelines, observed_at)
         typer.echo(f"landed {declared.table}: {', '.join(loads)}")
 
 

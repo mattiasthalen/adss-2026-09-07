@@ -13,7 +13,8 @@ import duckdb
 import pytest
 
 from adss.contract import Contract, read_contract
-from adss.das import current_view_sql, raw_view_sql, staged_view_sql
+from adss.das import clock_check_sql, current_view_sql, raw_view_sql, staged_view_sql
+from adss.question import without_comments
 
 FIXTURES = Path(__file__).parent / "fixtures" / "contracts"
 
@@ -47,22 +48,35 @@ LANDED_COLUMNS = (
     "source_system",
     "source_entity",
     "source_url",
+    "extracted_at",
     "_dlt_load_id",
     "_dlt_id",
 )
 
 
 def land(
-    lake: Path, load_id: str, records: list[dict[str, object]], extra: str | None = None
+    lake: Path,
+    load_id: str,
+    records: list[dict[str, object]],
+    extra: str | None = None,
+    clocked: bool = True,
 ) -> None:
-    """Write one load, the way the pipeline lays the lake out."""
+    """Write one load, the way the pipeline lays the lake out.
+
+    `clocked=False` writes the shape a load landed before ADR 0013 has: no `extracted_at`
+    column at all, which `union_by_name` reads back as null.
+    """
     on = datetime.fromtimestamp(float(load_id), tz=UTC).date().isoformat()
     directory = lake / "parent" / f"extracted_on={on}"
     directory.mkdir(parents=True, exist_ok=True)
 
-    columns = [*LANDED_COLUMNS, *([extra] if extra else [])]
+    columns = [c for c in LANDED_COLUMNS if clocked or c != "extracted_at"]
+    columns += [extra] if extra else []
     connection = duckdb.connect()
-    connection.execute(f"CREATE TABLE landing ({', '.join(f'{c} VARCHAR' for c in columns)})")
+    typed = ", ".join(
+        f"{c} TIMESTAMP WITH TIME ZONE" if c == "extracted_at" else f"{c} VARCHAR" for c in columns
+    )
+    connection.execute(f"CREATE TABLE landing ({typed})")
     connection.executemany(
         f"INSERT INTO landing VALUES ({', '.join('?' * len(columns))})",
         [
@@ -71,6 +85,8 @@ def land(
                 "probe",
                 "Parent",
                 "https://probe",
+                # The ingest's clock, landed as a column. ADR 0013.
+                *([datetime.fromtimestamp(float(load_id), tz=UTC)] if clocked else []),
                 load_id,
                 f"{load_id}-{index}",
                 *([f"later-{index}"] if extra else []),
@@ -112,12 +128,24 @@ def test_every_declared_column_arrives_as_its_declared_type(warehouse: Warehouse
 
 
 def test_the_observation_clock_agrees_with_the_partition(warehouse: Warehouse):
+    """The generated check itself, not a restatement of it -- a check written twice is one
+    check and one opinion about it."""
     connection, _, _ = warehouse
-    disagreements = scalar(
-        connection,
-        "SELECT count(*) FROM das__staged.parent WHERE extracted_on <> cast(extracted_at AS DATE)",
-    )
-    assert disagreements == 0
+    body = without_comments(clock_check_sql(read_contract(FIXTURES / "parent.yaml")))
+    assert scalar(connection, body) == 0
+
+
+def test_a_load_with_no_clock_at_all_is_a_disagreement(warehouse: Warehouse):
+    """A load that predates ADR 0013 has no `extracted_at`, so the column reads back null.
+
+    `<>` counted neither such row, because a null is not equal to anything and not unequal to
+    anything -- so the check passed on exactly the rows it exists to find, and a null clock
+    reached DAB, where it turns up as a duplicate-version finding that names the wrong cause.
+    """
+    connection, lake, _ = warehouse
+    land(lake, "1788896769.25", [{**RECORD, "ParentId": 2}], clocked=False)
+    body = without_comments(clock_check_sql(read_contract(FIXTURES / "parent.yaml")))
+    assert scalar(connection, body) == 1
 
 
 def test_a_second_load_extends_the_change_log_but_not_the_current_view(warehouse: Warehouse):

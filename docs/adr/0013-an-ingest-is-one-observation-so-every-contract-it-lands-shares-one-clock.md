@@ -134,5 +134,19 @@ star schema agree` in the second case only. CI does exactly that on every push �
 check — with no lake, so the clean rebuild is the standing test rather than something anybody has
 to remember to run.
 
+**A correction to the Consequences above, which were written before the code.** They say nothing
+here makes a stale lake fail. Building it showed otherwise, twice over. A load landed before this
+change has no `extracted_at` column at all, `union_by_name` reads it back as null, and DAB then
+historizes on a null clock — which surfaced as three duplicate-version findings naming FULL
+ingestion, a cause that had nothing to do with it. Worse, the clock check passed on those rows:
+it said `extracted_on <> cast(extracted_at AS DATE)`, and a null is neither equal nor unequal to
+anything, so it counted neither side of exactly the rows it exists to find. It says `IS DISTINCT
+FROM` now, `tests/test_das_executes.py` lands a load with no clock and asserts the check finds it,
+and a stale lake therefore fails on its own layer with its own name rather than three layers later
+under somebody else's.
+
+The remedy for a stale lake is to delete it. `.gitignore` already says everything in it is
+reproducible from `das/fixtures`, and it is: the local lake was removed and rebuilt, 48 checks.
+
 What is **not** confirmed: that no other pair of facts in this system is compared across two
 clocks. This one was found by a question failing, not by a check that looks for the shape.
