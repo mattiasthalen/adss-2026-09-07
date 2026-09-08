@@ -147,9 +147,13 @@ different order puts one measure's values silently into another measure's column
 still matches. Every emitter's output, laid out the way the generator lays it out, is run through
 the repository's own linter.
 
-Three data checks pin the engine behaviours this design rests on — that `_focal` and `_idfr` are
-still empty, and that `view_<E>_with_rel` still carries no relationship key — so a vendor change
-says so rather than quietly emptying the star schema. A fourth asserts `DESCRIBE dar__uss._bridge`
+Data checks pin the engine behaviours this design rests on, so a vendor change says so rather
+than quietly emptying the star schema: that `_focal` and `_idfr` are still empty; that
+`view_<E>_with_rel` is still a passthrough on a relationship's *source* side and gains exactly
+the source entity's columns on its *target* side; and that `v_<edge>` still hands over the raw,
+unranked pairs. The `with_rel` check first asserted the passthrough of *every* entity, which was
+true only while there were no relationships — ADR 0006 corrects the observation, and this
+section now describes the check that exists. A fourth asserts `DESCRIBE dar__uss._bridge`
 equals the plan on the real warehouse, and a fifth counts the description table directly, which is
 the only place an ingestion-strategy defect is visible.
 

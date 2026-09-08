@@ -9,6 +9,7 @@ the linter sees it and so the machinery works for a source it has never met.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import duckdb
@@ -32,6 +33,18 @@ class Finding:
 
 def _rows(connection: duckdb.DuckDBPyConnection, sql: str) -> list[tuple[object, ...]]:
     return [tuple(row) for row in connection.execute(without_comments(sql)).fetchall()]
+
+
+def inexact(rows: Sequence[Sequence[object]]) -> list[str]:
+    """The inexact types among these values, if any. Named so a test can reach it.
+
+    A bool is an int in Python and exact, so it is not one of these; a Decimal is exact by
+    construction; a float is not, and is the only one that can make two answers computed the
+    same way disagree.
+    """
+    return sorted(
+        {type(value).__name__ for row in rows for value in row if isinstance(value, float)}
+    )
 
 
 def _columns(connection: duckdb.DuckDBPyConnection, name: str) -> list[str]:
@@ -161,6 +174,21 @@ def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[
             continue
         control = _rows(connection, question.staged_sql)
         answer = _rows(connection, question.uss_sql)
+        # The comparison below is row by row, by value, which is exact only while every value
+        # is. A float would make it order-dependent rather than wrong: DuckDB's sum over
+        # doubles is not associative -- [0.1, 0.2, 0.3] sums to 0.6000000000000001 and the
+        # same three reversed to 0.6 -- so two queries could sum one measure in two orders and
+        # disagree by a bit, on some machines, some of the time. There is no such value today
+        # and this is what says so. ADR 0007.
+        loose = inexact((*control, *answer))
+        findings.append(
+            Finding(
+                f"{question.id}: both answers hold only exact values",
+                not loose,
+                f"found {loose} -- a ratio belongs to whoever asks, not to a stored answer, "
+                f"and an inexact value makes this comparison order-dependent",
+            )
+        )
         findings.append(
             Finding(
                 f"{question.id}: the source and the star schema agree",

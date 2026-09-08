@@ -155,7 +155,12 @@ def _(INK, MUTED, SEQUENTIAL, SURFACE, a1, alt, mo, pl, q1, shown):
     order = (
         a1.group_by("destination_country")
         .agg(pl.col("placed_orders_count").sum())
-        .sort("placed_orders_count", descending=True)["destination_country"]
+        # Ties broken by name. Without it the order is whatever the sort happened to
+        # produce, so the picture a slice was accepted on changes between runs from identical
+        # data -- and a reviewer diffing the PNG cannot tell a re-sorted tie from a new answer.
+        .sort(["placed_orders_count", "destination_country"], descending=[True, False])[
+            "destination_country"
+        ]
         .to_list()
     )
 
@@ -373,6 +378,148 @@ def _(a2, mo, q2, shown):
 @app.cell
 def _(a2, mo, q2, shown):
     shown(q2, mo.ui.table(a2, page_size=20, selection=None, show_column_summaries=False))
+    return
+
+
+@app.cell
+def _(a1, answers, asked, mo, pl, shown):
+    q3_placed = int(a1["placed_orders_count"].sum())
+    q3 = asked[2] if len(asked) > 2 else asked[-1]
+    a3 = answers[q3.id].with_columns(
+        pl.col("ship_lag_orders_days").cast(pl.Float64),
+        # The division the question deliberately does not store. Conventions section 2: an
+        # average of averages is wrong at every grain but the one it was computed at, so the
+        # answer carries two additive measures and the arithmetic happens once, here.
+        (pl.col("ship_lag_orders_days") / pl.col("shipped_orders_count"))
+        .cast(pl.Float64)
+        .alias("days_per_order"),
+    )
+
+    shipped = int(a3["shipped_orders_count"].sum())
+    waited = float(a3["ship_lag_orders_days"].sum())
+    # Read from the data, so it can be zero, and a page that divides by it would take the
+    # whole render down rather than this one question.
+    each = f"{waited / shipped:.1f} days each" if shipped else "nothing shipped"
+    # Counted rather than asserted. Every other number on this page is computed, and a
+    # hardcoded one on the artefact a slice is accepted on goes quietly wrong on the next load.
+    unshipped = int(q3_placed - shipped) if q3_placed else 0
+
+    shown(
+        q3,
+        mo.md(
+            f"""
+            ## {q3.question}
+
+            *Asked by the {q3.persona.lower()}.*
+
+            ## {shipped:,} orders out, {each}
+
+            on average across **{len(a3)}** months. **{unshipped}** orders are missing from
+            this entirely, because they have never shipped -- they are absent rather than
+            counted as having taken no time.
+            """
+        ),
+    )
+    return a3, each, q3, q3_placed, shipped, unshipped, waited
+
+
+@app.cell
+def _(GRID, MUTED, SEQUENTIAL, SURFACE, a3, alt, mo, q3, shown):
+    # Two measures, two charts, one shared x. Never two y-scales on one chart: a dual axis
+    # invents a correlation by choosing where the two lines cross, and the whole point here is
+    # to see whether volume and speed actually move together.
+    #
+    # Two separate charts rather than one vconcat, because mo.ui.altair_chart renders a
+    # concatenated spec as nothing at all -- the spec builds, the widget builds, and the page
+    # comes back with a gap. A facet works; a concat does not.
+    volume = (
+        alt.Chart(a3)
+        .mark_bar(color=SEQUENTIAL[2], cornerRadiusEnd=3)
+        .encode(
+            x=alt.X(
+                "shipping_month:O", title=None, axis=alt.Axis(labelAngle=-90, labelColor=MUTED)
+            ),
+            y=alt.Y(
+                "shipped_orders_count:Q",
+                title="orders shipped",
+                axis=alt.Axis(labelColor=MUTED, titleColor=MUTED, gridColor=GRID),
+            ),
+            tooltip=[
+                alt.Tooltip("shipping_month:O", title="Shipped in"),
+                alt.Tooltip("shipped_orders_count:Q", title="Orders shipped"),
+                alt.Tooltip("days_per_order:Q", title="Days per order", format=".2f"),
+            ],
+        )
+        .properties(height=150, width="container", background=SURFACE)
+        .configure_view(stroke=None)
+        .configure_axis(domainColor="#c3c2b7", tickColor="#c3c2b7", labelFontSize=11)
+    )
+
+    shown(q3, mo.ui.altair_chart(volume, chart_selection=False, legend_selection=False))
+    return (volume,)
+
+
+@app.cell
+def _(MUTED, GRID, SEQUENTIAL, SURFACE, a3, alt, mo, q3, shown):
+    speed = (
+        alt.Chart(a3)
+        .mark_line(color=SEQUENTIAL[5], strokeWidth=2, point=alt.OverlayMarkDef(size=28))
+        .encode(
+            x=alt.X(
+                "shipping_month:O", title=None, axis=alt.Axis(labelAngle=-90, labelColor=MUTED)
+            ),
+            y=alt.Y(
+                "days_per_order:Q",
+                title="days per order",
+                scale=alt.Scale(zero=True),
+                axis=alt.Axis(labelColor=MUTED, titleColor=MUTED, gridColor=GRID),
+            ),
+            tooltip=[
+                alt.Tooltip("shipping_month:O", title="Shipped in"),
+                alt.Tooltip("days_per_order:Q", title="Days per order", format=".2f"),
+                alt.Tooltip("ship_lag_orders_days:Q", title="Days in total", format=",.0f"),
+            ],
+        )
+        .properties(height=150, width="container", background=SURFACE)
+        .configure_view(stroke=None)
+        .configure_axis(domainColor="#c3c2b7", tickColor="#c3c2b7", labelFontSize=11)
+    )
+
+    shown(q3, mo.ui.altair_chart(speed, chart_selection=False, legend_selection=False))
+    return (speed,)
+
+
+@app.cell
+def _(mo, q3, shown):
+    shown(q3, mo.md("### What the words mean"))
+    return
+
+
+@app.cell
+def _(glossary, q3, shown):
+    shown(q3, glossary(q3))
+    return
+
+
+@app.cell
+def _(a3, mo, q3, shown):
+    shown(
+        q3,
+        mo.md(
+            f"""
+            ### The answer, row by row
+
+            {len(a3):,} rows. The first two columns are what the question returns; the third is
+            the division, done here rather than stored.
+            """
+        ),
+    )
+    return
+
+
+@app.cell
+def _(a3, mo, q3, shown):
+    shown(q3, mo.ui.table(a3, page_size=25, selection=None, show_column_summaries=False))
     return
 
 

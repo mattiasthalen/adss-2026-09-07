@@ -47,6 +47,28 @@ model:
           type: STRING
           effective_timestamp: true
 
+        - id: SHIPPED_ON
+          name: SHIPPED_ON
+          definition: The day the goods left the business on their way to the destination.
+          description: >-
+            An order ships once, or not yet. No day at all means the business has not recorded
+            the goods as gone -- which is not a promise that they never will be, and is not the
+            same as shipping on a day nobody wrote down. A question about when goods moved
+            means this; a question about when demand arrived means PLACED_ON.
+          type: START_TIMESTAMP
+
+        - id: SHIP_LAG_DAYS
+          name: SHIP_LAG_DAYS
+          definition: >-
+            The number of whole days the business took to get an order out: from the day it
+            accepted the order to the day the goods left.
+          description: >-
+            Zero on an order that went out the same day it was accepted. There is no value at
+            all until it goes out, and that absence is not a zero -- reading it as one would
+            make the slowest orders look like the fastest.
+          type: NUMBER
+          effective_timestamp: true
+
         - id: FREIGHT_CHARGE
           name: FREIGHT_CHARGE
           definition: What the business paid to have this order carried to its destination.

@@ -23,3 +23,5 @@ was built, not what was decided.
 | [0004](0004-daana-cli-is-the-dab-engine.md) | daana-cli is the DAB engine, vendored and checksum-pinned | 1 |
 | [0005](0005-a-question-is-the-unit-of-delivery.md) | A business question is the unit of delivery, with two queries that must agree | 1 |
 | [0006](0006-an-inherited-key-is-resolved-as-of-the-row-that-inherits-it.md) | An inherited key is resolved from the raw pairs, as of the row that inherits it | 2 |
+| [0007](0007-a-derived-value-is-modelled-where-two-vocabularies-are-bound.md) | A value derived from one row is modelled in DAB and computed in the mapping | 3 |
+| [0008](0008-a-measure-is-owned-by-an-event-and-named-for-an-entity.md) | A measure is owned by an event and named for an entity, so two events on one entity may not share a measure id | 3 |

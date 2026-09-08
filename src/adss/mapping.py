@@ -16,10 +16,17 @@ import yaml
 from adss.model import Model
 from adss.names import Schema
 
-# An attribute expression may read its own row: a column, a cast of one, or a CASE over
-# them. Anything else is a join, and every join must come from a declared relationship.
+# An attribute expression may read its own row: a column, a cast of one, a CASE over them, or
+# arithmetic over them. Anything else is a join, and every join must come from a declared
+# relationship. M5, and ADR 0007 for where the line between arithmetic and meaning is drawn.
 _REACHING = re.compile(r"\b(select|join|from|over|group\s+by)\b", re.IGNORECASE)
 _AGGREGATE = re.compile(r"\b(sum|count|min|max|avg|any_value|array_agg)\s*\(", re.IGNORECASE)
+
+# Standard SQL spells several same-row functions with FROM as part of their syntax, and their
+# FROM introduces nothing. Matching it made the checker refuse `extract(DAY FROM b - a)` -- the
+# natural idiom for the very thing M5 permits -- and tell the reader it reached beyond its row.
+# A refusal whose stated reason is wrong sends someone looking for a problem that is not there.
+_KEYWORD_FROM = re.compile(r"\b(extract|substring|trim|overlay|position)\s*\(", re.IGNORECASE)
 
 # A key expression is compared by shape, not by spelling: only the casting decides what
 # VARCHAR the two sides of an edge produce. Everything not a type or an operator is a name.
@@ -53,6 +60,8 @@ _SHAPE_WORDS = frozenset(
     }
 )
 
+ATTRIBUTE_KEYS = frozenset({"id", "transformation_expression"})
+
 REQUIRED_STRATEGY = "FULL_LOG"
 REQUIRED_CLOCK = "extracted_at"
 
@@ -70,6 +79,7 @@ class Table:
     ingestion_strategy: str
     effective_timestamp_expression: str
     expressions: tuple[str, ...]
+    declared: tuple[tuple[str, ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +115,7 @@ def read_mapping(path: Path) -> Mapping:
                 str(attribute["transformation_expression"])
                 for attribute in table.get("attributes", [])
             ),
+            declared=tuple(tuple(attribute) for attribute in table.get("attributes", [])),
         )
         for group in document["mapping_groups"]
         for table in group["tables"]
@@ -161,16 +172,86 @@ def check_mapping(mapping: Mapping) -> None:
                 f"not about the fact."
             )
         for expression in table.expressions:
-            if _REACHING.search(expression) or _AGGREGATE.search(expression):
+            if reaching(expression):
                 raise MappingError(
                     f"{where}: M5 -- {expression!r} reaches beyond its row. An expression "
                     f"that does is a join, and every join comes from a declared relationship."
+                )
+        for keys in table.declared:
+            # A YAML flow mapping treats the commas inside a function call as its own
+            # separators, so `{id: X, transformation_expression: f('a', b, c)}` silently
+            # becomes the expression `f('a'` plus keys named `b` and `c)`. There is no YAML
+            # error and nothing downstream notices: the truncated expression still reads its
+            # own row, so M5 accepts it, and the engine is the first thing to object -- to SQL
+            # nobody wrote. The stray keys are the signature, and they are the only one.
+            stray = [key for key in keys if key not in ATTRIBUTE_KEYS]
+            if stray:
+                raise MappingError(
+                    f"{where}: an attribute declares {stray}, which is not a key an attribute "
+                    f"has. Almost always this is YAML flow style splitting an expression on "
+                    f"the commas inside a function call -- write that attribute in block "
+                    f"style, or quote the expression."
                 )
         if not table.expressions:
             raise MappingError(
                 f"{where}: M7 -- every mapped table carries at least one attribute. The "
                 f"engine refuses an entity with none, at deploy rather than at review."
             )
+
+
+def reaching(expression: str) -> bool:
+    """Whether an expression leaves the row it is written on. M5.
+
+    Arithmetic and same-row functions do not, however they are spelled; a subquery, a join, a
+    window or an aggregate does.
+    """
+    return bool(
+        _REACHING.search(_without_keyword_from(expression)) or _AGGREGATE.search(expression)
+    )
+
+
+def _without_keyword_from(expression: str) -> str:
+    """The expression with the syntactic FROM of each such function blanked, and nothing else.
+
+    Only that one token, and only when it is genuinely inside the call. An earlier version
+    discarded the whole argument list, which excused the very thing M5 exists to stop: a
+    subquery hidden in `extract(DAY FROM (SELECT ...))` became invisible. Taking simply the
+    next FROM instead was no better -- in `trim(a) FROM elsewhere` the next one is the reach.
+
+    So the scan finds the first FROM at the call's own bracket depth, and gives up at the
+    bracket that closes the call. It steps over single-quoted text, because a bracket inside a
+    string literal is not a bracket, and a scan that believed otherwise would run off the end
+    and hand the checker half an expression to judge.
+    """
+    out = expression
+    for call in _KEYWORD_FROM.finditer(expression):
+        found = _syntactic_from(out, call.end())
+        if found is not None:
+            out = out[:found] + " " * 4 + out[found + 4 :]
+    return out
+
+
+def _syntactic_from(expression: str, opened: int) -> int | None:
+    """Where the FROM belonging to a call that opened at `opened` starts, if it has one."""
+    depth, index = 1, opened
+    while index < len(expression):
+        character = expression[index]
+        if character == "'":
+            closing = expression.find("'", index + 1)
+            index = len(expression) if closing == -1 else closing + 1
+            continue
+        depth += (character == "(") - (character == ")")
+        if depth == 0:
+            return None
+        if (
+            depth == 1
+            and expression[index : index + 4].lower() == "from"
+            and not expression[index - 1 : index].isalnum()
+            and not expression[index + 4 : index + 5].isalnum()
+        ):
+            return index
+        index += 1
+    return None
 
 
 def key_shape(expression: str) -> str:
