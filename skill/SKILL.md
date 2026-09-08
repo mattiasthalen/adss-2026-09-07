@@ -25,6 +25,8 @@ Vertical slices, thin end to end, widened one at a time.
 
 ## Always
 - Workflows wherever they help, not just per slice.
+- Agents build and commit what they build, one after another, each
+  reading what the last landed.
 - Don't wait for me between slices. Stop for a question or a break.
 - Spike what I can't answer. Time-boxed, thrown away, never landed. A
   spike reports the cases it ran; a finding stated wider is a guess.

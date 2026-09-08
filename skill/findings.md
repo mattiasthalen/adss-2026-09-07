@@ -325,3 +325,55 @@ the exact thing the branch README got wrong about this run.
   fix that made the build idempotent, sits on slice 2's branch and never reached
   slice 1's. Slice 1's pull request still stands with a build that fails on its
   second run.
+
+
+# Third pass: the build is delegated, and the plan issue is a residue
+
+## The build
+
+The remaining 564 KB of a slice's build is construction, not decision: 206 KB of
+heredoc writes, 177 KB of pytest, 124 KB of re-reads, 57 KB of gate runs. None of
+it is something the main thread has to hold afterwards. All sixteen commits in this
+run were issued from the main session, and that is why it held all of it.
+
+So agents build too. The unit that fits this repository is the layer, because the
+slice already decomposes that way and the commits show it: `feat(das)`, `feat(dab)`,
+`feat(dar)`, `feat(questions)`, `feat(destination)`. One agent each, and each one
+already has a skill written for it under `.claude/skills/`, which is what those
+skills were for.
+
+The agent commits rather than handing files back. It is the one that knows what
+changed, and the commit messages in this run are good because whoever wrote them
+had just done the work. `Red and green in a single conventional commit` binds the
+agent, which is another reason Always travels with the ticket.
+
+**Serially, each reading the last.** Not in parallel. The one time this run fanned
+out concurrent agents over work that constrained itself, the five framing drafts,
+two of them wrote the same unverified claim into two records that then read as
+corroboration. Construction constrains itself more tightly than drafting does.
+
+The main thread's job per slice is then: frame, decide and write the records,
+dispatch, verify, present, open the pull request. Decisions and verdicts, not
+construction.
+
+## The plan issue
+
+The parent issue holds two things that do not mix.
+
+**Always**, snapshotted as it stood when the plan was made. Static. It records the
+rules the work was done under, which is exactly what the branch README got wrong
+about this run.
+
+**The residue**: every interview decision and spike finding that has not yet become
+a convention, an ADR, a check or a comment in the code. A line leaves when it lands,
+replaced by a pointer to where it landed. It shrinks toward nothing, so it cannot
+become a second truth: whatever is still in it is by construction not expressed
+anywhere else.
+
+In this run the residue would be small, because twelve of twelve spike findings
+reached the tree. What would still be sitting in it is the class named above: the
+negative findings. That `max_table_nesting=0` is not enough is nowhere in the
+repository, and neither is the `$metadata` count behind the history clock, which
+conventions M4 asserts without the measurement that established it. Those are the
+lines that would still be open, and they are the ones worth keeping open, because
+they are what the next person will otherwise re-derive.
