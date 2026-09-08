@@ -377,3 +377,17 @@ repository, and neither is the `$metadata` count behind the history clock, which
 conventions M4 asserts without the measurement that established it. Those are the
 lines that would still be open, and they are the ones worth keeping open, because
 they are what the next person will otherwise re-derive.
+
+
+## The four, and which line covers each
+
+| | | share | covered by |
+|---|---|---:|---|
+| 1 | `Read` on the screenshot | 45% | a path and a conclusion, never the artefact |
+| 2 | heredocs printing back what they wrote | 6% | same line: a script that echoes its own file is returning the artefact |
+| 3 | test source riding inline with 45 pytest calls | 11% | write a file once, then run it by path |
+| 4 | re-reading files written moments earlier | 8% | same line: read it by path |
+
+Two lines, 70% of a slice's build. Neither is something the model does unprompted:
+it made 45 pytest calls carrying 3.5 KB of source each, and 42 separate cat, sed and
+grep calls over files it had just written.

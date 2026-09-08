@@ -31,6 +31,7 @@ Vertical slices, thin end to end, widened one at a time.
 - Spike what I can't answer. Time-boxed, thrown away, never landed. A
   spike reports the cases it ran; a finding stated wider is a guess.
 - A path and a conclusion, never the artefact. Screenshots included.
+- Write a file once, then run it and read it by path.
 - MADR at the decision, never batched. Its confirmation names a check
   that exists.
 - A fix to a slice below lands on the branch below.
