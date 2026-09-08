@@ -1,0 +1,48 @@
+# The only place the data is explained. Everything else -- contracts, questions, the
+# generated layer, the pages -- references these definitions and never restates one.
+#
+# No source name appears here. Not in an id, not in a name, not in a definition. This is the
+# layer whose whole purpose is to be independent of where the data came from, so a source's
+# word in it would mean the dependency had been moved rather than broken.
+model:
+  id: ADSS
+  name: ADSS
+  definition: What the business means by the things it records.
+  description: >-
+    One model for the whole platform. Entities arrive as the questions that need them arrive,
+    and a new attribute, entity or relationship is always a new structure rather than a change
+    to one something already depends on.
+
+  entities:
+    - id: ORDER
+      name: ORDER
+      definition: >-
+        A commitment by the business to supply goods, created when it accepts a customer's
+        request for them.
+      description: >-
+        One order is one such commitment. It begins on the day the business accepts it and is
+        settled by delivering what was promised, to where it was promised.
+      attributes:
+        - id: ORDER_NUMBER
+          name: ORDER_NUMBER
+          definition: The number the business uses when it refers to one particular order.
+          description: Unique across all orders, and never reused once issued.
+          type: STRING
+          effective_timestamp: false
+
+        - id: PLACED_ON
+          name: PLACED_ON
+          definition: The day the business accepted the order, and from which the order exists.
+          description: >-
+            An order is placed once. This is the date every question about when demand
+            occurred is measured against.
+          type: START_TIMESTAMP
+
+        - id: DESTINATION_COUNTRY
+          name: DESTINATION_COUNTRY
+          definition: The country the business has undertaken to deliver the order to.
+          description: >-
+            Where the goods are going, which is not necessarily where the customer is. A
+            question about demand by geography means this unless it says otherwise.
+          type: STRING
+          effective_timestamp: true

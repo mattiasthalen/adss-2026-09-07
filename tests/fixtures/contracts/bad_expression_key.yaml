@@ -1,0 +1,8 @@
+endpoints:
+  source: {provider: odata, service: https://example.invalid/service, entity: Parent, page_size: 2}
+  target: {platform: duckdb, models: [historized, current]}
+ownership: {team: adss, upstream: A fixture.}
+schema:
+  primary_keys: [parent_id]
+  columns:
+    - {source_path: ParentId, target_name: parent_id, type: INTEGER, mode: REQUIRED, description: The key., coalesce: 0}

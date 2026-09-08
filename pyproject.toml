@@ -13,6 +13,7 @@ dependencies = [
     "polars>=1.44.1",
     "pyarrow>=25.0.1",
     "pyyaml>=6.0.3",
+    "sqlfluff>=4.3.0",
     "typer>=0.27.2",
 ]
 
@@ -29,7 +30,6 @@ dev = [
     "pre-commit>=4.6.2",
     "pytest>=9.1.1",
     "ruff>=0.16.6",
-    "sqlfluff>=4.3.0",
     "ty>=0.0.78",
     "yamllint>=1.38.0",
 ]
@@ -47,6 +47,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "ANN", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN201"]
+# A marimo cell is a decorated function whose return type is meaningless, and marimo rewrites
+# the file itself on save. docs/conventions.md section 5.
+"destinations/*" = ["ANN", "B018", "F841"]
 
 [tool.ty.environment]
 python-version = "3.12"

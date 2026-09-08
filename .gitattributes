@@ -1,0 +1,1 @@
+bin/**/daana-cli filter=lfs diff=lfs merge=lfs -text

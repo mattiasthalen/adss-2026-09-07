@@ -16,17 +16,21 @@ The layer names are not decoration. They are the principles — see
 
 ## Status
 
-Slice 0: the scaffold. The layers, the questions that accept them, and the skills that describe
-them arrive in the slices that follow.
+Slice 1 is green: one business question answered end to end, through all three layers, and
+presented in a page. `uv run adss build` rebuilds the whole system from the recording in about
+eleven seconds with no network.
 
 ## Getting started
 
 ```bash
 uv sync --all-groups
-uv run adss --version
-uv run pytest
-uv run pre-commit run --all-files
+uv run adss build                    # the whole system, offline, from das/fixtures
+uv run adss check                    # what the built warehouse must contain
+uv run marimo run destinations/app.py  # the page a slice is accepted on
+uv run pre-commit run --all-files    # the gate every commit passes
 ```
+
+The engine is a large object under git-LFS. `git lfs pull` if your clone has only the pointer.
 
 ## Slices
 
@@ -35,7 +39,11 @@ is accepted on. It is the prototype, not a report generated afterwards.
 
 | # | Question | Status |
 |---|---|---|
-| 1 | How many orders were placed per order month and ship country? | not started |
+| 1 | How many orders were placed per order month and destination country? | green |
+| 2 | What freight did we pay per customer country and order quarter? | not started |
+
+The full prioritised list, and what each slice widens, is in
+[docs/questions/](docs/questions/README.md).
 
 ## Reading order
 
@@ -45,4 +53,5 @@ is accepted on. It is the prototype, not a report generated afterwards.
 | [docs/conventions.md](docs/conventions.md) | the one convention document: naming, SQL, YAML, Python, commits |
 | [docs/adr/](docs/adr/README.md) | one record per decision, written before the code it decides |
 | [docs/deviations.md](docs/deviations.md) | every knowing departure from a principle, with its cost and its exit condition |
-| [docs/questions/](docs/questions/) | the business questions, and the two queries that must agree on each answer |
+| [docs/questions/](docs/questions/README.md) | the prioritised question list, and for each one the two queries that must agree on its answer |
+| [.claude/skills/](.claude/skills/) | one skill per layer, one per destination, and one for the whole |

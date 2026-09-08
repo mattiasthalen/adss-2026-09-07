@@ -36,3 +36,10 @@ def test_invoking_with_no_arguments_prints_help():
     result = runner.invoke(app, [])
     assert result.exit_code == USAGE_EXIT_CODE
     assert "Usage: adss" in plain(result.stdout)
+
+
+def test_every_layer_has_a_command_of_its_own():
+    """A reader should learn what this system does from --help, not from a pipeline file."""
+    listed = plain(runner.invoke(app, ["--help"]).stdout)
+    for layer in ("das", "dab", "dar"):
+        assert layer in listed

@@ -7,7 +7,10 @@ max_line_length = 120
 # AL09 forbids `x AS x`, which is exactly the every-column-aliased discipline that makes a
 # UNION branch positionally safe. RF06 fires on every mixed-case identifier crossing over from
 # DAB. LT05 and LT09 are line-layout opinions a generator should not have to implement.
-exclude_rules = AL09, RF06, LT05, LT09
+# ST06 wants simple columns before calculations. A generated view's column order mirrors
+# its contract's declaration order, so the two can be read side by side; reordering to
+# please a linter would delete that property.
+exclude_rules = AL09, RF06, LT05, LT09, ST06
 
 [sqlfluff:indentation]
 indented_joins = false

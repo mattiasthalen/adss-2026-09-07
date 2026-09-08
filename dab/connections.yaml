@@ -1,0 +1,9 @@
+# The one profile. The database path is relative to this file's directory, and the engine is
+# always invoked from it, so the two cannot disagree about which warehouse is meant.
+connections:
+  dev:
+    type: duckdb
+    database: ../warehouse.duckdb
+    target_schema: dab
+    stage_schema: dab__stage
+    metadata_schema: dab__meta

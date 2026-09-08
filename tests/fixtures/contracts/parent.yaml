@@ -1,0 +1,75 @@
+# A neutral contract. It names nothing from any business, so a test over it proves the
+# machinery works for a contract rather than for ours. docs/conventions.md section 6.
+endpoints:
+  source:
+    provider: odata
+    service: https://example.invalid/service
+    entity: Parent
+    page_size: 2
+  target:
+    platform: duckdb
+    models: [historized, current]
+
+ownership:
+  team: adss
+  upstream: A fixture. There is no upstream.
+
+schema:
+  primary_keys: [parent_id]
+  columns:
+    - source_path: ParentId
+      target_name: parent_id
+      type: INTEGER
+      mode: REQUIRED
+      description: >-
+        The key.
+    - source_path: ParentLabel
+      target_name: parent_label
+      type: STRING
+      mode: NULLABLE
+      description: >-
+        A label.
+    - source_path: ParentCount
+      target_name: parent_count
+      type: BIGINT
+      mode: NULLABLE
+      description: >-
+        A count.
+    - source_path: ParentRatio
+      target_name: parent_ratio
+      type: DOUBLE
+      mode: NULLABLE
+      description: >-
+        A ratio.
+    - source_path: ParentAmount
+      target_name: parent_amount
+      type: DECIMAL
+      precision: 18
+      scale: 4
+      mode: NULLABLE
+      description: >-
+        An amount.
+    - source_path: ParentFlag
+      target_name: parent_flag
+      type: BOOLEAN
+      mode: NULLABLE
+      description: >-
+        A flag.
+    - source_path: ParentOn
+      target_name: parent_on
+      type: DATE
+      mode: NULLABLE
+      description: >-
+        A date.
+    - source_path: ParentAt
+      target_name: parent_at
+      type: TIMESTAMP
+      mode: NULLABLE
+      description: >-
+        An instant.
+    - source_path: ParentBlob
+      target_name: parent_blob
+      type: JSON
+      mode: NULLABLE
+      description: >-
+        A nested value.

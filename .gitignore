@@ -22,3 +22,19 @@ logs/
 
 # Screenshots are attached to a pull request, not committed.
 .screenshots/
+
+# The lake is derived from das/fixtures by `adss das ingest`. The recording is the
+# committed artefact; the parquet it produces is not.
+das/lake/
+.browsers/
+
+# Generated DAS view SQL. Unlike the DAR layer's, it embeds the lake's absolute path -- a
+# relative one would resolve at query time, in whatever directory the reader happens to be --
+# so it cannot be the same on two machines and is generated at build time instead of
+# committed. The checks it also generates carry no path and ARE committed.
+das/sql/
+
+# The engine rewrites these from the YAML on every deploy. The YAML is the reviewed artefact;
+# a committed copy of it would be a second place the data is explained.
+dab/*.json
+dab/mappings/*.json

@@ -1,0 +1,8 @@
+uss:
+  events:
+    - id: HAPPENED
+      entity: PARENT
+      kind: transaction
+      date_attribute: HAPPENED_ON
+      measures:
+        - {id: HAPPENED_PARENTS_COUNT, definition: How many., aggregate: count}
