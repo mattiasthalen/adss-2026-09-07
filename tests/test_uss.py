@@ -566,3 +566,15 @@ def test_a_row_whose_inherited_date_does_not_resolve_has_no_bridge_row():
     assert re.search(r"WHERE \w+\._event_date IS NOT NULL", stage), (
         "an unresolvable inherited date means no row, by construction"
     )
+
+
+def test_a_measure_is_checked_against_the_events_own_entity_not_the_one_it_inherits_from():
+    """An inherited date names another entity; the measures still belong to this one.
+
+    Resolving the date by reassigning the entity checked every measure against the wrong one,
+    so a measure of an attribute the event's entity genuinely has was refused for not existing
+    -- and one it does not have would have been accepted if the inherited entity had it.
+    """
+    model, _ = plan()
+    uss = read_uss(FIXTURES / "inherited_date.yaml", model)
+    assert any(e.id == "REACHED" for e in uss.events)

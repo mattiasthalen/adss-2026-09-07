@@ -227,8 +227,10 @@ def _refuse_measures_of_things_that_are_not_numbers(uss: Uss, model: Model) -> N
                     f"{sorted(reachable) or 'nothing'}. A date inherits along a declared edge "
                     f"or it does not inherit at all."
                 )
-            entity = model.entity(inherited)
-        if not entity.attribute(attribute_id).is_date:
+        # A separate name: the measures below belong to the EVENT's entity, not to the one the
+        # date is inherited from, and reusing `entity` here silently checked them against it.
+        dater = model.entity(inherited) if inherited is not None else entity
+        if not dater.attribute(attribute_id).is_date:
             raise UssError(f"{event.id} is dated by {attribute_id}, which is not a date.")
         for measure in event.measures:
             if measure.attribute_id and not entity.attribute(measure.attribute_id).is_number:
