@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from adss.mapping import MappingError, check_mapping, read_mapping
+from adss.mapping import MappingError, check_mapping, reaching, read_mapping
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mappings"
 PROJECT_MAPPINGS = Path(__file__).resolve().parent.parent / "dab" / "mappings"
@@ -42,3 +42,38 @@ def test_every_mapping_in_this_repository_conforms():
     assert written, "there are no mappings to check"
     for path in written:
         check_mapping(read_mapping(path))
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "date_diff('day', a, b)",
+        "cast(b - a AS INTEGER)",
+        "extract(DAY FROM (b - a))",
+        "round(a * b * (1 - c), 4)",
+        "coalesce(a, b)",
+    ],
+)
+def test_arithmetic_and_functions_over_one_row_are_permitted(expression: str):
+    """M5 permits an expression that reads its own row, and arithmetic over that row is one.
+
+    `extract(DAY FROM ...)` is the case that matters: it is the natural idiom for this, and the
+    checker used to refuse it because the pattern matched the bare word FROM inside the
+    expression -- then told the reader it reached beyond its row, which it does not. A refusal
+    whose reason is wrong sends someone looking for a problem that is not there. ADR 0007.
+    """
+    assert not reaching(expression), f"{expression} reads its own row"
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "(SELECT max(x) FROM other)",
+        "sum(a)",
+        "a JOIN b",
+        "count(*) OVER (PARTITION BY a)",
+        "max(a) FROM elsewhere",
+    ],
+)
+def test_an_expression_that_leaves_its_row_is_still_refused(expression: str):
+    assert reaching(expression), f"{expression} does not read its own row"

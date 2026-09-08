@@ -16,10 +16,17 @@ import yaml
 from adss.model import Model
 from adss.names import Schema
 
-# An attribute expression may read its own row: a column, a cast of one, or a CASE over
-# them. Anything else is a join, and every join must come from a declared relationship.
+# An attribute expression may read its own row: a column, a cast of one, a CASE over them, or
+# arithmetic over them. Anything else is a join, and every join must come from a declared
+# relationship. M5, and ADR 0007 for where the line between arithmetic and meaning is drawn.
 _REACHING = re.compile(r"\b(select|join|from|over|group\s+by)\b", re.IGNORECASE)
 _AGGREGATE = re.compile(r"\b(sum|count|min|max|avg|any_value|array_agg)\s*\(", re.IGNORECASE)
+
+# Standard SQL spells several same-row functions with FROM as part of their syntax, and their
+# FROM introduces nothing. Matching it made the checker refuse `extract(DAY FROM b - a)` -- the
+# natural idiom for the very thing M5 permits -- and tell the reader it reached beyond its row.
+# A refusal whose stated reason is wrong sends someone looking for a problem that is not there.
+_KEYWORD_FROM = re.compile(r"\b(extract|substring|trim|overlay|position)\s*\(", re.IGNORECASE)
 
 # A key expression is compared by shape, not by spelling: only the casting decides what
 # VARCHAR the two sides of an edge produce. Everything not a type or an operator is a name.
@@ -161,7 +168,7 @@ def check_mapping(mapping: Mapping) -> None:
                 f"not about the fact."
             )
         for expression in table.expressions:
-            if _REACHING.search(expression) or _AGGREGATE.search(expression):
+            if reaching(expression):
                 raise MappingError(
                     f"{where}: M5 -- {expression!r} reaches beyond its row. An expression "
                     f"that does is a join, and every join comes from a declared relationship."
@@ -171,6 +178,40 @@ def check_mapping(mapping: Mapping) -> None:
                 f"{where}: M7 -- every mapped table carries at least one attribute. The "
                 f"engine refuses an entity with none, at deploy rather than at review."
             )
+
+
+def reaching(expression: str) -> bool:
+    """Whether an expression leaves the row it is written on. M5.
+
+    Arithmetic and same-row functions do not, however they are spelled; a subquery, a join, a
+    window or an aggregate does.
+    """
+    return bool(
+        _REACHING.search(_without_keyword_from(expression)) or _AGGREGATE.search(expression)
+    )
+
+
+def _without_keyword_from(expression: str) -> str:
+    """The expression with the arguments of FROM-taking functions removed.
+
+    Only their arguments: everything around them still has to answer for itself, so
+    `extract(DAY FROM a) + (SELECT 1 FROM t)` is still refused, for the half that deserves it.
+    """
+    out: list[str] = []
+    index = 0
+    while index < len(expression):
+        found = _KEYWORD_FROM.search(expression, index)
+        if not found:
+            out.append(expression[index:])
+            break
+        out.append(expression[index : found.end()])
+        depth, cursor = 1, found.end()
+        while cursor < len(expression) and depth:
+            depth += (expression[cursor] == "(") - (expression[cursor] == ")")
+            cursor += 1
+        out.append(")" if depth == 0 else "")
+        index = cursor
+    return "".join(out)
 
 
 def key_shape(expression: str) -> str:

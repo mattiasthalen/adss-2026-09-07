@@ -127,6 +127,7 @@ def read_uss(path: Path, model: Model | None = None) -> Uss:
     uss = Uss(path=path, events=tuple(events))
     resolved = model or _model_beside(path)
     _refuse_edges_that_would_collide(resolved)
+    _refuse_measures_that_would_share_a_name(uss)
     _refuse_measures_of_things_that_are_not_numbers(uss, resolved)
     return uss
 
@@ -167,6 +168,34 @@ def _refuse_edges_that_would_collide(model: Model) -> None:
                     f"rather than the target would fix it and would change the bridge's "
                     f"published contract, so it is a decision rather than a patch."
                 )
+
+
+def _refuse_measures_that_would_share_a_name(uss: Uss) -> None:
+    """Two events on one entity may not declare the same measure id. ADR 0008.
+
+    A measure is owned by an event and named for an entity. While an entity has one event those
+    are the same thing; with two they are not, and the same id on both emits one column twice
+    AND silently replaces one definition with the other in the glossary.
+
+    The column half would fail the build loudly -- DuckDB renames the second column rather than
+    raising, so the built table stops matching the published contract. The glossary half is
+    caught by nothing: no check inspects the definitions, and they are what a question's
+    references resolve against and what the page renders. A reader would be shown a plausible
+    sentence about the wrong number, and everything would pass.
+    """
+    seen: dict[tuple[str, str], str] = {}
+    for event in uss.events:
+        for measure in event.measures:
+            key = (event.entity_id, measure.id)
+            if key in seen:
+                raise UssError(
+                    f"{event.entity_id} declares {measure.id} on both {seen[key]} and "
+                    f"{event.id}. A measure is named for its entity and owned by its event, so "
+                    f"the two would share one column -- and {event.id}'s definition would "
+                    f"replace {seen[key]}'s in the glossary, which nothing checks and the page "
+                    f"renders. Give them separate ids, or one definition covering both."
+                )
+            seen[key] = event.id
 
 
 def _refuse_measures_of_things_that_are_not_numbers(uss: Uss, model: Model) -> None:

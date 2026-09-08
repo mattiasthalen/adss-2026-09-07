@@ -416,3 +416,38 @@ def test_an_entity_appended_to_the_model_appends_its_key_and_moves_nothing():
     # But the measures DO all move right, because keys precede them. That is the property the
     # docstring used to deny, and it is why nothing may read this table by position.
     assert after.index(measures[0]) == before.index(measures[0]) + 1
+
+
+def test_two_events_on_one_entity_may_not_name_the_same_measure():
+    """A measure is owned by an event and named for an entity. With one event each those are
+    the same thing; with two they are not, and the same id on both silently replaces one
+    definition with the other in the glossary. ADR 0008.
+    """
+    model, _ = plan()
+    collided = FIXTURES / "bad_two_events_one_measure.yaml"
+    with pytest.raises(UssError, match="would replace"):
+        read_uss(collided, model)
+
+
+def test_the_same_measure_id_on_two_different_entities_is_still_accepted():
+    """The column already carries the entity, so those two do not collide. A refusal that
+    caught them would forbid the ordinary case to prevent the rare one.
+    """
+    _, uss = plan()
+    columns = [c for _, _, c in uss.measure_columns()]
+    assert len(columns) == len(set(columns))
+
+
+def test_every_declared_measure_keeps_its_own_definition():
+    """The assertion that would have caught the overwrite, and did not exist.
+
+    A glossary entry silently replaced by another measure's definition is the failure nothing
+    else reports: the page renders a plausible sentence about the wrong number, and every test
+    and every check passes.
+    """
+    model, uss = plan()
+    declared = [(e.entity_id, m.id, m.definition) for e in uss.events for m in e.measures]
+    carried = definitions(model, uss)
+    assert len({(entity, measure) for entity, measure, _ in declared}) == len(declared)
+    for entity, measure, definition in declared:
+        assert carried[f"{entity}.measures.{measure}"] == definition
