@@ -233,3 +233,56 @@ def test_every_measure_column_starts_with_the_prefix_the_refusal_looks_for():
     model = read_model(PROJECT.model)
     for _, _, column in read_uss(PROJECT.uss, model).measure_columns():
         assert column.startswith(MEASURE), column
+
+
+def joining(sql: str, alias: str) -> str:
+    return (
+        f"SELECT cal.month_label AS month_label, {sql} FROM dar__uss._bridge AS b "
+        f"INNER JOIN dar__uss.parent AS {alias} ON b.parent_key = {alias}.parent_key ORDER BY 1"
+    )
+
+
+def test_a_table_aliased_like_a_measure_does_not_launder_a_peripherals_column(tmp_path: Path):
+    """The bridge protects a COLUMN, so only the last part of a reference decides.
+
+    An alias is the one part of a reference its author picks freely, so testing the whole
+    dotted name let `sum(_measure__x.parent_size)` through -- the exact aggregate the rule
+    exists to refuse, wearing a name it chose for itself.
+    """
+    directory = variant(
+        tmp_path,
+        "01-laundered",
+        uss_sql=joining("sum(_measure__x.parent_size) AS n", "_measure__x"),
+    )
+    with pytest.raises(QuestionError, match="parent_size"):
+        check_question(read_question(directory), neutral_definitions())
+
+
+def test_a_measure_column_is_still_accepted_however_its_table_is_aliased(tmp_path: Path):
+    directory = variant(
+        tmp_path,
+        "01-qualified",
+        uss_sql=joining("sum(b._measure__parent__size_parents_units) AS n", "p"),
+    )
+    check_question(read_question(directory), neutral_definitions())
+
+
+def test_an_unqualified_measure_column_is_accepted(tmp_path: Path):
+    """One name part and no qualifier at all, which is the same code path with nothing to trim."""
+    directory = variant(
+        tmp_path,
+        "01-bare",
+        uss_sql=answering("sum(_measure__parent__size_parents_units) AS n"),
+    )
+    check_question(read_question(directory), neutral_definitions())
+
+
+def test_an_answer_query_nested_beyond_what_python_can_walk_is_refused_not_crashed(tmp_path: Path):
+    """700 nested calls parse and used to raise RecursionError out of the checker.
+
+    Nobody writes this. It is here because the walk is over a tree whose depth is the engine's
+    business rather than ours, and an unhandled RecursionError is a refusal nobody can read.
+    """
+    nested = "abs(" * 700 + "1" + ")" * 700
+    directory = variant(tmp_path, "01-deep", uss_sql=answering(f"{nested} AS month_label"))
+    check_question(read_question(directory), neutral_definitions())

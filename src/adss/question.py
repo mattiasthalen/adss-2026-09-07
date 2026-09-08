@@ -98,17 +98,46 @@ def _aggregate_names() -> frozenset[str]:
     return frozenset(str(name).lower() for (name,) in rows)
 
 
-def _columns_under(node: object) -> list[str]:
-    """Every column named anywhere below this node, qualifier and all."""
+def _children(node: object) -> list[object]:
     if isinstance(node, dict):
-        if node.get("class") == "COLUMN_REF":
-            names = node.get("column_names")
-            parts = names if isinstance(names, list) else []
-            return [".".join(str(part) for part in parts)]
-        return [found for value in node.values() for found in _columns_under(value)]
+        return list(node.values())
     if isinstance(node, list):
-        return [found for value in node for found in _columns_under(value)]
+        return list(node)
     return []
+
+
+def _columns_under(node: object) -> list[str]:
+    """Every column named anywhere below this node, qualifier and all.
+
+    Walked with a stack rather than by recursion. The depth of this tree is the engine's
+    business, not ours -- it accepts a thousand nested calls, which is twice what CPython will
+    follow -- and a RecursionError coming out of a question checker is a refusal nobody can
+    read.
+    """
+    found: list[str] = []
+    pending: list[object] = [node]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, dict) and current.get("class") == "COLUMN_REF":
+            names = current.get("column_names")
+            parts = names if isinstance(names, list) else []
+            found.append(".".join(str(part) for part in parts))
+            continue
+        pending += _children(current)
+    return found
+
+
+def protected(column: str) -> bool:
+    """Whether the bridge protects this column reference. Named so a test can reach it.
+
+    Only the LAST part of the reference decides, because what the bridge protects is a column.
+    Testing the whole dotted name let a table aliased `_measure__x` launder its own attributes
+    through the refusal -- an alias is the one part of a reference an author picks freely.
+
+    A column aliased to a `_measure__` name inside a subquery still gets through, and closing
+    that means resolving aliases rather than reading names. ADR 0012 records it.
+    """
+    return column.rpartition(".")[2].startswith(MEASURE)
 
 
 def aggregated(
@@ -121,22 +150,15 @@ def aggregated(
     different refusal rather than an absent one.
     """
     found: list[tuple[str, tuple[str, ...]]] = []
-
-    def walk(node: object) -> None:
-        if isinstance(node, list):
-            for value in node:
-                walk(value)
-            return
-        if not isinstance(node, dict):
-            return
-        name = str(node.get("function_name", "")).lower()
-        aggregate = node.get("class") in ("FUNCTION", "WINDOW") and not node.get("is_operator")
-        if aggregate and name in aggregates:
-            found.append((name, tuple(_columns_under(node.get("children", [])))))
-        for value in node.values():
-            walk(value)
-
-    walk(tree.get("statements"))
+    pending: list[object] = [tree.get("statements")]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, dict):
+            name = str(current.get("function_name", "")).lower()
+            call = current.get("class") in ("FUNCTION", "WINDOW") and not current.get("is_operator")
+            if call and name in aggregates:
+                found.append((name, tuple(_columns_under(current.get("children", [])))))
+        pending += _children(current)
     return found
 
 
@@ -162,7 +184,7 @@ def _refuse_an_aggregate_the_bridge_does_not_protect(
                 f"measurement events rather than the thing anybody asked about -- two events "
                 f"on one entity and it doubles. Sum the measure that counts them instead."
             )
-        loose = [column for column in columns if MEASURE not in column]
+        loose = [column for column in columns if not protected(column)]
         if loose:
             raise QuestionError(
                 f"{question.id}: the answer query applies {name}() to {loose}, which the "

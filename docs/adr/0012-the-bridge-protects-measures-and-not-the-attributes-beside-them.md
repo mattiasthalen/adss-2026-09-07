@@ -161,10 +161,20 @@ one entity and it doubles. And an aggregate over a `DISTINCT` peripheral column 
 multiplied by a fan-out and is refused anyway: narrowing the rule to the aggregates that can
 actually be wrong would be a rule nobody could apply without already knowing which those are.
 
-What still defeats it is narrower than the Consequences claim: not a subquery, but an answer that
-never writes an aggregate at all, or one that aliases a measure to a new name and aggregates the
-alias — which is refused too, so the honest statement is that the rule is over-strict at the edge
-rather than porous there.
+**What defeats it, corrected.** This section previously claimed the rule was over-strict at the
+edge rather than porous there. That was wrong, and a security review found it: the refusal read
+the whole dotted reference, so a table aliased `_measure__x` laundered its own attributes through
+it — `sum(_measure__x.freight_charge)` was accepted, which is the exact aggregate this record
+exists to refuse, wearing a name it chose for itself. The refusal now decides on the last part of
+a reference, because what the bridge protects is a column, and an alias is the one part of a
+reference an author picks freely. A mutation restoring the old test fails the suite.
+
+One hole remains and is measured rather than assumed: a column aliased to a `_measure__` name
+inside a **subquery** — `sum(p._measure__pretend)` over `(SELECT freight_charge AS
+_measure__pretend …) AS p` — is still accepted. Closing it means resolving aliases through the
+parse tree rather than reading names, which is a larger piece of machinery than this decision
+warrants for a control that is already deliberate-only. It is recorded here rather than left for
+somebody to find, which is the difference between a limit and a defect.
 
 What is **not** confirmed: that no reader ever writes the bad query at a prompt. Nothing can
 confirm that, and the register now says so instead of implying otherwise.
