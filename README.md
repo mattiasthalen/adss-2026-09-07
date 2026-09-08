@@ -8,9 +8,13 @@ get dragged into a slice's pull request. Nothing here is part of the codebase. N
 is imported, executed, or referenced by the code on the other branches.
 
 There are two snapshots on this branch. The first, `3772779`, was taken at 22:33 UTC on
-2026-09-07, when slice 1 was delivered and slice 2 was being framed. This one extends it. The
-first was not rewritten: what an earlier snapshot said, and what it chose to leave out, is
-itself part of the record.
+2026-09-07, when slice 1 was delivered and slice 2 was being framed. The second, `6ed766f`,
+extends it through slice 4 and the framing of slice 5. Neither was rewritten: what an earlier
+snapshot said, and what it chose to leave out, is itself part of the record.
+
+Commits after those two add no logs. They read the ones already here and write down what they
+found, in the section at the bottom of this file. Everything under `session/` is as it was at
+07:23 UTC on 2026-09-08.
 
 ## What the session was
 
@@ -167,9 +171,9 @@ below.
 
 These files were copied while the session was still running. The tail of every transcript is
 whatever had been written at 07:23 UTC on 2026-09-08, and the session continued afterwards.
-The last events in `session/transcript.jsonl` are the ones that produced this commit. Nothing
-here is a complete record of the session's end, and the one unfinished workflow run has no run
-record for the reason given above.
+The last events in `session/transcript.jsonl` are the ones that produced the second snapshot
+commit. Nothing here is a complete record of the session's end, and the one unfinished
+workflow run has no run record for the reason given above.
 
 Unlike the first snapshot, this one holds every file in all four source directories, with
 nothing omitted. That includes `tool-results/bs5ovt1mz.txt`, which the first snapshot left out:
@@ -185,7 +189,7 @@ branch is text.
 ## Known process failures
 
 The point of the branch. These are the ones identified so far, all of them checkable against
-the commits on the slice branches and against the transcripts here.
+the commits on the slice branches, and against the transcripts and run records here.
 
 ### Assertions that could not fail
 
@@ -279,6 +283,134 @@ with a stated reason that was not true (`46668a9`). And the refusals were reacha
 and from nowhere else, so `adss check` read a question's SQL and executed it having refused
 nothing, while ADR 0012's Confirmation said the rule "is enforced rather than published"
 (`0f86824`).
+
+### The main session's context filled twice, and nobody was told
+
+Twice the main session ran out of room and was compacted automatically:
+
+```sh
+jq -c 'select(.subtype == "compact_boundary")
+       | .timestamp + " " + (.compactMetadata
+         | "\(.trigger) \(.preTokens) -> \(.postTokens), dropped \(.preTokens - .postTokens)")' \
+   session/transcript.jsonl
+```
+
+At 22:26:53 on 2026-09-07, 786,095 tokens became 16,639. At 04:19:14 on 2026-09-08, 784,688
+became 22,374. A million and a half tokens went, in two goes, each replaced by a summary of
+about fourteen thousand characters. The first window took seven hours thirty-six minutes to
+fill and the second five hours fifty-two; the third was at 514,507 and still climbing when
+the snapshot was taken.
+
+**Neither compaction appears anywhere in what the agent said to the user.** Search the
+assistant's own text for `compact`, or for `context window`, and there is nothing. After each
+one it opened with the next step — "I'll pick up with the idempotency fix" — as though the
+hours behind it were still in front of it.
+
+**Nothing in particular filled it.** The largest single step in context was 16,156 tokens,
+under one percent of the growth; the ten largest together are 6% and the median step is 1,173.
+It is 1,882 assistant turns of ordinary work, and there is no one big object to find and
+remove. Two things come close enough to name. Nine of the eleven `Read` calls the main session
+made were PNGs — the app screenshot three times, and three of the four answer charts twice each
+— 2.2 MB of base64, 12% of the transcript by volume, though an image is charged by its
+dimensions rather than by its length. And sixty-nine Bash calls read the session's *own* logs
+back into the session: 320,742 bytes, 27% of everything Bash returned to the main session. A
+spilled tool result paged back in with `sed -n`, a workflow's findings lifted out of its
+`journal.jsonl` by hand.
+
+**What it cost is a false sentence in a pull request.** The claim reported under *Assertions
+that could not fail* above — PR #4 saying that one of the three Confirmation sections was
+written *after* the rule against them landed, and naming ADR 0009 — is what a compaction
+boundary does to a claim about sequence. ADR 0009 was committed at 04:00:44. The compaction
+fired at 04:19:14, eighteen minutes later, and took the record of that commit with it. The
+rule landed at 04:57:52. The pull request body was written at 07:06:25, two hours and
+forty-seven minutes after the only copy of the ordering had been dropped.
+
+Both summaries are built the same way: nine numbered sections — the request, the concepts, the
+files, errors and fixes, problem solving, the user's messages, pending tasks, current work,
+next step. Every one of them is a statement about what is true *now*. **A compaction summary
+preserves state and discards chronology.** Afterwards the agent can re-read the repository and
+recover the code — it did, within two minutes, both times — but nothing on disk records when
+it did what, so every later claim about the order of its own actions is reconstruction
+presented as memory. Nor does the compaction buy back as much as its own numbers suggest: the
+16,639 tokens it reports is 75,285 on the very next turn, one second later, before a single
+tool has been called. Roughly fifty-eight thousand of that is the floor every turn carries
+anyway — system prompt, tool definitions, skills.
+
+**Underneath it is that the orchestrator was also the builder.** Every one of the sixty-one
+conventional commits on the slice stack was made by the main session; no workflow agent ever
+ran `git commit`, and the only commits made anywhere else are this branch's own, by the two
+subagents that uploaded it. The workflows framed and verified. The main session built. So the
+one context that cannot be thrown away is the one that did all of the writing:
+
+|  | main session | 149 subagents |
+| --- | ---: | ---: |
+| assistant turns | 1,882 | 8,445 |
+| output tokens | 2,119,231 | 1,387,771 |
+| context re-read | 751,449,625 | 749,328,261 |
+| context per turn | 399,282 | 88,730 |
+| conventional commits | 61 | 0 |
+
+The main session re-read as much context as all 149 subagents put together, in a fifth of the
+turns, because each of its turns carried an average of 399,282 tokens and each of theirs
+carried 88,730. That ratio is the whole of it: a subagent starts empty, does one thing, and is
+thrown away; the main session starts at whatever the last sixteen hours left it at.
+
+### Every workflow ran two agents at a time, whatever the script asked for
+
+Every run record holds a `queuedAt` and a `startedAt` per agent, so the fan-out that actually
+happened can be counted rather than assumed:
+
+```sh
+for f in session/workflows/wf_*.json; do
+  jq -r '[.workflowName, (.workflowProgress[]
+        | select(.type == "workflow_agent" and .startedAt)
+        | "\(.startedAt) \(.startedAt + .durationMs)")] | @tsv' "$f"
+done | python3 -c '
+import sys
+for line in sys.stdin:
+    p = line.split("\t"); ev = []
+    for s in p[1:]:
+        a, b = s.split(); ev += [(int(a), 1), (int(b), -1)]
+    ev.sort(); cur = mx = 0
+    for _, d in ev: cur += d; mx = max(mx, cur)
+    print(f"{p[0]:26s} agents={len(p)-1:3d} most ever live at once: {mx}")'
+```
+
+The answer is **2** for all eleven runs that have a record, and 2 again for the twelfth when
+the same sweep is run over its agents' transcript timestamps. Never 3. The scripts asked for
+much more than that: fourteen agents at once to read the blog, six lenses over each slice,
+twenty-four and twenty-nine and thirty-three agents to attack the findings those lenses
+returned. Each of those phases ran two at a time, in a queue.
+
+The cap is per run, not per session. The peak across the whole sixteen and a half hours is
+four, reached twice, both times because two workflow runs happened to overlap — 22:23 to 22:36
+on 2026-09-07 and 00:34 to 00:47 on 2026-09-08. Three, when a plain subagent ran beside a
+workflow. The one thing that ever widened the run was the user's message at 22:21: *"you can
+start the next slice as soon as we finish one."*
+
+What it cost is queueing. In slice 4's verification, the twenty-four agents that attack the
+findings waited a median of 36 minutes between being queued and being started — the *first* of
+them waited 21, and the last 61. Slice 3's thirty-three waited up to 65 minutes, slice 2's
+twenty-nine up to 72. Summed over the fifteen phases in the eleven records: 538 minutes of
+phase wall clock, against 230 if each phase's agents had all run at once. Something like five
+hours of a sixteen-and-a-half-hour session, spent in a queue two deep.
+
+**The agent never noticed.** Not once, in sixteen and a half hours, does it remark that the
+fan-out it designed is not the fan-out it is getting. Nothing tells it: the `Workflow` tool
+returns "launched in background", a task id and a transcript directory, and says nothing about
+how many of the agents will run at a time. So it wrote scripts for a width it never checked,
+and then waited — 56 of its 853 Bash calls poll or hand-harvest a running workflow, and the
+descriptions it gave them are the honest version of the story — six polls between 19:56 and
+20:30 reading "Check framing progress", "Wait for framing", and then "Continue waiting for
+framing" three times.
+
+The user saw the symptom first, twice. *"no workflows are running"* at 06:51:53, and *"what are
+you doing?"* at 06:57:20. Both were right: the slice-4 verification had finished at 06:39, and
+from then until the pull request went up at 07:06 the agent worked through twenty-two findings
+by hand, one Bash call at a time, in the main session. That work — twenty-two independent
+findings against a tree, each with a test to write — is the widest thing in the whole run, and
+it was done serially in the one context that must not fill. Which is where this section meets
+the one above it.
 
 ### Where the process earned its cost
 
