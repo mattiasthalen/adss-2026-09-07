@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 # The browser that is installed here, and the name the driver looks for. They differ, and
@@ -88,6 +89,53 @@ def _capture(
     )
 
 
+def rendered(notebook: Path, question: str = "", into: Path | None = None) -> str:
+    """Execute the page as HTML and hand back what the exporter said. Named so a test can reach it.
+
+    The HTML exporter is here for one reason: it is the only one that reports a cell that raised.
+    """
+    with tempfile.TemporaryDirectory() as scratch:
+        page = Path(into or scratch) / "page.html"
+        completed = subprocess.run(
+            [
+                "marimo",
+                "export",
+                "html",
+                str(notebook),
+                "--no-include-code",
+                "-o",
+                str(page),
+            ],
+            capture_output=True,
+            text=True,
+            env=dict(os.environ, ADSS_QUESTION=question),
+        )
+    return completed.stdout + completed.stderr
+
+
+def _refuse_a_page_whose_cells_failed(notebook: Path, question: str) -> None:
+    """The page is executed twice, and the first time is only to find out whether it worked.
+
+    `marimo export thumbnail --execute` says nothing at all about a cell that raised: it exits
+    zero and photographs the wreckage. So the guard that read its output for "some cells failed"
+    could never fire -- that sentence belongs to the HTML exporter -- and it let three broken
+    pictures through, one of them a slice's already-accepted answer, changed with no change to
+    its number.
+
+    A blank page is not a small file either. The one that got past this was 28 kB: a title, two
+    paragraphs, and nothing else. Size cannot tell a rendered page from a ruined one; only the
+    exporter that reports the failure can.
+
+    The cost is a second execution of the notebook per question. That is seconds, against a
+    picture that is the whole of what a slice is accepted on.
+    """
+    output = rendered(notebook, question)
+    if "some cells failed" in output or "MarimoExceptionRaised" in output:
+        raise DestinationError(
+            f"the page ran but cells failed, so the picture is not the answer:\n{output}"
+        )
+
+
 def shoot(notebook: Path, into: Path, cache: Path, height: int = 1800, question: str = "") -> Path:
     """Execute the page and photograph it. Fails if it did not actually render.
 
@@ -99,6 +147,7 @@ def shoot(notebook: Path, into: Path, cache: Path, height: int = 1800, question:
     cache.mkdir(parents=True, exist_ok=True)
     shot = into / f"{question or notebook.stem}.png"
 
+    _refuse_a_page_whose_cells_failed(notebook, question)
     completed = _capture(notebook, shot, cache, height, question)
     output = completed.stdout + completed.stderr
     asked_for = WANTED.search(output)
@@ -107,8 +156,6 @@ def shoot(notebook: Path, into: Path, cache: Path, height: int = 1800, question:
         completed = _capture(notebook, shot, cache, height, question)
         output = completed.stdout + completed.stderr
 
-    if "some cells failed" in output:
-        raise DestinationError(f"the page ran but cells failed, so it is not the answer:\n{output}")
     if completed.returncode != 0 or not shot.exists():
         raise DestinationError(f"no screenshot was produced:\n{output}")
     if shot.stat().st_size < 20_000:

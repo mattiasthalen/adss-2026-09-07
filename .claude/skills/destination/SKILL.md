@@ -52,6 +52,17 @@ Render twice and compare the bytes.
 
 ## Screenshots
 
+**Every name in the notebook is defined by exactly one cell.** marimo's whole model is a
+dependency graph over names, so reusing `total` or `order` in a second question's cells is a
+`MultipleDefinitionError` that breaks *both* — and the failure surfaces as a blank page, not as an
+error you see. Suffix or qualify per question.
+
+**The thumbnail exporter does not tell you a cell failed.** `marimo export thumbnail --execute`
+exits zero and photographs the wreckage; only `marimo export html` reports it. So the page is
+executed twice: once as HTML to find out whether it worked, then as a thumbnail. A size floor does
+not substitute — a title and two paragraphs is 28 kB.
+
+
 `uv run adss shoot`. Three things about it are the result of getting them wrong first:
 
 - **The exported HTML is not self-contained.** It loads its assets from a content network and
