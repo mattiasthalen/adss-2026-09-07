@@ -45,8 +45,7 @@ schema:
       mode: REQUIRED
       description: >-
         Edm.Decimal with Scale=Variable, Nullable=false. The scale is pinned here because the
-        source does not pin it. This is the price on the line, which is not necessarily the
-        product's current price.
+        source does not pin it.
     - source_path: Quantity
       target_name: quantity
       type: INTEGER

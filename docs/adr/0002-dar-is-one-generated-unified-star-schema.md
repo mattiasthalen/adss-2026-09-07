@@ -157,9 +157,12 @@ section now describes the check that exists. A fourth asserts `DESCRIBE dar__uss
 equals the plan on the real warehouse, and a fifth counts the description table directly, which is
 the only place an ingestion-strategy defect is visible.
 
-**The fan-out test exists as of slice 4**, in `tests/test_fan_out.py`. It needs two grains —
-parents and children — so it could not be written while there was one entity, and this section
-said so through three slices rather than claiming a check nobody had written. It runs the
+**The fan-out test exists as of slice 4**, in `tests/test_fan_out.py`. It **could have existed in
+slice 2**, and this section said otherwise: it claimed the test needed two grains the system did
+not yet have. The test runs entirely on the neutral fixture, and that fixture gained a CHILD with
+its own measure in slice 2, at the same time as the first relationship. What was missing was not a
+second grain but the decision to go and build one; the excuse was wrong and the two slices of
+delay were real. It runs the
 generated SQL over a two-grain warehouse and asserts that a parent's measure is its own total and
 not its children times it; ADR 0012 records what it covers, what mutation makes it fail, and the
 half of D-0001's argument it shows to be false.

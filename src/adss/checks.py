@@ -468,7 +468,7 @@ def measure_checks(uss: Uss) -> dict[str, str]:
     that was actually built, where a wrong number would be believed.
 
     By EVENT and not by stage. Two events on one entity share a stage, so a per-stage check would
-    let a parent's shipment measure sit on its placement row and report nothing -- and that is the
+    let one event's measure sit on another event's row and report nothing -- and that is the
     likelier defect, since every branch of the union comes off the same stage's CTE.
 
     It counts leaks only. A measure that is null everywhere would pass here, and is not this

@@ -113,8 +113,20 @@ ADR 0007 puts on the forbidden side of M5.
 
 ## Confirmation
 
-`tests/test_contract.py` asserts that a `DECIMAL` column carries its precision and scale into the
-generated cast, and `tests/test_das_sql.py` that the cast is emitted rather than a bare read.
+`tests/test_das_sql.py` asserts the emitted expression in full, so the cast is there rather than a
+bare read and it carries the contract's declared precision and scale. That is **one** assertion in
+one file: this section previously cited `tests/test_contract.py` as a second, independent guard,
+and no such assertion exists there. Narrowing the one that does exist would have left the record
+claiming a guard that was never written.
+
+**A correction to the Consequences above, measured rather than reasoned.** They say a value with
+more than four decimal places "would now be refused rather than approximated". It is not:
+`cast('0.99999' AS DECIMAL(18, 4))` returns `1.0000` on DuckDB 1.5.5, with no error — a 99.999%
+discount recorded as 100%, which both of a question's answers would derive from the same rounded
+landed value and agree on. Only a `NaN`, an `Infinity`, or a value wider than eighteen digits
+fails at the cast. The decision stands and its reason stands — the `NaN` case is real and it was
+the one that mattered — but this type moves one silent failure rather than removing the class, and
+the register now says so too.
 
 The order-dependence witness is recorded in ADR 0007 and re-measured here on real values; nothing
 in the built system can now produce it, because no measure is a float at any layer — which is what

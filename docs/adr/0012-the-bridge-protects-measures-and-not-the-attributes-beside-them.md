@@ -153,13 +153,24 @@ this repository is run through the refusal, so the rule is enforced rather than 
 parse tree for the answer query and the engine's own list of aggregate functions, so a `cast()`
 around the sum, a sum written as a window, a subquery, and an aggregate nobody thought to list are
 all caught — three of which a text rule would have missed, and the third is why the list is not
-kept by hand. Four mutations of the refusal were run and all four fail the suite.
+kept by hand — and a ranking window is not one of them, because `row_number`, `rank`, `ntile`
+and `lag` are all in that list and refusing them blocked an ordinary answer with a reason that
+was not true. Seven mutations of the refusal have been run and all seven fail the suite,
+including refusing a ranking window again and reading only the first of an aggregate's
+columns — a peripheral multiplied into a measure is refused in either operand order.
 
 It is stricter than the trap requires, in two places worth naming. `count(*)` over the bridge is
 refused, because it counts measurement events rather than the thing asked about — two events on
 one entity and it doubles. And an aggregate over a `DISTINCT` peripheral column cannot be
 multiplied by a fan-out and is refused anyway: narrowing the rule to the aggregates that can
 actually be wrong would be a rule nobody could apply without already knowing which those are.
+
+**Where the rule actually lives, corrected.** The Decision Outcome above says the limit of the
+proof is "written into ADR 0002's contract as a third query-time rule". It is not, and under this
+repository's own rules it cannot be: a record is superseded, not edited. The rule is in
+[conventions §10](../conventions.md), which is the one convention document and the place a
+reviewer checks a question against, and in the `dar` and `adss` skills. ADR 0002's Confirmation
+points here. A reader following that sentence to ADR 0002 would have found nothing.
 
 **What defeats it, corrected.** This section previously claimed the rule was over-strict at the
 edge rather than porous there. That was wrong, and a security review found it: the refusal read
