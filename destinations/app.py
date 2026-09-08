@@ -74,8 +74,16 @@ def _(definitions, project, question_module, read_model, read_uss):
     model = read_model(project.model)
     uss = read_uss(project.uss, model)
     defined = definitions(model, uss)
-    questions = question_module.read_questions(project.questions)
-    return defined, questions
+    # The ones actually being asked, in the order they were asked. A draft is unfinished and a
+    # superseded question is not asked any more; `adss check` skips both, and a page that
+    # rendered them would be answering something nobody is asking. Indexed positionally below,
+    # so this also keeps a new draft directory from renumbering every page.
+    asked = tuple(
+        q
+        for q in question_module.read_questions(project.questions)
+        if q.status not in (question_module.Status.DRAFT, question_module.Status.SUPERSEDED)
+    )
+    return defined, asked
 
 
 @app.cell
@@ -101,8 +109,8 @@ def _(mo):
 
 
 @app.cell
-def _(defined, mo, questions, warehouse):
-    answers = {q.id: warehouse.execute(q.uss_sql).pl() for q in questions}
+def _(asked, defined, mo, warehouse):
+    answers = {q.id: warehouse.execute(q.uss_sql).pl() for q in asked}
 
     def glossary(q):
         return mo.md(
@@ -115,8 +123,8 @@ def _(defined, mo, questions, warehouse):
 
 
 @app.cell
-def _(answers, mo, questions, shown):
-    q1 = questions[0]
+def _(answers, asked, mo, shown):
+    q1 = asked[0]
     a1 = answers[q1.id]
 
     total = int(a1["placed_orders_count"].sum())
@@ -218,8 +226,8 @@ def _(a1, mo, q1, shown):
 
 
 @app.cell
-def _(answers, mo, pl, questions, shown):
-    q2 = questions[1]
+def _(answers, asked, mo, pl, shown):
+    q2 = asked[1]
     # altair cannot encode a DuckDB DECIMAL, and the measure is one by design -- freight is
     # money, so the star schema keeps it exact and the chart is where it becomes a float.
     a2 = answers[q2.id].with_columns(pl.col("freight_orders_amount").cast(pl.Float64))

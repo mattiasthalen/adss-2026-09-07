@@ -18,6 +18,7 @@ WITH placed__version AS (
 placed__order_is_placed_by_customer AS (
     SELECT
         revision.order_key AS order_key,
+        revision._observed_at AS _observed_at,
         pair."CUSTOMER_key" AS customer_key
     FROM placed__version AS revision
     LEFT JOIN dab."v_ORDER_IS_PLACED_BY_CUSTOMER" AS pair
@@ -27,7 +28,7 @@ placed__order_is_placed_by_customer AS (
             AND pair.row_st = 'Y'
             AND revision._observed_at >= pair.eff_tmstp
     QUALIFY row_number() OVER (
-        PARTITION BY revision.order_key
+        PARTITION BY revision.order_key, revision._observed_at
         ORDER BY
             pair.eff_tmstp DESC,
             pair.ver_tmstp DESC,
@@ -45,7 +46,9 @@ placed AS (
         revision._measure__order__freight_orders_amount AS _measure__order__freight_orders_amount
     FROM placed__version AS revision
     LEFT JOIN placed__order_is_placed_by_customer AS order_is_placed_by_customer
-        ON revision.order_key = order_is_placed_by_customer.order_key
+        ON
+            revision.order_key = order_is_placed_by_customer.order_key
+            AND revision._observed_at = order_is_placed_by_customer._observed_at
 )
 
 SELECT

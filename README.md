@@ -16,9 +16,9 @@ The layer names are not decoration. They are the principles — see
 
 ## Status
 
-Slice 1 is green: one business question answered end to end, through all three layers, and
-presented in a page. `uv run adss build` rebuilds the whole system from the recording in about
-eleven seconds with no network.
+Slices 1 and 2 are green: two business questions answered end to end, through all three
+layers, and presented in a page each. `uv run adss build` rebuilds the whole system from the
+recording in seconds with no network.
 
 ## Getting started
 
@@ -40,7 +40,7 @@ is accepted on. It is the prototype, not a report generated afterwards.
 | # | Question | Status |
 |---|---|---|
 | 1 | How many orders were placed per order month and destination country? | green |
-| 2 | What freight did we pay per customer country and order quarter? | not started |
+| 2 | What freight did we pay per customer country and order quarter? | green |
 
 The full prioritised list, and what each slice widens, is in
 [docs/questions/](docs/questions/README.md).

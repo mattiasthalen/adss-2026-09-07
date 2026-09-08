@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from adss.checks import relationship_checks
 from adss.contract import read_contract
 from adss.das import clock_check_sql, current_view_sql, key_check_sql, raw_view_sql, staged_view_sql
 from adss.model import read_model
@@ -37,6 +38,7 @@ def emitters() -> dict[str, str]:
         "bridge": bridge_sql(model, uss),
         "peripheral": peripheral_sql(model, "PARENT"),
         "calendar": calendar_sql(),
+        **{f"relationship_{n}": s for n, s in relationship_checks(model).items()},
     }
     return {name: formatted(sql, ROOT / ".sqlfluff") for name, sql in laid_out.items()}
 

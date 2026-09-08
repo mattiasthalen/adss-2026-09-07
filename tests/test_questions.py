@@ -120,3 +120,23 @@ def test_a_declared_dimension_the_answer_never_mentions_is_refused(tmp_path: Pat
     (directory / "uss.sql").write_text((NEUTRAL / "uss.sql").read_text())
     with pytest.raises(QuestionError, match="front matter is what a reader trusts"):
         check_question(read_question(directory), neutral_definitions())
+
+
+def test_an_id_that_would_not_survive_being_a_file_name_is_refused(tmp_path: Path):
+    """The id names a screenshot and an environment variable, not just a row in a table.
+
+    The empty one is the dangerous case rather than the obviously-broken one: the page reads
+    an empty selection as "show everything", so the record of what was delivered for this
+    question would be a picture of every question, and nothing would look wrong.
+    """
+    for bad in ("", "../escape", "q 1", "Q01/answer"):
+        directory = tmp_path / "01-a-question"
+        directory.mkdir(exist_ok=True)
+        source = FIXTURES / "questions" / "01-a-neutral-question"
+        (directory / "staged.sql").write_text((source / "staged.sql").read_text())
+        (directory / "uss.sql").write_text((source / "uss.sql").read_text())
+        (directory / "question.md").write_text(
+            (source / "question.md").read_text().replace("id: qn1", f"id: '{bad}'", 1)
+        )
+        with pytest.raises(QuestionError, match="usable question id"):
+            read_question(directory)

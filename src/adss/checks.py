@@ -143,8 +143,27 @@ def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[
 
 
 def contracts_of(project: Project) -> tuple[str, ...]:
-    """Every contract this project declares. Used to generate the checks above."""
+    """Every contract this project declares, by the object it generates.
+
+    Two commands write into `checks/` and each sweeps what neither generates, so each has to
+    know the other's file names. This is how the DAR generator knows which files belong to a
+    contract without reading contracts for anything else.
+    """
     return tuple(read_contract(path).table for path in project.contract_paths())
+
+
+def relationship_check_names(model: Model) -> tuple[str, ...]:
+    """What relationship_checks would be called, without emitting or formatting any of it.
+
+    The contract side of `checks/` only needs the names, to leave these files alone. Building
+    the SQL for that would run the fixer over every check and throw the result away, which
+    also makes a DAS command fail when the DAB model is unreadable.
+    """
+    return tuple(
+        f"{edge.id.lower()}__{suffix}.sql"
+        for edge in model.relationships
+        for suffix in ("one_target", "loaded", "resolves")
+    )
 
 
 _EDGE = "-- Generated from dab/model.yaml. Do not edit; regenerate with `adss dar generate`."

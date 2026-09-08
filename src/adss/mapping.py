@@ -197,7 +197,13 @@ def key_shape(expression: str) -> str:
 def _without_names(fragment: str) -> str:
     def anonymous(word: re.Match[str]) -> str:
         found = word.group(0).lower()
-        return found if found in _SHAPE_WORDS else "?"
+        if found in _SHAPE_WORDS:
+            return found
+        # A name immediately followed by "(" is a function, and a function decides the value
+        # as surely as a cast does: lpad(x, 5, '0') and x produce different keys, and
+        # anonymising the name would make them the same shape.
+        called = fragment[word.end() : word.end() + 1] == "("
+        return found if called else "?"
 
     return _IDENTIFIER.sub(anonymous, fragment)
 
@@ -210,18 +216,22 @@ def check_relationships(mappings: Sequence[Mapping], model: Model) -> None:
     pairs at all. All three show up as an inherited key that is null everywhere, which reads
     as data rather than as a defect. ADR 0006.
     """
-    loaded = {edge.id: (mapping, edge) for mapping in mappings for edge in mapping.relationships}
+    loaded: list[tuple[Mapping, Relationship]] = [
+        (mapping, edge) for mapping in mappings for edge in mapping.relationships
+    ]
+    declared = {edge.id for _, edge in loaded}
     modelled = {edge.id: edge for edge in model.relationships}
 
     for edge_id in modelled:
-        if edge_id not in loaded:
+        if edge_id not in declared:
             raise MappingError(
                 f"M6 -- {model.path.name} declares {edge_id} and no mapping loads it. The "
                 f"engine builds no pair object at all, so every join along that edge returns "
                 f"null, which reads as 'these rows have no target' rather than as a gap."
             )
 
-    for edge_id, (mapping, edge) in loaded.items():
+    for mapping, edge in loaded:
+        edge_id = edge.id
         where = mapping.path.name
         if edge_id not in modelled:
             expected = [candidate.id for candidate in model.edges_from(mapping.entity_id)]

@@ -125,7 +125,9 @@ def read_uss(path: Path, model: Model | None = None) -> Uss:
             )
         )
     uss = Uss(path=path, events=tuple(events))
-    _refuse_measures_of_things_that_are_not_numbers(uss, model or _model_beside(path))
+    resolved = model or _model_beside(path)
+    _refuse_edges_that_would_collide(resolved)
+    _refuse_measures_of_things_that_are_not_numbers(uss, resolved)
     return uss
 
 
@@ -133,6 +135,38 @@ def _model_beside(path: Path) -> Model:
     from adss.model import read_model
 
     return read_model(path.parent / "model.yaml")
+
+
+def _refuse_edges_that_would_collide(model: Model) -> None:
+    """Two edges into one key column is a silent loss, so it is refused rather than emitted.
+
+    A stage carries one column per entity it inherits from, named for that entity. Two edges
+    from one entity to the same target -- or an edge to the entity itself -- would emit two
+    columns of the same name, and DuckDB resolves that ambiguity instead of raising, so one of
+    the two inherited keys vanishes with nothing to say which. Distinguishing them means naming
+    the column after the edge rather than the target, which changes a published contract, so it
+    is a decision for the slice that first needs two such edges rather than a shape to guess at
+    now. ADR 0006.
+    """
+    for entity in model.entities:
+        edges = model.edges_from(entity.id)
+        for edge in edges:
+            if edge.target_entity_id == entity.id:
+                raise UssError(
+                    f"{edge.id} points at the entity it runs from, so the stage would carry "
+                    f"{entity.key_column} twice under one name and lose one of them silently."
+                )
+        targets = [edge.target_entity_id for edge in edges]
+        for target in targets:
+            if targets.count(target) > 1:
+                colliding = [edge.id for edge in edges if edge.target_entity_id == target]
+                raise UssError(
+                    f"{' and '.join(colliding)} both inherit into "
+                    f"{model.entity(target).key_column}, and a stage carrying that column "
+                    f"twice loses one of them with no error. Naming the column after the edge "
+                    f"rather than the target would fix it and would change the bridge's "
+                    f"published contract, so it is a decision rather than a patch."
+                )
 
 
 def _refuse_measures_of_things_that_are_not_numbers(uss: Uss, model: Model) -> None:
@@ -192,6 +226,11 @@ def _version_cte(model: Model, event: Event) -> str:
 def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
     """One inherited key: the pair in force when the inheriting row was observed. ADR 0006.
 
+    Resolved per inheriting ROW rather than per key -- the partition carries the observation
+    time -- because that is the whole reason ADR 0006 chose the observation time over "now".
+    A stage that kept more than the latest version of an entity would otherwise hand every one
+    of those versions the same parent, which is "as of now" wearing the other rule's clothes.
+
     Read from `v_<SRC>_<NAME>_<TGT>`, which is the raw pairs plus the relationship's name, and
     ranked here rather than by the engine. The engine's own ranked view answers a different
     question -- who the parent is *now* -- and answers it with `rank()`, which returns two rows
@@ -205,6 +244,7 @@ def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
         f"{event.name}__{held} AS (\n"
         f"SELECT\n"
         f"    revision.{source.key_column} AS {source.key_column},\n"
+        f"    revision._observed_at AS _observed_at,\n"
         f"    pair.{crossing(target.source_key)} AS {target.key_column}\n"
         f"FROM {event.name}__version AS revision\n"
         f'LEFT JOIN dab."v_{edge.id}" AS pair\n'
@@ -213,7 +253,7 @@ def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
         f"    AND pair.row_st = 'Y'\n"
         f"    AND pair.eff_tmstp <= revision._observed_at\n"
         f"QUALIFY row_number() OVER (\n"
-        f"    PARTITION BY revision.{source.key_column}\n"
+        f"    PARTITION BY revision.{source.key_column}, revision._observed_at\n"
         f"    ORDER BY\n"
         f"        pair.eff_tmstp DESC,\n"
         f"        pair.ver_tmstp DESC,\n"
@@ -247,7 +287,8 @@ def _stage_cte(model: Model, event: Event) -> str:
     # join here would undo that one level up.
     joins = "".join(
         f"\nLEFT JOIN {event.name}__{edge.id.lower()} AS {edge.id.lower()}\n"
-        f"    ON {edge.id.lower()}.{entity.key_column} = revision.{entity.key_column}"
+        f"    ON {edge.id.lower()}.{entity.key_column} = revision.{entity.key_column}\n"
+        f"    AND {edge.id.lower()}._observed_at = revision._observed_at"
         for edge in edges
     )
     selected = ",\n".join(lines)

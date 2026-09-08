@@ -98,6 +98,13 @@ keeps the rule stated at the level of a bridge row rather than at the level of a
 survives a stage that keeps more than the latest version, which is what a snapshot event and a
 `_is_current = FALSE` row will both need.
 
+So the ranking partitions by the inheriting key **and its observation time**, not by the key
+alone. A review of this slice caught the first draft doing the latter, which collapses to one
+parent per key and would hand every retained version of an entity that same parent — "as of now"
+wearing this rule's clothes, and passing every check because today no stage keeps two versions.
+The distinction costs one column in a `PARTITION BY` and is the entire difference between the
+option chosen here and the one rejected.
+
 **Exactly one parent per child, and a tie is a build failure.** Since neither the model nor the data
 can state the cardinality, it is inferred from the mapping and then pinned. The inference is sound:
 M5 already forbids an attribute expression from containing a subquery, an aggregate or a reach into
@@ -143,7 +150,16 @@ made is the thing that makes it worth keeping:
    invisible.
 2. "`view_<entity>_with_rel` carries no relationship key columns at all; its column list is
    byte-identical to `view_<entity>`." True on the source side only. On the target side it carries
-   the source entity's key and attributes, fanned out.
+   the source entity's key and attributes, fanned out. **ADR 0004 repeats the same claim** —
+   "`view_<entity>_with_rel` carries no relationship keys despite its name" — and is corrected
+   here too, not there.
+
+A third claim, in this record's own first draft, was corrected a commit later: it was written
+from a partial reading of the probe that produced it. What that cost is worth naming, because it
+is the failure mode this whole arrangement is meant to catch — the decision it reached was the
+one the full report supports, so nothing downstream was wrong, and it was right by luck rather
+than by reading. The findings it had missed changed how the decision is *enforced*, not what it
+is.
 
 The check ADR 0002 installed for the second claim asserted it of *every* entity, so it fails the
 moment CUSTOMER becomes a relationship target. That is the check working: it was pinning observed
@@ -158,8 +174,14 @@ possible to write then.
   can see when the inherited key was true without reading a vendor macro
 * Good, because the fan-out the engine's own views expose cannot reach the bridge: the generator
   emits `row_number()`, and the case that would have needed it fails the build first
-* Good, because filtering on `rel_name` makes a second edge between the same two entities a new
-  structure rather than a silent collision
+* Good, because filtering on `rel_name` keeps two edges between the same two entities in
+  separate pair objects. It does **not** keep them apart in the bridge, which a review of this
+  slice caught: a stage carries one key column per entity it inherits from, so two such edges —
+  or an edge from an entity to itself — would emit that column twice under one name, and DuckDB
+  resolves the ambiguity instead of raising. The generator refuses both shapes rather than
+  emitting them. Naming the column after the edge instead of the target would allow them and
+  would change the bridge's published contract, so it is a decision for the slice that first
+  needs two, not a shape to guess at now
 * Good, because the walk is the same shape at zero edges and one, so slice 5's two-hop chain extends
   it rather than special-cases it
 * Bad, because the generated bridge SQL grows a ranked CTE per edge, and at three or four edges it

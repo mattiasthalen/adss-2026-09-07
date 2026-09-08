@@ -16,7 +16,12 @@ from typing import Annotated
 import typer
 
 from adss import __version__
-from adss.checks import relationship_checks, run_checks
+from adss.checks import (
+    contracts_of,
+    relationship_check_names,
+    relationship_checks,
+    run_checks,
+)
 from adss.contract import read_contract
 from adss.das import (
     clock_check_sql,
@@ -179,7 +184,11 @@ def das_unpack(
             check.write_text(laid_out)
             typer.echo(f"wrote {check.relative_to(project.root)}")
 
-    written_checks |= {project.checks_sql / name for name in _generated_checks(project)}
+    # Names only: this is a DAS command, and it needs to know which files belong to the
+    # other generator, not what they say.
+    written_checks |= {
+        project.checks_sql / name for name in relationship_check_names(read_model(project.model))
+    }
     for orphan in sorted(project.checks_sql.glob("*.sql")):
         if orphan in written_checks:
             continue
@@ -268,8 +277,28 @@ def dar_generate(
     project.dar_sql.mkdir(parents=True, exist_ok=True)
     project.checks_sql.mkdir(parents=True, exist_ok=True)
     stale = False
+    generated_checks = _generated_checks(project)
     everything = {project.dar_sql / n: s for n, s in _generate(project).items()}
-    everything |= {project.checks_sql / n: s for n, s in _generated_checks(project).items()}
+    everything |= {project.checks_sql / n: s for n, s in generated_checks.items()}
+
+    # This command is a second writer into checks/, so it sweeps what it no longer generates.
+    # Rename a relationship and the check named for the old one is still executed by `adss
+    # check` -- and an unrunnable check aborts the whole run before a finding is printed.
+    kept = {
+        project.checks_sql / f"{table}__{part}.sql"
+        for table in contracts_of(project)
+        for part in ("clock", "key")
+    } | set(everything)
+    for orphan in sorted(project.checks_sql.glob("*.sql")):
+        if orphan in kept:
+            continue
+        if check:
+            typer.echo(f"{orphan.relative_to(project.root)} belongs to nothing declared")
+            stale = True
+        else:
+            orphan.unlink()
+            typer.echo(f"removed {orphan.relative_to(project.root)}")
+
     for written, sql in everything.items():
         if check:
             current = written.read_text() if written.exists() else ""

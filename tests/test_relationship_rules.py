@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from adss.mapping import Mapping, MappingError, check_relationships, read_mapping
+from adss.mapping import Mapping, MappingError, check_relationships, key_shape, read_mapping
 from adss.model import read_model
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mappings"
@@ -84,3 +84,29 @@ def test_every_relationship_in_this_repository_conforms():
     mappings = [read_mapping(path) for path in sorted((ROOT / "dab" / "mappings").glob("*.yaml"))]
     assert mappings, "there are no mappings to check"
     check_relationships(mappings, read_model(ROOT / "dab" / "model.yaml"))
+
+
+def test_every_mapping_that_declares_an_edge_is_checked_and_not_only_the_last():
+    """An entity loaded from a second source declares the same edge in a second mapping.
+
+    Keying the check on the edge id alone would validate whichever mapping came last and let
+    the other's silent-skip through -- which is the whole failure M6 exists to catch, arriving
+    by way of the check that was supposed to catch it.
+    """
+    good, broken = _set("good_child")[0], _set("bad_relationship_table")[0]
+    for order in ((good, broken), (broken, good)):
+        with pytest.raises(MappingError) as refused:
+            check_relationships([*_set("good", "good_neighbour"), *order], read_model(NEUTRAL))
+        assert "byte-identical" in str(refused.value)
+
+
+def test_a_function_is_part_of_a_key_expression_shape_and_not_a_name_to_be_stripped():
+    """lpad(x, 5, '0') and a bare x produce different keys, so they are different shapes.
+
+    The rule exists to stop pairs that join to nothing, and a function changes the value as
+    surely as a cast does -- so anonymising its name would be exactly the wrong half to drop.
+    """
+    assert key_shape("customer_id") != key_shape("lpad(customer_id, 5, '0')")
+    assert key_shape("lpad(a, 5, '0')") == key_shape("lpad(b, 5, '0')"), "the column may differ"
+    assert key_shape("lpad(a, 5, '0')") != key_shape("rpad(a, 5, '0')"), "the function may not"
+    assert key_shape("cast(a AS VARCHAR)") != key_shape("a"), "and neither may the cast"
