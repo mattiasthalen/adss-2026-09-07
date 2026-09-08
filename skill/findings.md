@@ -210,11 +210,12 @@ Six, in `SKILL.md` beside this file.
    its own words. The description summarised the same words, so nothing broke the
    tie. This is where a triggering failure belongs.
 
-2. **Once gains "The plan lands in the repo before slice 1."**
-   The plan is gone. It was the only artefact holding the interview and the spikes
-   together, it lived in a scratch directory, and the session compacted at 22:26
-   with slices 3 and 4 still to build. What reached the repo reached it by another
-   route, and the question list only because the user asked for it by hand.
+2. **Once gains a home for the plan.** Superseded below: the plan is an issue and
+   each slice a child of it, not a file. The break is the same either way. The plan
+   was the only artefact holding the interview and the spikes together, it lived in
+   a scratch directory that died with its container, and what reached the repo
+   reached it by another route. The question list only because the user asked for
+   it by hand.
 
 3. **Spike line gains "A spike reports the cases it ran; a finding stated wider is
    a guess."**
@@ -257,3 +258,70 @@ presentation is the slice" if slices should not stop.
 `docs/adr/0004-daana-cli-is-the-dab-engine.md` line 36 still states that
 `view_<entity>_with_rel` carries no relationship keys. It is false on the target
 side and it fans out there. ADR 0006 corrects it but 0004 does not say so.
+
+
+# Second pass: where the context actually goes
+
+The first pass said the build cost 396k tokens and left it there. Measured properly,
+over the slice-1 build window of 20:30 to 22:25:
+
+| | calls | sent | back | total |
+|---|---:|---:|---:|---:|
+| `Read` on `.screenshots/app.png` | 2 | 0 | 661 KB | **661 KB** |
+| heredoc write/script | 45 | 122 KB | 84 KB | 206 KB |
+| pytest | 45 | 158 KB | 19 KB | 177 KB |
+| read/inspect (cat, sed, grep) | 42 | 74 KB | 50 KB | 124 KB |
+| assistant prose | | | | 70 KB |
+| pre-commit, full gate | 28 | 43 KB | 15 KB | 57 KB |
+| everything else | ~40 | | | 165 KB |
+
+**Two `Read` calls on one PNG are 45% of the build.** 459 KB and 202 KB of base64,
+roughly 185k tokens spent looking at a screenshot twice. The file was already
+committed at `docs/questions/01-orders-per-month-and-destination-country/answer.png`;
+it was pulled back into the main thread as raw bytes to be looked at.
+
+Nothing else is remarkable. The 122 KB of heredocs is the code itself. Twenty-eight
+runs of the full gate cost 57 KB between them. The gate was never the problem.
+
+In size order, what is worth changing:
+
+1. **The screenshot, 661 KB.** Acceptance is visual, so something must look. An
+   agent that looks and returns "renders, 322 rows, bars present, no error banner"
+   costs 200 bytes here. Downscaling to 800px first is roughly another 4x. One
+   change, half the problem.
+2. **84 KB returning from heredocs**, scripts printing back what they just wrote.
+3. **158 KB sent across 45 pytest calls**, mean 3.5 KB: test source riding inline
+   with the run command rather than written once and run by path.
+4. **124 KB of cat, sed and grep**, much of it re-reading files written moments
+   before.
+
+Fixing 1 alone takes a slice from about 415k to about 230k. With 2 through 4 it is
+nearer 180k.
+
+## One session is enough, and this run proved it
+
+`3d2fa7e`, `058faa6`, `4618ec8` and `9378ffe` all carry
+`session_019rspwWhmXfxoTvKg5jmNWh`. One session built all four slices, 21:52 through
+04:56, straight through the compaction at 22:26. A session boundary per slice is not
+needed and the recommendation for one is withdrawn.
+
+What the tickets are for is therefore not context. It is that the plan died with its
+container, and that a session resuming after that needs the arc and the rules that
+were in force. That is also why Always is snapshotted into the parent issue rather
+than referenced: a ticket should record the rules the work was done under, which is
+the exact thing the branch README got wrong about this run.
+
+## What changed on the second pass
+
+- `Once`: the plan is an issue, each slice a child of it, Always snapshotted in the
+  parent. Then build them in one session rather than stopping.
+- New `A slice ticket` section: its question, what it widens, and the branch to start
+  from; start from that branch at ready rather than at merge and merge it forward
+  first; ready means the gate is green and both reviews have run.
+- `Always`: the agent line generalises to "A path and a conclusion, never the
+  artefact. Screenshots included." It already said this for agents. The main thread
+  did it to itself, twice, for 661 KB.
+- `Always` gains "A fix to a slice below lands on the branch below." `058faa6`, the
+  fix that made the build idempotent, sits on slice 2's branch and never reached
+  slice 1's. Slice 1's pull request still stands with a build that fails on its
+  second run.
