@@ -118,6 +118,60 @@ model:
           type: STRING
           effective_timestamp: true
 
+    - id: ORDER_LINE
+      name: ORDER_LINE
+      definition: >-
+        One kind of goods on one order, in the quantity and at the price the business agreed
+        to supply it for.
+      description: >-
+        An order is made of these, and this is where what was actually bought is recorded --
+        the order itself says only who asked and where it goes. A line exists from the moment
+        the order does; there is no separate day on which one is added.
+      attributes:
+        - id: LINE_NUMBER
+          name: LINE_NUMBER
+          definition: The reference the business uses when it refers to one particular line.
+          description: >-
+            Composed rather than issued: nothing on an order form carries it. It identifies a
+            line inside this system and is not a number anybody outside it would recognise.
+          type: STRING
+          effective_timestamp: false
+
+        - id: QUANTITY
+          name: QUANTITY
+          definition: How many of the goods the business agreed to supply on this line.
+          description: Whole units. A line is never for none.
+          type: NUMBER
+          effective_timestamp: true
+
+        - id: AGREED_UNIT_PRICE
+          name: AGREED_UNIT_PRICE
+          definition: The price per unit the business agreed to on this line.
+          description: >-
+            What was agreed when the order was accepted, which is not what the goods cost
+            today and does not move when the price does. It is the price before any discount.
+          type: NUMBER
+          effective_timestamp: true
+
+        - id: DISCOUNT_RATE
+          name: DISCOUNT_RATE
+          definition: The proportion of the agreed price the business gave up on this line.
+          description: >-
+            A proportion, not a percentage and not an amount: 0.25 means a quarter off. Zero
+            on most lines. It applies to this line alone and never to the order.
+          type: NUMBER
+          effective_timestamp: true
+
+        - id: REVENUE
+          name: REVENUE
+          definition: What the business took for this line, after the discount it gave up.
+          description: >-
+            The quantity times the agreed price, less the discount on it. It is what was
+            earned by supplying this line, not what was collected -- nothing here records
+            payment. Nothing states the currency, as with every other amount in this model.
+          type: NUMBER
+          effective_timestamp: true
+
   # No cardinality is declared, because the modelling language has nowhere to declare it: a
   # `cardinality` field is rejected outright, and `type` accepts any string and is dropped on
   # compile. Writing `type: "1:N"` here would read as a statement the engine never receives.
@@ -131,3 +185,12 @@ model:
         this records who asked for the goods, not who is billed or who receives them.
       source_entity_id: ORDER
       target_entity_id: CUSTOMER
+
+    - name: IS_PART_OF
+      definition: The order this line is one of the things asked for on.
+      description: >-
+        A line belongs to exactly one order and to the same one for its whole life. It is also
+        where the line gets its date: a line has no day of its own, and the day it was asked
+        for is the day the order was accepted. ADR 0009.
+      source_entity_id: ORDER_LINE
+      target_entity_id: ORDER

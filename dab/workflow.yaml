@@ -10,3 +10,4 @@ workflow:
   mappings:
     - ./mappings/order-mapping.yaml
     - ./mappings/customer-mapping.yaml
+    - ./mappings/order-line-mapping.yaml
