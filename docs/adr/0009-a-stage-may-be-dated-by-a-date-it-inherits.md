@@ -117,8 +117,12 @@ second expression language in a file that is not linted, which ADR 0007 refused 
 entity and not from the event's own; that it is refused, naming the available edges, when the
 entity it names is not reachable along one; that an unqualified one still means the event's own
 entity; and that the date and the key come from the same CTE, so no bridge row can carry two
-instants. The neutral fixture gains an event on `CHILD` dated by `PARENT.HAPPENED_ON`, which is
-the shape this record is about and which the fixture did not have.
+instants. A sidecar beside the neutral fixture gains an event on `CHILD` dated by
+`PARENT.HAPPENED_ON`, which is
+the shape this record is about and which the fixture did not have. Its SQL is linted with every
+other emitter's and executed by `tests/test_inherited_date_sql.py`, which builds a parent with
+more than one version -- the real warehouse has exactly one per key, so the real warehouse
+could not have shown either of the two defects that test was written for.
 
 A generated data check asserts that every bridge row of such a stage carries the same
 `_event_date` as the stage that **owns** that date, for the key on that row — 2,155 comparisons on

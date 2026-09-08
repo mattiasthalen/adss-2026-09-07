@@ -19,10 +19,12 @@ from adss.checks import composed_key_check_names, composed_key_checks
 from adss.contract import Contract, read_contract
 from adss.mapping import read_mapping
 from adss.question import without_comments
+from adss.sqlformat import formatted
 
 Db = duckdb.DuckDBPyConnection
 
 FIXTURES = Path(__file__).parent / "fixtures"
+ROOT = Path(__file__).resolve().parent.parent
 COMPOSITE = read_contract(FIXTURES / "contracts" / "composite_key.yaml")
 SINGLE = read_contract(FIXTURES / "contracts" / "parent.yaml")
 
@@ -34,8 +36,16 @@ def checks(mapping: str, contract: Contract = COMPOSITE) -> dict[str, str]:
 
 
 def answer(connection: Db, mapping: str) -> int:
+    """The check as the build runs it: formatted first, then executed.
+
+    Reading the emitted string would agree with a generator whose output the formatter then
+    breaks -- which is exactly what happened to the composite key check in slice 1, where
+    grouping parentheses were emitted, silently removed as redundant, and the check could not
+    run for three slices. An unrunnable check aborts the whole run before a finding is printed.
+    """
     written = checks(mapping)
-    found = connection.execute(without_comments(next(iter(written.values())))).fetchone()
+    laid_out = formatted(next(iter(written.values())), ROOT / ".sqlfluff")
+    found = connection.execute(without_comments(laid_out)).fetchone()
     assert found is not None
     return int(found[0])
 
