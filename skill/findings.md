@@ -327,16 +327,20 @@ the exact thing the branch README got wrong about this run.
   second run.
 
 
-# Third pass: the build is delegated, and the plan issue is a residue
+# Third pass: the build, and the plan issue as a residue
 
-## The build
+## The build, considered and not adopted
+
+A line delegating the build to agents was drafted and cut. The measurement below
+stands; the line did not survive, because two lines about what enters and leaves
+the main thread cover 70% of the same cost without changing who builds.
 
 The remaining 564 KB of a slice's build is construction, not decision: 206 KB of
 heredoc writes, 177 KB of pytest, 124 KB of re-reads, 57 KB of gate runs. None of
 it is something the main thread has to hold afterwards. All sixteen commits in this
 run were issued from the main session, and that is why it held all of it.
 
-So agents build too. The unit that fits this repository is the layer, because the
+The unit it would have taken that fits this repository is the layer, because the
 slice already decomposes that way and the commits show it: `feat(das)`, `feat(dab)`,
 `feat(dar)`, `feat(questions)`, `feat(destination)`. One agent each, and each one
 already has a skill written for it under `.claude/skills/`, which is what those
