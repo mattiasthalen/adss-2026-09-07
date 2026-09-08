@@ -27,3 +27,4 @@ was built, not what was decided.
 | [0008](0008-a-measure-is-owned-by-an-event-and-named-for-an-entity.md) | A measure is owned by an event and named for an entity, so two events on one entity may not share a measure id | 3 |
 | [0009](0009-a-stage-may-be-dated-by-a-date-it-inherits.md) | A stage may be dated by a date it inherits along the walk | 4 |
 | [0010](0010-a-composite-source-key-becomes-one-key-and-is-checked-against-its-parts.md) | A composite source key becomes one key expression, checked against the parts it was made from | 4 |
+| [0011](0011-a-float-in-the-source-is-recorded-as-a-decimal.md) | A float in the source is recorded as a decimal, chosen for where a bad value fails | 4 |
