@@ -19,6 +19,7 @@ import pytest
 
 from adss.model import read_model
 from adss.uss import bridge_sql, peripheral_sql, read_uss
+from support import engine_objects
 
 FIXTURES = Path(__file__).parent / "fixtures" / "dab"
 
@@ -38,33 +39,6 @@ WHEN = "2026-01-01"
 
 TOTAL = "SELECT sum(_measure__parent__size_parents_units) FROM dar__uss._bridge"
 OCCURRED = "SELECT count(*) FROM dar__uss._bridge WHERE _event = 'occurred'"
-
-
-def _engine_objects(connection: Db) -> None:
-    """The objects the generator reads, shaped as the engine shapes them."""
-    connection.execute("CREATE SCHEMA dab")
-    connection.execute("CREATE SCHEMA dar__uss")
-    connection.execute(
-        'CREATE TABLE dab."view_PARENT_hist" ("PARENT_key" VARCHAR, eff_tmstp TIMESTAMP, '
-        '"PARENT_NUMBER" VARCHAR, "HAPPENED_ON" TIMESTAMP, "PARENT_LABEL" VARCHAR, '
-        '"PARENT_SIZE" DECIMAL(28, 8), "FINISHED_ON" TIMESTAMP)'
-    )
-    connection.execute(
-        'CREATE TABLE dab."view_CHILD_hist" ("CHILD_key" VARCHAR, eff_tmstp TIMESTAMP, '
-        '"CHILD_NUMBER" VARCHAR, "OCCURRED_ON" TIMESTAMP, "CHILD_WEIGHT" DECIMAL(28, 8))'
-    )
-    connection.execute(
-        'CREATE TABLE dab."view_NEIGHBOUR_hist" ("NEIGHBOUR_key" VARCHAR, eff_tmstp TIMESTAMP, '
-        '"NEIGHBOUR_NUMBER" VARCHAR, "NEIGHBOUR_LABEL" VARCHAR)'
-    )
-    for edge, source, target in (
-        ("CHILD_POINTS_AT_PARENT", "CHILD", "PARENT"),
-        ("CHILD_SITS_BESIDE_NEIGHBOUR", "CHILD", "NEIGHBOUR"),
-    ):
-        connection.execute(
-            f'CREATE TABLE dab."v_{edge}" ("{source}_key" VARCHAR, "{target}_key" VARCHAR, '
-            f"rel_name VARCHAR, eff_tmstp TIMESTAMP, ver_tmstp TIMESTAMP, row_st VARCHAR)"
-        )
 
 
 def _load(connection: Db, children: list[tuple[str, str, Decimal]]) -> None:
@@ -101,7 +75,7 @@ def _total(connection: Db, sql: str) -> object:
 @pytest.fixture
 def scratch(tmp_path: Path):
     connection = duckdb.connect(str(tmp_path / "fan.duckdb"))
-    _engine_objects(connection)
+    engine_objects(connection)
     _load(connection, CHILDREN)
     _build(connection)
     yield connection

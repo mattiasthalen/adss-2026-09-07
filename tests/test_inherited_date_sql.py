@@ -15,10 +15,10 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from test_fan_out import _engine_objects
 
 from adss.model import read_model
 from adss.uss import bridge_sql, read_uss
+from support import engine_objects
 
 Db = duckdb.DuckDBPyConnection
 
@@ -60,7 +60,7 @@ def reached(connection: Db) -> dict[str, date | None]:
 @pytest.fixture
 def scratch(tmp_path: Path) -> Iterator[Db]:
     connection = duckdb.connect(str(tmp_path / "inherited.duckdb"))
-    _engine_objects(connection)
+    engine_objects(connection)
     yield connection
     connection.close()
 
