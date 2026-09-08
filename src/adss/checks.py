@@ -14,7 +14,8 @@ from dataclasses import dataclass
 
 import duckdb
 
-from adss.contract import read_contract
+from adss.contract import Contract, read_contract
+from adss.mapping import Mapping, Table
 from adss.model import Model, read_model
 from adss.names import Relation, Schema, crossing
 from adss.project import Project
@@ -285,6 +286,66 @@ def relationship_checks(model: Model) -> dict[str, str]:
             f"    AND t.{target.key_column} IS NULL;\n"
         )
     return generated
+
+
+def _composed(
+    mappings: Sequence[Mapping], contracts: Sequence[Contract]
+) -> list[tuple[str, Table, Contract]]:
+    """Every mapping table whose source key is composite, with the contract that declares it.
+
+    Only composite ones. Where the source key is one column the mapping simply names it, and
+    counting a thing against itself is a check that cannot fail.
+    """
+    by_table = {contract.table: contract for contract in contracts}
+    return [
+        (mapping.entity_id.lower(), table, contract)
+        for mapping in mappings
+        for table in mapping.tables
+        if (contract := by_table.get(table.table.rpartition(".")[2])) is not None
+        and len(contract.primary_keys) > 1
+    ]
+
+
+def composed_key_check_names(
+    mappings: Sequence[Mapping], contracts: Sequence[Contract]
+) -> tuple[str, ...]:
+    """What composed_key_checks would be called, without emitting or formatting any of it."""
+    return tuple(f"{entity}__composed_key.sql" for entity, _, _ in _composed(mappings, contracts))
+
+
+def composed_key_checks(
+    mappings: Sequence[Mapping], contracts: Sequence[Contract]
+) -> dict[str, str]:
+    """One check per composite source key: the composition has as many distinct values. ADR 0010.
+
+    A separator argument is a prediction about what the parts can hold. This is a measurement
+    over what actually landed, so a separator that is wrong for this data says so on the build
+    that loaded it rather than in a report six months later.
+
+    The parts are counted as a tuple and the composition as the single value the engine will
+    key on. Two source rows that compose to one key make the second count smaller, and the
+    entity that disappears takes its measures with it.
+    """
+    generated: dict[str, str] = {}
+    for entity, table, contract in _composed(mappings, contracts):
+        current = Relation(Schema.DAS_STAGED, f"{contract.table}__current")
+        parts = ", ".join(contract.primary_keys)
+        composed = table.primary_keys[0]
+        generated[f"{entity}__composed_key"] = (
+            f"{_COMPOSED}\n"
+            f"SELECT count(*) AS collisions\n"
+            f"FROM (\n"
+            f"    SELECT\n"
+            f"        count(DISTINCT ROW({parts})) AS parts,\n"
+            f"        count(DISTINCT {composed}) AS composed\n"
+            f"    FROM {current.sql}\n"
+            f") AS counted\n"
+            f"WHERE counted.parts != counted.composed;\n"
+        )
+    return generated
+
+
+_COMPOSED = "-- Generated from dab/mappings/. Do not edit; regenerate with `adss dar generate`."
 
 
 _MEASURE = "-- Generated from dab/uss.yaml. Do not edit; regenerate with `adss dar generate`."

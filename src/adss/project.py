@@ -103,3 +103,6 @@ class Project:
 
     def contract_paths(self) -> tuple[Path, ...]:
         return tuple(sorted(self.contracts.glob("*.yaml")))
+
+    def mapping_paths(self) -> tuple[Path, ...]:
+        return tuple(sorted(self.mappings.glob("*.yaml")))

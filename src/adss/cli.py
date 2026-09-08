@@ -17,6 +17,8 @@ import typer
 
 from adss import __version__
 from adss.checks import (
+    composed_key_check_names,
+    composed_key_checks,
     contracts_of,
     measure_check_names,
     measure_checks,
@@ -36,6 +38,7 @@ from adss.das import (
 from adss.destination import shoot
 from adss.engine import Engine, is_installed, metadata_schema
 from adss.landing import land
+from adss.mapping import read_mapping
 from adss.model import read_model
 from adss.names import Schema
 from adss.platform import exclusive, install, reading
@@ -193,6 +196,10 @@ def das_unpack(
         project.checks_sql / name
         for name in relationship_check_names(model)
         + measure_check_names(read_uss(project.uss, model))
+        + composed_key_check_names(
+            [read_mapping(path) for path in project.mapping_paths()],
+            [read_contract(path) for path in project.contract_paths()],
+        )
     }
     for orphan in sorted(project.checks_sql.glob("*.sql")):
         if orphan in written_checks:
@@ -266,7 +273,11 @@ def _generated_checks(project: Project) -> dict[str, str]:
     """The checks the model generates, as file name to SQL. The contracts generate the rest."""
     model = read_model(project.model)
     uss = read_uss(project.uss, model)
-    written = relationship_checks(model) | measure_checks(uss)
+    mappings = [read_mapping(path) for path in project.mapping_paths()]
+    contracts = [read_contract(path) for path in project.contract_paths()]
+    written = (
+        relationship_checks(model) | measure_checks(uss) | composed_key_checks(mappings, contracts)
+    )
     return {f"{name}.sql": formatted(sql, project.sqlfluff_config) for name, sql in written.items()}
 
 
