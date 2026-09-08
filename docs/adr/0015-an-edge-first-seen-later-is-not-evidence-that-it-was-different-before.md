@@ -122,13 +122,20 @@ then" or "we had not looked yet" — and only the second is this.
 Written after the code, against the code.
 
 `tests/test_two_hops_sql.py` builds a warehouse in which the pair is observed **after** the row
-that inherits it — the shape the real lake had — and asserts the key resolves, then a second where
-two pair versions straddle the observation and asserts the earlier one still wins, so the fallback
-has not swallowed ADR 0006's rule. A third has no pair at all and asserts the key is still null,
-because the fallback fills in what was not yet observed and not what was never recorded.
+that inherits it — the shape the real lake had — and asserts the key resolves; a second where two
+pair versions straddle the observation, asserting the earlier one still wins, so the fallback has
+not swallowed ADR 0006's rule; a third with no pair at all, asserting the key is still null,
+because the fallback fills in what was not yet observed and not what was never recorded; and a
+fourth with two versions both later than the observation, asserting the **earliest** is taken.
 
-The mutation that must fail: removing the fallback clause from the `ORDER BY` leaves a warehouse
-in which a later-observed edge resolves to nothing, which is the measured shape above.
+That fourth one exists because the first pass at this section would have been false. Two mutations
+were run and both survived: with a single later version the direction of the fallback's sort is
+unobservable, and `NULLS LAST` is a no-op on an engine that already defaults to it. The tests were
+sharpened until both fail — the fourth case for the direction, and one that sets
+`default_null_order` to `NULLS_FIRST` and asserts the answer does not move, which is what makes
+saying `NULLS LAST` load-bearing rather than decorative. A comment claiming this engine sorts
+nulls first on a descending sort was wrong and is corrected: it is a session setting, which
+Postgres and DuckDB default differently.
 
 What is **not** confirmed: that the assumption is true of this source. Nothing in Northwind says
 when a product changed category, which is the whole reason this decision exists.

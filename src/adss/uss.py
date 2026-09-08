@@ -333,6 +333,30 @@ def _version_cte(model: Model, event: Event) -> str:
     )
 
 
+def _as_of(candidate: str, inheriting: str) -> str:
+    """Prefer the version in force when the row was observed; fall back to the earliest. ADR 0015.
+
+    Two clauses rather than one predicate on the join, because the two halves sort in opposite
+    directions: among the versions that do precede, the latest wins; among the ones that do not,
+    the earliest does. `NULLS LAST` is explicit because null ordering is a session setting --
+    `default_null_order`, which this engine happens to default to NULLS_LAST and Postgres does
+    not -- and a session that had set it the other way would put every unobserved version first,
+    making the fallback beat the rule it is a fallback for. Measured, not assumed: a test sets
+    that setting to NULLS_FIRST and asserts the answer does not move.
+
+    The fallback fires only when this system had not yet looked. A later correction is still not
+    applied retroactively, which is what ADR 0006 was protecting -- absence of observation is not
+    evidence of difference, and evidence of difference is still respected.
+    """
+    return (
+        f"        CASE\n"
+        f"            WHEN {candidate}.eff_tmstp <= {inheriting}._observed_at\n"
+        f"                THEN {candidate}.eff_tmstp\n"
+        f"        END DESC NULLS LAST,\n"
+        f"        {candidate}.eff_tmstp ASC,\n"
+    )
+
+
 def _inherit_cte(
     model: Model, event: Event, edge: Relationship, prefix: tuple[Relationship, ...]
 ) -> str:
@@ -370,8 +394,7 @@ def _inherit_cte(
     joined = (
         f'\nLEFT JOIN dab."view_{target.id}_hist" AS dated\n'
         f"    ON dated.{crossing(target.source_key)} = pair.{crossing(target.source_key)}\n"
-        f"    AND dated.{crossing(attribute_id)} IS NOT NULL\n"
-        f"    AND dated.eff_tmstp <= revision._observed_at"
+        f"    AND dated.{crossing(attribute_id)} IS NOT NULL"
         if dates
         else ""
     )
@@ -386,16 +409,15 @@ def _inherit_cte(
         f'LEFT JOIN dab."v_{edge.id}" AS pair\n'
         f"    ON pair.{crossing(source.source_key)} = revision.{source.key_column}\n"
         f"    AND pair.rel_name = '{edge.id}'\n"
-        f"    AND pair.row_st = 'Y'\n"
-        f"    AND pair.eff_tmstp <= revision._observed_at"
+        f"    AND pair.row_st = 'Y'"
         f"{joined}\n"
         f"QUALIFY row_number() OVER (\n"
         f"    PARTITION BY revision.{stage.key_column}, revision._observed_at\n"
         f"    ORDER BY\n"
-        f"        pair.eff_tmstp DESC,\n"
+        f"{_as_of('pair', 'revision')}"
         f"        pair.ver_tmstp DESC,\n"
         f"        pair.{crossing(target.source_key)}"
-        + (",\n        dated.eff_tmstp DESC" if dates else "")
+        + (f",\n{_as_of('dated', 'revision').rstrip(',\n')}" if dates else "")
         + "\n) = 1\n"
         ")"
     )

@@ -26,11 +26,14 @@ placed__order_is_placed_by_customer AS (
             revision.order_key = pair."ORDER_key"
             AND pair.rel_name = 'ORDER_IS_PLACED_BY_CUSTOMER'
             AND pair.row_st = 'Y'
-            AND revision._observed_at >= pair.eff_tmstp
     QUALIFY row_number() OVER (
         PARTITION BY revision.order_key, revision._observed_at
         ORDER BY
-            pair.eff_tmstp DESC,
+            CASE
+                WHEN pair.eff_tmstp <= revision._observed_at
+                    THEN pair.eff_tmstp
+            END DESC NULLS LAST,
+            pair.eff_tmstp ASC,
             pair.ver_tmstp DESC,
             pair."CUSTOMER_key" ASC
     ) = 1
@@ -77,11 +80,14 @@ shipped__order_is_placed_by_customer AS (
             revision.order_key = pair."ORDER_key"
             AND pair.rel_name = 'ORDER_IS_PLACED_BY_CUSTOMER'
             AND pair.row_st = 'Y'
-            AND revision._observed_at >= pair.eff_tmstp
     QUALIFY row_number() OVER (
         PARTITION BY revision.order_key, revision._observed_at
         ORDER BY
-            pair.eff_tmstp DESC,
+            CASE
+                WHEN pair.eff_tmstp <= revision._observed_at
+                    THEN pair.eff_tmstp
+            END DESC NULLS LAST,
+            pair.eff_tmstp ASC,
             pair.ver_tmstp DESC,
             pair."CUSTOMER_key" ASC
     ) = 1
@@ -125,11 +131,14 @@ ordered__order_line_is_for_product AS (
             revision.order_line_key = pair."ORDER_LINE_key"
             AND pair.rel_name = 'ORDER_LINE_IS_FOR_PRODUCT'
             AND pair.row_st = 'Y'
-            AND revision._observed_at >= pair.eff_tmstp
     QUALIFY row_number() OVER (
         PARTITION BY revision.order_line_key, revision._observed_at
         ORDER BY
-            pair.eff_tmstp DESC,
+            CASE
+                WHEN pair.eff_tmstp <= revision._observed_at
+                    THEN pair.eff_tmstp
+            END DESC NULLS LAST,
+            pair.eff_tmstp ASC,
             pair.ver_tmstp DESC,
             pair."PRODUCT_key" ASC
     ) = 1
@@ -147,19 +156,25 @@ ordered__order_line_is_part_of_order AS (
             revision.order_line_key = pair."ORDER_LINE_key"
             AND pair.rel_name = 'ORDER_LINE_IS_PART_OF_ORDER'
             AND pair.row_st = 'Y'
-            AND revision._observed_at >= pair.eff_tmstp
     LEFT JOIN dab."view_ORDER_hist" AS dated
         ON
             pair."ORDER_key" = dated."ORDER_key"
             AND dated."PLACED_ON" IS NOT NULL
-            AND revision._observed_at >= dated.eff_tmstp
     QUALIFY row_number() OVER (
         PARTITION BY revision.order_line_key, revision._observed_at
         ORDER BY
-            pair.eff_tmstp DESC,
+            CASE
+                WHEN pair.eff_tmstp <= revision._observed_at
+                    THEN pair.eff_tmstp
+            END DESC NULLS LAST,
+            pair.eff_tmstp ASC,
             pair.ver_tmstp DESC,
             pair."ORDER_key" ASC,
-            dated.eff_tmstp DESC
+            CASE
+                WHEN dated.eff_tmstp <= revision._observed_at
+                    THEN dated.eff_tmstp
+            END DESC NULLS LAST,
+            dated.eff_tmstp ASC
     ) = 1
 ),
 
@@ -174,11 +189,14 @@ ordered__product_is_in_category AS (
             revision.product_key = pair."PRODUCT_key"
             AND pair.rel_name = 'PRODUCT_IS_IN_CATEGORY'
             AND pair.row_st = 'Y'
-            AND revision._observed_at >= pair.eff_tmstp
     QUALIFY row_number() OVER (
         PARTITION BY revision.order_line_key, revision._observed_at
         ORDER BY
-            pair.eff_tmstp DESC,
+            CASE
+                WHEN pair.eff_tmstp <= revision._observed_at
+                    THEN pair.eff_tmstp
+            END DESC NULLS LAST,
+            pair.eff_tmstp ASC,
             pair.ver_tmstp DESC,
             pair."CATEGORY_key" ASC
     ) = 1
@@ -195,11 +213,14 @@ ordered__order_is_placed_by_customer AS (
             revision.order_key = pair."ORDER_key"
             AND pair.rel_name = 'ORDER_IS_PLACED_BY_CUSTOMER'
             AND pair.row_st = 'Y'
-            AND revision._observed_at >= pair.eff_tmstp
     QUALIFY row_number() OVER (
         PARTITION BY revision.order_line_key, revision._observed_at
         ORDER BY
-            pair.eff_tmstp DESC,
+            CASE
+                WHEN pair.eff_tmstp <= revision._observed_at
+                    THEN pair.eff_tmstp
+            END DESC NULLS LAST,
+            pair.eff_tmstp ASC,
             pair.ver_tmstp DESC,
             pair."CUSTOMER_key" ASC
     ) = 1

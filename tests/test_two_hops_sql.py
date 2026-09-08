@@ -120,3 +120,90 @@ def test_a_stage_that_reaches_nothing_carries_a_null_and_not_a_wrong_row(scratch
         "WHERE _event = 'happened' AND district_key IS NOT NULL",
     )
     assert carried == 0
+
+
+EARLY, MIDDLE, LATE = "2026-06-01", "2026-06-02", "2026-06-03"
+
+
+@pytest.fixture
+def bare(tmp_path: Path) -> Iterator[Db]:
+    """The engine's objects, empty. These tests choose their own instants."""
+    connection = duckdb.connect(str(tmp_path / "observed.duckdb"))
+    engine_objects(connection)
+    connection.execute(
+        'INSERT INTO dab."view_DISTRICT_hist" VALUES (?, ?, ?, ?)', ["D1", EARLY, "D1", "first"]
+    )
+    connection.execute(
+        'INSERT INTO dab."view_DISTRICT_hist" VALUES (?, ?, ?, ?)', ["D2", EARLY, "D2", "second"]
+    )
+    connection.execute(
+        'INSERT INTO dab."view_NEIGHBOUR_hist" VALUES (?, ?, ?, ?)', ["N1", EARLY, "N1", "N1"]
+    )
+    # One child, observed in the middle, sitting beside a neighbour from the start.
+    connection.execute(
+        'INSERT INTO dab."view_CHILD_hist" VALUES (?, ?, ?, ?, ?)',
+        ["C1", MIDDLE, "C1", MIDDLE, Decimal("5.00")],
+    )
+    connection.execute(
+        'INSERT INTO dab."v_CHILD_SITS_BESIDE_NEIGHBOUR" VALUES (?, ?, ?, ?, ?, ?)',
+        ["C1", "N1", "CHILD_SITS_BESIDE_NEIGHBOUR", EARLY, EARLY, "Y"],
+    )
+    yield connection
+    connection.close()
+
+
+def lies_in(connection: Db, district: str, at: str) -> None:
+    connection.execute(
+        'INSERT INTO dab."v_NEIGHBOUR_LIES_IN_DISTRICT" VALUES (?, ?, ?, ?, ?, ?)',
+        ["N1", district, "NEIGHBOUR_LIES_IN_DISTRICT", at, at, "Y"],
+    )
+
+
+def district_of(connection: Db) -> object:
+    build(connection)
+    return one(
+        connection,
+        "SELECT district_key FROM dar__uss._bridge WHERE _event = 'occurred' AND child_key = 'C1'",
+    )
+
+
+def test_an_edge_first_seen_after_the_row_resolves_from_the_earliest_observation(bare: Db):
+    """ADR 0015. The shape the real lake had: an entity added later than the rows that reach it.
+
+    Nothing preceded the child's observation, so the strict rule excluded every pair and the
+    dimension was null on all of them -- a right total with an empty grouping, on an incremental
+    build, while a clean one was green.
+    """
+    lies_in(bare, "D1", LATE)
+    assert district_of(bare) == "D1", "not yet observed is not the same as known to be otherwise"
+
+
+def test_a_version_that_does_precede_still_wins_over_a_later_one(bare: Db):
+    """The fallback must not have swallowed ADR 0006. Two observations straddle the child, and
+    the earlier one is what was in force when it was seen."""
+    lies_in(bare, "D1", EARLY)
+    lies_in(bare, "D2", LATE)
+    assert district_of(bare) == "D1", "a later correction is still not applied retroactively"
+
+
+def test_an_edge_that_was_never_recorded_at_all_is_still_null(bare: Db):
+    """The fallback fills in what had not been observed, never what was not recorded."""
+    assert district_of(bare) is None
+
+
+def test_the_earliest_of_several_unobserved_versions_is_the_one_taken(bare: Db):
+    """The fallback is the EARLIEST, not merely one of them. With a single later version the
+    direction of that sort is unobservable, which is what a first pass at this test missed."""
+    lies_in(bare, "D1", LATE)
+    lies_in(bare, "D2", "2026-06-04")
+    assert district_of(bare) == "D1", "the first thing we ever learned, not the last"
+
+
+def test_the_rule_survives_a_session_that_orders_nulls_the_other_way(bare: Db):
+    """Null ordering is a setting rather than a property of SQL. This engine defaults to
+    NULLS_LAST and Postgres does not, so the generated sort says which it needs -- and this is
+    what makes saying so load-bearing rather than decorative."""
+    bare.execute("SET default_null_order = 'NULLS_FIRST'")
+    lies_in(bare, "D1", EARLY)
+    lies_in(bare, "D2", LATE)
+    assert district_of(bare) == "D1", "a later correction is still not applied retroactively"
