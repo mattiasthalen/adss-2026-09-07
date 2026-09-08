@@ -122,14 +122,21 @@ now says which, with the number.
 
 ## Confirmation
 
-`tests/test_uss.py` asserts the fan-out property directly, on the neutral fixture's two grains: a
-parent's measure summed over a bridge containing its children equals the parent's own total, the
-finer measure is right in the same scan, the coarser measure is null on every finer row while the
-inherited **key** is not, and — the falsifiable half — the parent's total does not move when a
-parent gains children. It runs the generated SQL against a warehouse it builds, rather than
+`tests/test_fan_out.py` asserts the fan-out property directly, on the neutral fixture's two
+grains: a parent's measure summed over a bridge containing its children equals the parent's own
+total, the finer measure is right in the same scan, the coarser measure is null on every finer row
+while the inherited **key** is not, and — the falsifiable half — the parent's total does not move
+when a parent gains children. It runs the generated SQL against a warehouse it builds, rather than
 reading the SQL for substrings, because a substring assertion would pass a generator that emitted
-the right nulls in the wrong branch. Mutating the generator to make measures inherit as keys do
-emits valid SQL and a wrong number, and all four assertions fail.
+the right nulls in the wrong branch.
+
+That it can fail is measured rather than assumed. The generator was mutated so a measure inherits
+along an edge exactly as a key does — carried in the CTE that walks the edge, selected by the
+stage, and treated as the branch's own. It emits SQL DuckDB accepts, and the four assertions fail
+together: 402.00 in place of 150.75, three parent measures on the three child rows in place of
+none, and 904.50 against 402.00 when five children are added to a parent whose size did not
+change. A fifth test — the peripheral trap below — passes under that mutation, which is correct:
+the mutation is in the bridge and the trap is not.
 
 A generated data check, one per measure, asserts it is null on every stage that does not own it —
 the mechanism rather than the number, on the real build.
