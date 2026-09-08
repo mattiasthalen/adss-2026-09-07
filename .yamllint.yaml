@@ -1,0 +1,17 @@
+# docs/conventions.md section 4. yamllint walks into .venv by default and floods on
+# third-party YAML, so the ignore is mandatory rather than cosmetic.
+extends: default
+ignore: |
+  .venv/
+  .git/
+rules:
+  document-start: disable
+  line-length:
+    max: 160
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+  truthy:
+    check-keys: false
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1

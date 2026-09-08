@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# The warehouse is built, never committed. Everything in it is reproducible from
+# das/fixtures via `uv run adss build --offline`.
+*.duckdb
+*.duckdb.wal
+
+# dlt working state
+.dlt/
+~/.dlt/
+
+# marimo drops a session cache next to the notebook on export
+__marimo__/
+
+# daana-cli writes here
+logs/
+
+# Screenshots are attached to a pull request, not committed.
+.screenshots/

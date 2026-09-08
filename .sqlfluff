@@ -1,0 +1,29 @@
+# The SQL style. docs/conventions.md section 3 records why each setting is what it is.
+# The duckdb dialect is required, not preferred: postgres cannot parse QUALIFY.
+[sqlfluff]
+dialect = duckdb
+templater = raw
+max_line_length = 120
+# AL09 forbids `x AS x`, which is exactly the every-column-aliased discipline that makes a
+# UNION branch positionally safe. RF06 fires on every mixed-case identifier crossing over from
+# DAB. LT05 and LT09 are line-layout opinions a generator should not have to implement.
+exclude_rules = AL09, RF06, LT05, LT09
+
+[sqlfluff:indentation]
+indented_joins = false
+indented_using_on = true
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = upper
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.identifiers]
+extended_capitalisation_policy = consistent
+
+[sqlfluff:rules:capitalisation.types]
+extended_capitalisation_policy = upper
+
+[sqlfluff:rules:convention.casting_style]
+preferred_type_casting_style = cast
