@@ -211,26 +211,47 @@ def reaching(expression: str) -> bool:
 
 
 def _without_keyword_from(expression: str) -> str:
-    """The expression with the arguments of FROM-taking functions removed.
+    """The expression with the syntactic FROM of each such function blanked, and nothing else.
 
-    Only their arguments: everything around them still has to answer for itself, so
-    `extract(DAY FROM a) + (SELECT 1 FROM t)` is still refused, for the half that deserves it.
+    Only that one token, and only when it is genuinely inside the call. An earlier version
+    discarded the whole argument list, which excused the very thing M5 exists to stop: a
+    subquery hidden in `extract(DAY FROM (SELECT ...))` became invisible. Taking simply the
+    next FROM instead was no better -- in `trim(a) FROM elsewhere` the next one is the reach.
+
+    So the scan finds the first FROM at the call's own bracket depth, and gives up at the
+    bracket that closes the call. It steps over single-quoted text, because a bracket inside a
+    string literal is not a bracket, and a scan that believed otherwise would run off the end
+    and hand the checker half an expression to judge.
     """
-    out: list[str] = []
-    index = 0
+    out = expression
+    for call in _KEYWORD_FROM.finditer(expression):
+        found = _syntactic_from(out, call.end())
+        if found is not None:
+            out = out[:found] + " " * 4 + out[found + 4 :]
+    return out
+
+
+def _syntactic_from(expression: str, opened: int) -> int | None:
+    """Where the FROM belonging to a call that opened at `opened` starts, if it has one."""
+    depth, index = 1, opened
     while index < len(expression):
-        found = _KEYWORD_FROM.search(expression, index)
-        if not found:
-            out.append(expression[index:])
-            break
-        out.append(expression[index : found.end()])
-        depth, cursor = 1, found.end()
-        while cursor < len(expression) and depth:
-            depth += (expression[cursor] == "(") - (expression[cursor] == ")")
-            cursor += 1
-        out.append(")" if depth == 0 else "")
-        index = cursor
-    return "".join(out)
+        character = expression[index]
+        if character == "'":
+            closing = expression.find("'", index + 1)
+            index = len(expression) if closing == -1 else closing + 1
+            continue
+        depth += (character == "(") - (character == ")")
+        if depth == 0:
+            return None
+        if (
+            depth == 1
+            and expression[index : index + 4].lower() == "from"
+            and not expression[index - 1 : index].isalnum()
+            and not expression[index + 4 : index + 5].isalnum()
+        ):
+            return index
+        index += 1
+    return None
 
 
 def key_shape(expression: str) -> str:
