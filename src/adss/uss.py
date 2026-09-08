@@ -148,6 +148,7 @@ def read_uss(path: Path, model: Model | None = None) -> Uss:
     _refuse_edges_that_would_collide(resolved)
     _refuse_measures_that_would_share_a_name(uss)
     _refuse_measures_of_things_that_are_not_numbers(uss, resolved)
+    _refuse_a_walk_nothing_can_resolve(uss, resolved)
     return uss
 
 
@@ -155,6 +156,32 @@ def _model_beside(path: Path) -> Model:
     from adss.model import read_model
 
     return read_model(path.parent / "model.yaml")
+
+
+def _refuse_a_walk_nothing_can_resolve(uss: Uss, model: Model) -> None:
+    """Every declared edge is walked by some stage, and every walk resolves. ADR 0014.
+
+    `walk` refuses a cycle and refuses two paths to one entity, and calling it here means those
+    are refused when the declarations are read rather than when SQL is emitted -- so the message
+    arrives from the file that is wrong.
+
+    The edge nothing walks is the one this exists for. Its target gets no key column and no
+    peripheral, so a question about it cannot be written at all; and the check generated for it
+    names a table that was never created, which aborts the whole run before a single finding is
+    printed. That is a silent hole reported as somebody else's catalog error, and it was live in
+    this repository for a slice.
+    """
+    walked = {edge.id for event in uss.events for edge, _ in walk(model, event.entity_id)}
+    for edge in model.relationships:
+        if edge.id not in walked:
+            reached = sorted({event.entity_id for event in uss.events})
+            raise UssError(
+                f"{edge.id} runs from {edge.source_entity_id}, which no stage reaches. The "
+                f"stages are {reached}, and nothing walks to {edge.source_entity_id} from any "
+                f"of them -- so {edge.target_entity_id} gets no key and no peripheral, and the "
+                f"check generated for this edge names a table that will not exist. Give "
+                f"{edge.source_entity_id} an event, or reach it from one, or take the edge out."
+            )
 
 
 def _refuse_edges_that_would_collide(model: Model) -> None:
@@ -306,7 +333,9 @@ def _version_cte(model: Model, event: Event) -> str:
     )
 
 
-def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
+def _inherit_cte(
+    model: Model, event: Event, edge: Relationship, prefix: tuple[Relationship, ...]
+) -> str:
     """One inherited key: the pair in force when the inheriting row was observed. ADR 0006.
 
     Resolved per inheriting ROW rather than per key -- the partition carries the observation
@@ -322,7 +351,13 @@ def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
     """
     source = model.entity(edge.source_entity_id)
     target = model.entity(edge.target_entity_id)
+    stage = model.entity(event.entity_id)
     held = edge.id.lower()
+    # Where this hop starts. The first reads the stage's own version; a deeper one reads the
+    # CTE that resolved the entity this edge runs from, which is why the walk is emitted
+    # breadth first. Every CTE carries the STAGE's key, so the stage joins them all the same
+    # way however deep they are. ADR 0014.
+    previous = f"{event.name}__version" if not prefix else f"{event.name}__{prefix[-1].id.lower()}"
     # If the event is dated by this target's attribute, the date is resolved here, off the same
     # parent the key came from, so both are true as of one instant. ADR 0009.
     inherited, attribute_id = event.dated_by
@@ -343,11 +378,11 @@ def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
     return (
         f"{event.name}__{held} AS (\n"
         f"SELECT\n"
-        f"    revision.{source.key_column} AS {source.key_column},\n"
+        f"    revision.{stage.key_column} AS {stage.key_column},\n"
         f"    revision._observed_at AS _observed_at,\n"
         f"    pair.{crossing(target.source_key)} AS {target.key_column}"
         f"{carried}\n"
-        f"FROM {event.name}__version AS revision\n"
+        f"FROM {previous} AS revision\n"
         f'LEFT JOIN dab."v_{edge.id}" AS pair\n'
         f"    ON pair.{crossing(source.source_key)} = revision.{source.key_column}\n"
         f"    AND pair.rel_name = '{edge.id}'\n"
@@ -355,7 +390,7 @@ def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
         f"    AND pair.eff_tmstp <= revision._observed_at"
         f"{joined}\n"
         f"QUALIFY row_number() OVER (\n"
-        f"    PARTITION BY revision.{source.key_column}, revision._observed_at\n"
+        f"    PARTITION BY revision.{stage.key_column}, revision._observed_at\n"
         f"    ORDER BY\n"
         f"        pair.eff_tmstp DESC,\n"
         f"        pair.ver_tmstp DESC,\n"
@@ -369,11 +404,17 @@ def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
 def _stage_cte(model: Model, event: Event) -> str:
     """One stage: the entity's version, with the key of everything it inherits from."""
     entity = model.entity(event.entity_id)
-    edges = model.edges_from(entity.id)
+    edges = [edge for edge, _ in walk(model, entity.id)]
     inherited, _ = event.dated_by
     dater = "revision"
     if inherited is not None:
-        dater = next(edge.id.lower() for edge in edges if edge.target_entity_id == inherited)
+        # One hop, deliberately: a key is identity and carrying it is the same claim at any
+        # depth, while a date is a choice about when the event happened. ADR 0009, ADR 0014.
+        dater = next(
+            edge.id.lower()
+            for edge in model.edges_from(entity.id)
+            if edge.target_entity_id == inherited
+        )
     lines = [
         f"    revision.{entity.key_column} AS {entity.key_column}",
         "    revision._observed_at AS _observed_at",
@@ -414,7 +455,7 @@ def _branch(model: Model, uss: Uss, event: Event, keys: tuple[str, ...]) -> str:
     """One branch of the union: this stage's own columns, and a typed NULL for the rest."""
     entity = model.entity(event.entity_id)
     carried = {entity.key_column} | {
-        model.entity(edge.target_entity_id).key_column for edge in model.edges_from(entity.id)
+        model.entity(edge.target_entity_id).key_column for edge, _ in walk(model, entity.id)
     }
     lines = [
         f"    '{entity.object_name}' AS _stage",
@@ -433,14 +474,57 @@ def _branch(model: Model, uss: Uss, event: Event, keys: tuple[str, ...]) -> str:
     return "SELECT\n" + ",\n".join(lines) + f"\nFROM {event.name} AS {event.name}"
 
 
+def walk(model: Model, entity_id: str) -> tuple[tuple[Relationship, tuple[Relationship, ...]], ...]:
+    """Every edge this entity reaches, at any depth, in the order it has to be resolved.
+
+    Each entry is an edge and the path that leads to it, so the caller knows what the edge's
+    own source key was resolved by. Breadth first, so a shallower hop is always emitted before
+    one that depends on it.
+
+    Two refusals, both because the alternative is choosing arbitrarily between two answers --
+    the thing ADR 0006 refused to do for a tied pair, one level up. ADR 0014.
+    """
+    ordered: list[tuple[Relationship, tuple[Relationship, ...]]] = []
+    paths: dict[str, tuple[Relationship, ...]] = {}
+    frontier: list[tuple[str, tuple[Relationship, ...]]] = [(entity_id, ())]
+    while frontier:
+        current, prefix = frontier.pop(0)
+        for edge in model.edges_from(current):
+            target, path = edge.target_entity_id, (*prefix, edge)
+            if target == entity_id:
+                raise UssError(
+                    f"{' -> '.join(step.id for step in path)} returns to {entity_id}. A walk "
+                    f"that comes back where it started has no end, and a key that is its own "
+                    f"ancestor is not a key."
+                )
+            if target in paths:
+                if paths[target] != path:
+                    raise UssError(
+                        f"{entity_id} reaches {target} two ways: "
+                        f"{' -> '.join(step.id for step in paths[target])} and "
+                        f"{' -> '.join(step.id for step in path)}. The bridge carries one "
+                        f"{model.entity(target).key_column} and those are two answers; pick one "
+                        f"in the model rather than leaving the generator to."
+                    )
+                continue
+            paths[target] = path
+            ordered.append((edge, prefix))
+            frontier.append((target, path))
+    return tuple(ordered)
+
+
 def entity_ids(model: Model, uss: Uss) -> tuple[str, ...]:
-    """Every entity the bridge names, in MODEL order: the ones with events, and the ones they
-    inherit from. An entity reached only by inheritance still needs a peripheral, or the bridge
-    carries a key that joins to nothing.
+    """Every entity the bridge names, in MODEL order: the ones with events, and everything
+    those reach along many-to-one edges, at any depth.
+
+    At any depth, not one hop. An entity reached only by inheritance still needs a peripheral,
+    or the bridge carries a key that joins to nothing -- and one two edges out used to get
+    neither a peripheral nor a key, which is that failure with nothing left to notice it by.
+    ADR 0014.
     """
     touched = {event.entity_id for event in uss.events}
     touched |= {
-        edge.target_entity_id for event in uss.events for edge in model.edges_from(event.entity_id)
+        edge.target_entity_id for event in uss.events for edge, _ in walk(model, event.entity_id)
     }
     return tuple(entity.id for entity in model.entities if entity.id in touched)
 
@@ -488,7 +572,10 @@ def bridge_sql(model: Model, uss: Uss) -> str:
         for event in uss.events
         for cte in (
             _version_cte(model, event),
-            *(_inherit_cte(model, event, edge) for edge in model.edges_from(event.entity_id)),
+            *(
+                _inherit_cte(model, event, edge, prefix)
+                for edge, prefix in walk(model, event.entity_id)
+            ),
             _stage_cte(model, event),
         )
     )

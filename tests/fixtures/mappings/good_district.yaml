@@ -1,0 +1,13 @@
+# The far end of the two-hop chain. It has no event and no edge of its own; it exists so a
+# stage two edges away has something to reach. ADR 0014.
+entity_id: DISTRICT
+mapping_groups:
+  - name: default_mapping_group
+    tables:
+      - connection: dev
+        table: das__staged.district
+        primary_keys: [district_id]
+        ingestion_strategy: FULL_LOG
+        entity_effective_timestamp_expression: extracted_at
+        attributes:
+          - {id: DISTRICT_LABEL, transformation_expression: district_label}

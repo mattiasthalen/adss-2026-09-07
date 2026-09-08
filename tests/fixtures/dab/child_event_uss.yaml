@@ -1,0 +1,11 @@
+# One event, on the entity the walk starts from. Small on purpose: these fixtures exist to
+# reach a refusal about the WALK, and a measure that trips an earlier one proves nothing.
+uss:
+  events:
+    - id: OCCURRED
+      entity: CHILD
+      definition: A child occurred.
+      kind: transaction
+      date_attribute: OCCURRED_ON
+      measures:
+        - {id: OCCURRED_CHILDREN_COUNT, definition: How many occurred., aggregate: count}

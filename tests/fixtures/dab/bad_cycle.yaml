@@ -1,0 +1,33 @@
+# A walk that comes back where it started. A key that is its own ancestor is not a key.
+model:
+  id: NEUTRAL
+  name: NEUTRAL
+  definition: A model whose walk returns to its start.
+  description: It exists so a test proves the closure terminates by refusing rather than looping.
+  entities:
+    - id: PARENT
+      name: PARENT
+      definition: A thing that points back.
+      description: One parent.
+      attributes:
+        - {id: PARENT_NUMBER, name: PARENT_NUMBER, definition: Its number., type: STRING, effective_timestamp: false}
+        - {id: HAPPENED_ON, name: HAPPENED_ON, definition: When it happened., type: START_TIMESTAMP}
+    - id: CHILD
+      name: CHILD
+      definition: A thing that points at other things.
+      description: One child.
+      attributes:
+        - {id: CHILD_NUMBER, name: CHILD_NUMBER, definition: Its number., type: STRING, effective_timestamp: false}
+        - {id: OCCURRED_ON, name: OCCURRED_ON, definition: When it occurred., type: START_TIMESTAMP}
+
+  relationships:
+    - name: POINTS_AT
+      definition: A child points at a parent.
+      description: Out.
+      source_entity_id: CHILD
+      target_entity_id: PARENT
+    - name: COMES_BACK_TO
+      definition: A parent comes back to a child.
+      description: And back again, which is the cycle.
+      source_entity_id: PARENT
+      target_entity_id: CHILD

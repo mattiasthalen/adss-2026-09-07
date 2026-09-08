@@ -19,7 +19,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "mappings"
 NEUTRAL = Path(__file__).parent / "fixtures" / "dab" / "model.yaml"
 ROOT = Path(__file__).resolve().parent.parent
 
-GOOD = ("good", "good_child", "good_neighbour")
+GOOD = ("good", "good_child", "good_neighbour", "good_district")
 
 
 def _set(*names: str) -> list[Mapping]:
@@ -39,7 +39,7 @@ def test_a_conforming_set_of_mappings_passes():
     ],
 )
 def test_each_way_a_relationship_goes_wrong_in_silence_is_refused(broken: str, complaint: str):
-    mappings = _set("good", broken, "good_neighbour")
+    mappings = _set("good", broken, "good_neighbour", "good_district")
     with pytest.raises(MappingError) as refused:
         check_relationships(mappings, read_model(NEUTRAL))
     assert "M6" in str(refused.value), "a refusal names the rule so it can be looked up"
@@ -76,7 +76,8 @@ def test_the_key_shape_is_compared_and_not_the_column_name():
     # would make the rule unusable. What is refused is one side casting and the other not,
     # because then the two VARCHARs genuinely differ.
     check_relationships(
-        _set("good", "good_child_renamed_key", "good_neighbour"), read_model(NEUTRAL)
+        _set("good", "good_child_renamed_key", "good_neighbour", "good_district"),
+        read_model(NEUTRAL),
     )
 
 
@@ -96,7 +97,9 @@ def test_every_mapping_that_declares_an_edge_is_checked_and_not_only_the_last():
     good, broken = _set("good_child")[0], _set("bad_relationship_table")[0]
     for order in ((good, broken), (broken, good)):
         with pytest.raises(MappingError) as refused:
-            check_relationships([*_set("good", "good_neighbour"), *order], read_model(NEUTRAL))
+            check_relationships(
+                [*_set("good", "good_neighbour", "good_district"), *order], read_model(NEUTRAL)
+            )
         assert "byte-identical" in str(refused.value)
 
 

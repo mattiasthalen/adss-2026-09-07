@@ -9,3 +9,9 @@ mapping_groups:
         entity_effective_timestamp_expression: extracted_at
         attributes:
           - {id: NEIGHBOUR_LABEL, transformation_expression: neighbour_label}
+    relationships:
+      # The second hop. It runs from NEIGHBOUR, so by M6 it is declared here rather than by
+      # the entity that reaches NEIGHBOUR. ADR 0014.
+      - id: NEIGHBOUR_LIES_IN_DISTRICT
+        source_table: das__staged.neighbour
+        target_transformation_expression: district_id

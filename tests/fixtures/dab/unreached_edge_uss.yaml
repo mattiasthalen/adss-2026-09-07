@@ -1,0 +1,10 @@
+# One event, on the one entity that has one. STRANGER and ELSEWHERE are not reached.
+uss:
+  events:
+    - id: HAPPENED
+      entity: PARENT
+      definition: A parent happened.
+      kind: transaction
+      date_attribute: HAPPENED_ON
+      measures:
+        - {id: HAPPENED_PARENTS_COUNT, definition: How many happened., aggregate: count}

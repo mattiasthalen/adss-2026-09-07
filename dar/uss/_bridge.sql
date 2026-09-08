@@ -142,18 +142,44 @@ ordered__order_line_is_part_of_order AS (
     ) = 1
 ),
 
+ordered__order_is_placed_by_customer AS (
+    SELECT
+        revision.order_line_key AS order_line_key,
+        revision._observed_at AS _observed_at,
+        pair."CUSTOMER_key" AS customer_key
+    FROM ordered__order_line_is_part_of_order AS revision
+    LEFT JOIN dab."v_ORDER_IS_PLACED_BY_CUSTOMER" AS pair
+        ON
+            revision.order_key = pair."ORDER_key"
+            AND pair.rel_name = 'ORDER_IS_PLACED_BY_CUSTOMER'
+            AND pair.row_st = 'Y'
+            AND revision._observed_at >= pair.eff_tmstp
+    QUALIFY row_number() OVER (
+        PARTITION BY revision.order_line_key, revision._observed_at
+        ORDER BY
+            pair.eff_tmstp DESC,
+            pair.ver_tmstp DESC,
+            pair."CUSTOMER_key" ASC
+    ) = 1
+),
+
 ordered AS (
     SELECT
         revision.order_line_key AS order_line_key,
         revision._observed_at AS _observed_at,
         order_line_is_part_of_order._event_date AS _event_date,
         order_line_is_part_of_order.order_key AS order_key,
+        order_is_placed_by_customer.customer_key AS customer_key,
         revision._measure__order_line__revenue_order_lines_amount AS _measure__order_line__revenue_order_lines_amount
     FROM ordered__version AS revision
     LEFT JOIN ordered__order_line_is_part_of_order AS order_line_is_part_of_order
         ON
             revision.order_line_key = order_line_is_part_of_order.order_line_key
             AND revision._observed_at = order_line_is_part_of_order._observed_at
+    LEFT JOIN ordered__order_is_placed_by_customer AS order_is_placed_by_customer
+        ON
+            revision.order_line_key = order_is_placed_by_customer.order_line_key
+            AND revision._observed_at = order_is_placed_by_customer._observed_at
     WHERE order_line_is_part_of_order._event_date IS NOT NULL
 )
 
@@ -200,7 +226,7 @@ SELECT
     TRUE AS _is_current,
     ordered._observed_at AS _observed_at,
     ordered.order_key AS order_key,
-    cast(NULL AS VARCHAR) AS customer_key,
+    ordered.customer_key AS customer_key,
     ordered.order_line_key AS order_line_key,
     cast(NULL AS BIGINT) AS _measure__order__placed_orders_count,
     cast(NULL AS DECIMAL(28, 8)) AS _measure__order__freight_orders_amount,
