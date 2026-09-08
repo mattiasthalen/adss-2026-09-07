@@ -41,7 +41,11 @@ They are in `docs/conventions.md` §1.4 and checked by `tests/test_mapping_rules
   its failure is invisible in both of a question's acceptance queries.
 - **M2 — exactly one primary key.** Two entries are read as two *alternate identifiers*, not
   as a composite key, and that mode cannot be undone once loaded. Compose with
-  `concat(cast(a AS VARCHAR), '-', cast(b AS VARCHAR))` — the separator is not cosmetic.
+  `cast(a AS VARCHAR) || '-' || cast(b AS VARCHAR)` — the separator is not cosmetic, and
+  **not `concat`**, which ignores nulls and turns a missing half into a shorter key that collides
+  with a real one. `||` yields null and fails at the engine instead. Two entries are refused at
+  deploy unless `allow_multiple_identifiers` is set, and with it the key becomes a minted UUID.
+  ADR 0010.
 
 ## What the engine does and does not do
 
