@@ -53,9 +53,9 @@ question references them; it does not restate them.
 - **Where**: not asked. Geography belongs to questions 1 and 2; adding it here would ask a third
   thing at the same time as the two new ones this slice already introduces.
 - **When**: all history, by the month the order was **accepted** (`_calendar.month_label`,
-  `YYYY-MM`) — 23 months, the same 23 the first question spans. Revenue is attributed to the day
-  demand arrived, not the day goods left: that is a different question and would need the
-  shipment event.
+  `YYYY-MM`) — 23 months, the same 23 the first question spans, and the last of them is partial.
+  Revenue is attributed to the day demand arrived, not the day goods left: that is a different
+  question and would need the shipment event.
 - **What will you do with it**: read it beside q01. A month whose orders rose and whose revenue
   did not is a month of smaller orders, and that is a different problem from a quiet month.
 
@@ -108,6 +108,18 @@ dropped by either query's join, and the two agree for the reason they should rat
 dropping the same rows. Were a line's order missing, it would have no bridge row at all, because
 an inherited date that does not resolve produces no row; the control mirrors that with an inner
 join rather than by filtering afterwards.
+
+## Where the series stops
+
+The recording ends on **1998-05-06**, so the last month on the chart is six days long: 14 orders
+against 74 in April. Drawn at full strength beside twenty-two whole months it reads as a collapse
+in demand, which is reading the edge of the recording rather than the business. The page marks
+that bar and says so beneath it.
+
+This is not new to slice 4 — every question here spans the same 23 months and the same short last
+one. It is loud in a bar chart of a single magnitude in a way it is not in a heatmap, which is the
+picture doing its job: a form that makes the truth obvious also makes the artefact of the
+recording obvious.
 
 ## The composed key
 
