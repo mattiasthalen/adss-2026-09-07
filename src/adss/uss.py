@@ -343,7 +343,25 @@ def entity_keys(model: Model, uss: Uss) -> tuple[str, ...]:
 
 
 def bridge_columns(model: Model, uss: Uss) -> tuple[str, ...]:
-    """The published column contract, in order. A model change appends; it never rearranges."""
+    """The published column contract, in order.
+
+    Grouped: the structural columns, then one key per entity in model order, then one column
+    per measure in declaration order.
+
+    That grouping means the contract does NOT only ever grow at the end, and saying otherwise
+    would be the more comfortable lie. A new entity appends a key, and because keys precede
+    measures, every measure column moves right. An entity inserted in the middle of the model
+    moves the keys after it as well. So the model file's own order is part of this contract,
+    and nothing here can catch a rearrangement: the check that compares the built bridge to
+    this contract derives what it expects from this same function, so both sides move together
+    and it passes either way.
+
+    What makes that tolerable rather than a defect is that nothing reads this table by
+    position. Conventions section 3 forbids `SELECT *`, the questions name their columns and
+    so does the destination. A consumer that did read positionally would be reading a contract
+    this docstring does not offer it. New entities still go at the end, because moving a key
+    column is a bigger change than moving a measure. Blueprint B7.
+    """
     keys = entity_keys(model, uss)
     structural = ("_stage", "_event", "_event_date", "_is_current", "_observed_at")
     return structural + keys + tuple(column for _, _, column in uss.measure_columns())

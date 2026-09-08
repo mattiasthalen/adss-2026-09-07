@@ -99,6 +99,38 @@ def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[
             )
         )
 
+    # The one engine behaviour the whole as-of rule rests on, and the only one not pinned
+    # until now: that `v_<edge>` hands over the RAW pairs. If a release added ranking inside
+    # it, the rule ADR 0006 spends generated SQL to own would silently revert to the vendor's
+    # "as of now", and every check and both questions would still pass. Pinned two ways: it
+    # still exposes the columns only an unranked read has, and it still returns every row the
+    # pair table holds for that relationship.
+    for edge in model.relationships:
+        exposed = _columns(connection, f"v_{edge.id}")
+        findings.append(
+            Finding(
+                f"dab.v_{edge.id} still hands over the raw pairs",
+                {"row_st", "ver_tmstp", "rel_name"} <= set(exposed),
+                f"{exposed} -- the ranked view drops row_st and ver_tmstp, so losing them "
+                f"here means this object has become a ranked one and the as-of rule is the "
+                f"vendor's again",
+            )
+        )
+        counted = connection.execute(
+            f'SELECT (SELECT count(*) FROM dab."v_{edge.id}" WHERE rel_name = ?), '
+            f'(SELECT count(*) FROM dab."{edge.source_entity_id}_{edge.target_entity_id}_x")',
+            [edge.id],
+        ).fetchone()
+        through, raw = counted if counted else (None, None)
+        findings.append(
+            Finding(
+                f"dab.v_{edge.id} filters nothing out of the pair table",
+                through == raw,
+                f"{through} through the view, {raw} in the pair table -- a gap means the view "
+                f"has started ranking or filtering, and the generator ranks it a second time",
+            )
+        )
+
     # The description table is where an ingestion-strategy defect would be visible, and the
     # only place: every presentation view hides it.
     for entity in model.entities:

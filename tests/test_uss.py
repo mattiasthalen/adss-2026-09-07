@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from adss.model import Relationship, read_model
+from adss.model import Attribute, AttributeType, Entity, Relationship, read_model
 from adss.uss import (
     Uss,
     UssError,
@@ -368,3 +368,51 @@ def test_an_edge_from_an_entity_to_itself_is_refused_for_the_same_reason():
     )
     with pytest.raises(UssError, match="points at the entity it runs from"):
         read_uss(FIXTURES / "uss.yaml", reflexive)
+
+
+def test_an_entity_appended_to_the_model_appends_its_key_and_moves_nothing():
+    """B7 says change is additive, and for this contract that means appended to the END.
+
+    An entity inserted in the middle of the model moves every key column after it, and nothing
+    can catch that: the check derives what it expects from the same function that built the
+    table, so both sides move together. So the property is pinned here, on the one shape that
+    is actually safe.
+    """
+    model, uss = plan()
+    before = bridge_columns(model, uss)
+    later = replace(
+        model,
+        entities=(
+            *model.entities,
+            Entity(
+                id="LATECOMER",
+                definition="Arrived after the contract was published.",
+                attributes=(
+                    Attribute(
+                        id="LATECOMER_NUMBER", type=AttributeType.STRING, definition="Its number."
+                    ),
+                ),
+            ),
+        ),
+        relationships=(
+            *model.relationships,
+            Relationship(
+                name="ALSO_SITS_BESIDE",
+                source_entity_id="CHILD",
+                target_entity_id="LATECOMER",
+                definition="A later edge.",
+            ),
+        ),
+    )
+    after = bridge_columns(later, read_uss(FIXTURES / "uss.yaml", later))
+    keys = [c for c in before if c.endswith("_key")]
+    assert [c for c in after if c.endswith("_key")] == [*keys, "latecomer_key"], (
+        "the new key goes last among the keys; no existing key moves"
+    )
+    measures = [c for c in before if c.startswith("_measure__")]
+    assert [c for c in after if c.startswith("_measure__")] == measures, (
+        "and no measure is added, reordered or renamed by adding an entity"
+    )
+    # But the measures DO all move right, because keys precede them. That is the property the
+    # docstring used to deny, and it is why nothing may read this table by position.
+    assert after.index(measures[0]) == before.index(measures[0]) + 1
