@@ -12,7 +12,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from adss.platform import require_detached
+import yaml
+
+from adss.platform import reading, require_detached
 
 TOOL = "daana-cli"
 
@@ -26,6 +28,29 @@ class EnginePinError(Exception):
 
 class EngineError(Exception):
     """The engine refused. The message says what actually happened where we can tell."""
+
+
+def metadata_schema(connections: Path, profile: str = "dev") -> str:
+    """Where the engine keeps its own bookkeeping, according to the profile that decides it."""
+    declared = yaml.safe_load(connections.read_text())["connections"][profile]
+    return str(declared["metadata_schema"])
+
+
+def is_installed(warehouse: Path, schema: str) -> bool:
+    """Whether the framework is already in this warehouse.
+
+    Asked of the warehouse rather than of the engine, because the engine answers by failing:
+    a second install exits non-zero and tells you to drop the schemas. That is correct for a
+    person and wrong for a build, which must be runnable twice.
+    """
+    if not warehouse.exists():
+        return False
+    with reading(warehouse) as connection:
+        found = connection.execute(
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = ?",
+            [schema],
+        ).fetchone()
+    return bool(found and found[0])
 
 
 @dataclass(frozen=True, slots=True)

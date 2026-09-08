@@ -21,6 +21,9 @@ STAGED = "staged.sql"
 USS = "uss.sql"
 
 
+ID = re.compile(r"\A[a-z0-9][a-z0-9_-]*\Z")
+
+
 class QuestionError(Exception):
     """A question that cannot be answered as written."""
 
@@ -61,9 +64,20 @@ def read_question(directory: Path) -> Question:
     if parsed is None:
         raise QuestionError(f"{directory}: question.md has no front matter")
     front = yaml.safe_load(parsed.group(1))
+    # The id becomes a file name and an environment variable, so it may not be empty, contain a
+    # separator, or be anything a shell or a path would read as more than a name. An empty one
+    # is the worst of them: it means "every question" to the page, so the record of what was
+    # delivered for this question would quietly be a picture of all of them.
+    identifier = str(front["id"])
+    if not ID.match(identifier):
+        raise QuestionError(
+            f"{directory}: {identifier!r} is not a usable question id. It names a file and an "
+            f"environment variable, so it must be lower-case letters, digits, hyphen and "
+            f"underscore, and must not be empty."
+        )
     return Question(
         directory=directory,
-        id=str(front["id"]),
+        id=identifier,
         status=Status(str(front["status"])),
         persona=str(front["persona"]),
         question=str(front["question"]),

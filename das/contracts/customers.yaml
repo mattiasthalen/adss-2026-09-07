@@ -1,0 +1,81 @@
+# What the source sends, what it is called here, and what type it becomes. This file is the
+# documentation, the schema and the transformation; there is nothing beside it to keep in
+# step. Descriptions stay in the source's vocabulary -- what a thing MEANS is dab/model.yaml's
+# job, and saying it twice is how two numbers start disagreeing.
+endpoints:
+  source:
+    provider: odata
+    service: https://demodata.grapecity.com/northwind/odata/v1
+    entity: Customers
+    page_size: 100  # the service rejects $top above 100 with a bare 400
+  target:
+    platform: duckdb
+    models: [historized, current]
+
+ownership:
+  team: adss
+  upstream: >-
+    A public demo OData service. No owner, no SLA and no change notification, so a failing
+    contract check is the notification. The recording under das/fixtures is what every build
+    reads; the scheduled live run is what says the recording has gone stale.
+
+schema:
+  primary_keys: [customer_id]
+  columns:
+    - source_path: CustomerId
+      target_name: customer_id
+      type: STRING
+      mode: REQUIRED
+      description: >-
+        Edm.String, Nullable=false. The entity key. A five-character code rather than a
+        number, which is why it needs no cast to become a key.
+    - source_path: CompanyName
+      target_name: company_name
+      type: STRING
+      mode: REQUIRED
+      description: Edm.String, Nullable=false. The only other property the metadata marks required.
+    - source_path: ContactName
+      target_name: contact_name
+      type: STRING
+      mode: NULLABLE
+      description: Edm.String.
+    - source_path: ContactTitle
+      target_name: contact_title
+      type: STRING
+      mode: NULLABLE
+      description: Edm.String.
+    - source_path: Address
+      target_name: address
+      type: STRING
+      mode: NULLABLE
+      description: Edm.String.
+    - source_path: City
+      target_name: city
+      type: STRING
+      mode: NULLABLE
+      description: Edm.String.
+    - source_path: Region
+      target_name: region
+      type: STRING
+      mode: NULLABLE
+      description: Edm.String. Absent from most records rather than empty.
+    - source_path: PostalCode
+      target_name: postal_code
+      type: STRING
+      mode: NULLABLE
+      description: Edm.String.
+    - source_path: Country
+      target_name: country
+      type: STRING
+      mode: NULLABLE
+      description: Edm.String. The service's own spelling, unnormalised.
+    - source_path: Phone
+      target_name: phone
+      type: STRING
+      mode: NULLABLE
+      description: Edm.String.
+    - source_path: Fax
+      target_name: fax
+      type: STRING
+      mode: NULLABLE
+      description: Edm.String.

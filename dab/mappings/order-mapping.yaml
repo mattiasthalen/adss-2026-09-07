@@ -14,3 +14,13 @@ mapping_groups:
           - {id: ORDER_NUMBER, transformation_expression: cast(order_id AS VARCHAR)}
           - {id: PLACED_ON, transformation_expression: order_date}
           - {id: DESTINATION_COUNTRY, transformation_expression: ship_country}
+          - {id: FREIGHT_CHARGE, transformation_expression: freight}
+    # M6. The id is <SRC>_<NAME>_<TGT>; source_table is byte-identical to the table above,
+    # because a mismatch is skipped in silence; and the target expression is spelled exactly
+    # as customer-mapping.yaml spells its own key, because a different spelling produces
+    # pairs that join to nothing and nothing says so at deploy, at execute or in either
+    # acceptance query.
+    relationships:
+      - id: ORDER_IS_PLACED_BY_CUSTOMER
+        source_table: das__staged.orders
+        target_transformation_expression: customer_id

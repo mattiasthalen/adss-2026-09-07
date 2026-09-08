@@ -14,10 +14,11 @@ from dataclasses import dataclass
 import duckdb
 
 from adss.contract import read_contract
-from adss.model import read_model
+from adss.model import Model, read_model
+from adss.names import Relation, Schema, crossing
 from adss.project import Project
 from adss.question import Status, read_questions, without_comments
-from adss.uss import bridge_columns, read_uss
+from adss.uss import BRIDGE, bridge_columns, read_uss
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +32,10 @@ class Finding:
 
 def _rows(connection: duckdb.DuckDBPyConnection, sql: str) -> list[tuple[object, ...]]:
     return [tuple(row) for row in connection.execute(without_comments(sql)).fetchall()]
+
+
+def _columns(connection: duckdb.DuckDBPyConnection, name: str) -> list[str]:
+    return [column for column, *_ in connection.execute(f'DESCRIBE dab."{name}"').fetchall()]
 
 
 def _zero(connection: duckdb.DuckDBPyConnection, sql: str) -> tuple[bool, str]:
@@ -73,20 +78,56 @@ def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[
                     f"{rows} rows -- if this is no longer 0 the generator should read it",
                 )
             )
-        with_rel = [
-            name
-            for name, *_ in connection.execute(
-                f'DESCRIBE dab."view_{entity.id}_with_rel"'
-            ).fetchall()
-        ]
-        plain = [
-            name for name, *_ in connection.execute(f'DESCRIBE dab."view_{entity.id}"').fetchall()
+        # `view_<E>_with_rel` is not one behaviour but two, and the name says neither. On an
+        # edge's SOURCE side it is a passthrough. On its TARGET side it becomes a join back to
+        # the source entity, carrying that entity's key AND all its attributes, one row per
+        # source row -- so summing a target's own measure over it multiplies. Slice 1 asserted
+        # the passthrough of every entity, which was only ever true because it had no edges.
+        with_rel = _columns(connection, f"view_{entity.id}_with_rel")
+        plain = _columns(connection, f"view_{entity.id}")
+        inbound = [e for e in model.relationships if e.target_entity_id == entity.id]
+        fanned = plain + [
+            c for e in inbound for c in _columns(connection, f"view_{e.source_entity_id}")
         ]
         findings.append(
             Finding(
-                f"dab.view_{entity.id}_with_rel still carries no relationship key",
-                with_rel == plain,
-                f"with_rel {with_rel} vs plain {plain}",
+                f"dab.view_{entity.id}_with_rel is what a {'target' if inbound else 'source'} "
+                f"side looks like",
+                with_rel == fanned,
+                f"with_rel {with_rel} vs expected {fanned} -- if this changed, the generator's "
+                f"reason for never reading this view has changed with it",
+            )
+        )
+
+    # The one engine behaviour the whole as-of rule rests on, and the only one not pinned
+    # until now: that `v_<edge>` hands over the RAW pairs. If a release added ranking inside
+    # it, the rule ADR 0006 spends generated SQL to own would silently revert to the vendor's
+    # "as of now", and every check and both questions would still pass. Pinned two ways: it
+    # still exposes the columns only an unranked read has, and it still returns every row the
+    # pair table holds for that relationship.
+    for edge in model.relationships:
+        exposed = _columns(connection, f"v_{edge.id}")
+        findings.append(
+            Finding(
+                f"dab.v_{edge.id} still hands over the raw pairs",
+                {"row_st", "ver_tmstp", "rel_name"} <= set(exposed),
+                f"{exposed} -- the ranked view drops row_st and ver_tmstp, so losing them "
+                f"here means this object has become a ranked one and the as-of rule is the "
+                f"vendor's again",
+            )
+        )
+        counted = connection.execute(
+            f'SELECT (SELECT count(*) FROM dab."v_{edge.id}" WHERE rel_name = ?), '
+            f'(SELECT count(*) FROM dab."{edge.source_entity_id}_{edge.target_entity_id}_x")',
+            [edge.id],
+        ).fetchone()
+        through, raw = counted if counted else (None, None)
+        findings.append(
+            Finding(
+                f"dab.v_{edge.id} filters nothing out of the pair table",
+                through == raw,
+                f"{through} through the view, {raw} in the pair table -- a gap means the view "
+                f"has started ranking or filtering, and the generator ranks it a second time",
             )
         )
 
@@ -134,8 +175,88 @@ def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[
 
 
 def contracts_of(project: Project) -> tuple[str, ...]:
-    """Every contract this project declares. Used to generate the checks above."""
+    """Every contract this project declares, by the object it generates.
+
+    Two commands write into `checks/` and each sweeps what neither generates, so each has to
+    know the other's file names. This is how the DAR generator knows which files belong to a
+    contract without reading contracts for anything else.
+    """
     return tuple(read_contract(path).table for path in project.contract_paths())
+
+
+def relationship_check_names(model: Model) -> tuple[str, ...]:
+    """What relationship_checks would be called, without emitting or formatting any of it.
+
+    The contract side of `checks/` only needs the names, to leave these files alone. Building
+    the SQL for that would run the fixer over every check and throw the result away, which
+    also makes a DAS command fail when the DAB model is unreadable.
+    """
+    return tuple(
+        f"{edge.id.lower()}__{suffix}.sql"
+        for edge in model.relationships
+        for suffix in ("one_target", "loaded", "resolves")
+    )
+
+
+_EDGE = "-- Generated from dab/model.yaml. Do not edit; regenerate with `adss dar generate`."
+
+
+def relationship_checks(model: Model) -> dict[str, str]:
+    """One check per way an edge fails without saying so. ADR 0006.
+
+    All three failures look identical in the built warehouse -- an inherited key that is null,
+    or wrong, on rows that look like data rather than like a defect -- and none of them is
+    reported by the engine at deploy, at execute, or by a question's acceptance queries.
+    """
+    generated: dict[str, str] = {}
+    for edge in model.relationships:
+        source = model.entity(edge.source_entity_id)
+        target = model.entity(edge.target_entity_id)
+        pairs = f'dab."v_{edge.id}"'
+        open_pairs = (
+            f"FROM {pairs} AS pair\nWHERE pair.rel_name = '{edge.id}'\n    AND pair.row_st = 'Y'"
+        )
+        name = edge.id.lower()
+
+        # The generator resolves a tie with row_number(), so it can never fan out -- but
+        # resolving a tie deterministically is still choosing arbitrarily between two answers.
+        generated[f"{name}__one_target"] = (
+            f"{_EDGE}\n"
+            f"SELECT count(*) AS ambiguities\n"
+            f"FROM (\n"
+            f"    SELECT\n"
+            f"        pair.{crossing(source.source_key)} AS source_key,\n"
+            f"        pair.eff_tmstp AS observed_at\n"
+            f"    {open_pairs}\n"
+            f"    GROUP BY pair.{crossing(source.source_key)}, pair.eff_tmstp\n"
+            f"    HAVING count(DISTINCT pair.{crossing(target.source_key)}) > 1\n"
+            f") AS tied;\n"
+        )
+
+        # An edge that loaded nothing is what a mis-spelled M6 source_table looks like: the
+        # engine skips the relationship in silence and every inherited key is null.
+        generated[f"{name}__loaded"] = (
+            f"{_EDGE}\n"
+            f"SELECT count(*) AS unloaded\n"
+            f"FROM (SELECT 1 AS declared) AS edge\n"
+            f"WHERE NOT EXISTS (\n"
+            f"    SELECT 1\n"
+            f"    {open_pairs}\n"
+            f");\n"
+        )
+
+        # And a target expression of the wrong shape loads pairs that join to nothing.
+        generated[f"{name}__resolves"] = (
+            f"{_EDGE}\n"
+            f"SELECT count(*) AS dangling\n"
+            f"FROM {BRIDGE.sql} AS b\n"
+            f"LEFT JOIN {Relation(Schema.DAR_USS, target.object_name).sql} AS t\n"
+            f"    ON b.{target.key_column} = t.{target.key_column}\n"
+            f"WHERE b._stage = '{source.object_name}'\n"
+            f"    AND b.{target.key_column} IS NOT NULL\n"
+            f"    AND t.{target.key_column} IS NULL;\n"
+        )
+    return generated
 
 
 def _first_gap(control: list[tuple[object, ...]], answer: list[tuple[object, ...]]) -> str:

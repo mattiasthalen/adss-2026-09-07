@@ -43,8 +43,11 @@ Field by field:
 
 The register is read at the start of every slice. Each open entry is checked against its exit
 condition **and against whether its argument is still being carried on assertion** — D-0001's
-justification rests on a walk over many-to-one edges, which slice 1's single entity does not
-exercise at all. An entry should also be re-read the moment a second consumer appears, not only
+justification rests on measures not multiplying across a walk over many-to-one edges. Slice 2
+built the first edge, so the walk is now exercised; the property it is supposed to protect is
+not, because both entities on that edge are at the same grain and no measure *can* multiply
+across it. The first measure at a finer grain arrives in slice 4, and that is where the
+argument stops being carried on assertion. ADR 0006 says the same in as many words. An entry should also be re-read the moment a second consumer appears, not only
 when isolation is demanded, because by then the shared structure will already have shaped both
 readers. An entry whose exit condition has been met and which is still open is a defect in the
 same way a failing test is: the system is no longer doing what its own documentation says.

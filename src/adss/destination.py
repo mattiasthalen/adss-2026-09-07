@@ -57,7 +57,7 @@ def shim(cache: Path, build: str, bundled: Path = BUNDLED) -> None:
 
 
 def _capture(
-    notebook: Path, shot: Path, cache: Path, height: int
+    notebook: Path, shot: Path, cache: Path, height: int, question: str = ""
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
@@ -84,22 +84,27 @@ def _capture(
         capture_output=True,
         text=True,
         check=False,
-        env=dict(os.environ, PLAYWRIGHT_BROWSERS_PATH=str(cache)),
+        env=dict(os.environ, PLAYWRIGHT_BROWSERS_PATH=str(cache), ADSS_QUESTION=question),
     )
 
 
-def shoot(notebook: Path, into: Path, cache: Path, height: int = 1800) -> Path:
-    """Execute the page and photograph it. Fails if it did not actually render."""
+def shoot(notebook: Path, into: Path, cache: Path, height: int = 1800, question: str = "") -> Path:
+    """Execute the page and photograph it. Fails if it did not actually render.
+
+    One question at a time. The page is one document and the shot has a fixed height, so a
+    single picture of everything stops being either readable or attachable at the second
+    question -- and it is one question a slice is accepted on.
+    """
     into.mkdir(parents=True, exist_ok=True)
     cache.mkdir(parents=True, exist_ok=True)
-    shot = into / f"{notebook.stem}.png"
+    shot = into / f"{question or notebook.stem}.png"
 
-    completed = _capture(notebook, shot, cache, height)
+    completed = _capture(notebook, shot, cache, height, question)
     output = completed.stdout + completed.stderr
     asked_for = WANTED.search(output)
     if asked_for and not shot.exists():
         shim(cache, asked_for.group(1))
-        completed = _capture(notebook, shot, cache, height)
+        completed = _capture(notebook, shot, cache, height, question)
         output = completed.stdout + completed.stderr
 
     if "some cells failed" in output:

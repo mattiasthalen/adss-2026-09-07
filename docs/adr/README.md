@@ -2,7 +2,14 @@
 
 One file per decision, numbered, in [MADR](https://adr.github.io/madr/) format. A record is
 **superseded by a new file, never edited**, because the value of a decision record is the record
-of what was true when it was made.
+of what was true when it was made. A claim that turns out to be wrong is corrected in the record
+that found it wrong, named and quoted, rather than quietly rewritten where it stands — ADR 0006
+corrects two of ADR 0002's.
+
+**The Confirmation section is the one exception**, because it is not a record of anything: it is a
+claim about which checks exist *now*, and a stale one is a lie about the present rather than an
+honest account of the past. It is edited to match the checks, and only ever to match them. Twice
+already it had drifted the other way — describing a check somebody meant to write.
 
 An ADR lands **before** the code it decides. A decision record written afterwards records what
 was built, not what was decided.
@@ -15,3 +22,4 @@ was built, not what was decided.
 | [0003](0003-a-das-contract-is-one-artefact.md) | A DAS contract is documentation, schema and transformation in one artefact | 1 |
 | [0004](0004-daana-cli-is-the-dab-engine.md) | daana-cli is the DAB engine, vendored and checksum-pinned | 1 |
 | [0005](0005-a-question-is-the-unit-of-delivery.md) | A business question is the unit of delivery, with two queries that must agree | 1 |
+| [0006](0006-an-inherited-key-is-resolved-as-of-the-row-that-inherits-it.md) | An inherited key is resolved from the raw pairs, as of the row that inherits it | 2 |

@@ -7,17 +7,51 @@ them accept it and then corrupt data quietly. Conventions section 1.4, ADR 0004.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
+from adss.model import Model
 from adss.names import Schema
 
 # An attribute expression may read its own row: a column, a cast of one, or a CASE over
 # them. Anything else is a join, and every join must come from a declared relationship.
 _REACHING = re.compile(r"\b(select|join|from|over|group\s+by)\b", re.IGNORECASE)
 _AGGREGATE = re.compile(r"\b(sum|count|min|max|avg|any_value|array_agg)\s*\(", re.IGNORECASE)
+
+# A key expression is compared by shape, not by spelling: only the casting decides what
+# VARCHAR the two sides of an edge produce. Everything not a type or an operator is a name.
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
+_LITERAL = re.compile(r"'[^']*'")
+_SHAPE_WORDS = frozenset(
+    {
+        "cast",
+        "as",
+        "concat",
+        "coalesce",
+        "varchar",
+        "char",
+        "text",
+        "string",
+        "integer",
+        "int",
+        "bigint",
+        "smallint",
+        "tinyint",
+        "hugeint",
+        "decimal",
+        "numeric",
+        "double",
+        "real",
+        "float",
+        "date",
+        "timestamp",
+        "boolean",
+        "uuid",
+    }
+)
 
 REQUIRED_STRATEGY = "FULL_LOG"
 REQUIRED_CLOCK = "extracted_at"
@@ -39,12 +73,22 @@ class Table:
 
 
 @dataclass(frozen=True, slots=True)
+class Relationship:
+    """One declared edge, as the mapping spells it."""
+
+    id: str
+    source_table: str
+    target_expression: str
+
+
+@dataclass(frozen=True, slots=True)
 class Mapping:
     """How one entity is loaded."""
 
     path: Path
     entity_id: str
     tables: tuple[Table, ...]
+    relationships: tuple[Relationship, ...] = ()
 
 
 def read_mapping(path: Path) -> Mapping:
@@ -65,7 +109,21 @@ def read_mapping(path: Path) -> Mapping:
         for group in document["mapping_groups"]
         for table in group["tables"]
     ]
-    return Mapping(path=path, entity_id=str(document["entity_id"]), tables=tuple(tables))
+    relationships = [
+        Relationship(
+            id=str(declared["id"]),
+            source_table=str(declared["source_table"]),
+            target_expression=str(declared["target_transformation_expression"]),
+        )
+        for group in document["mapping_groups"]
+        for declared in group.get("relationships", [])
+    ]
+    return Mapping(
+        path=path,
+        entity_id=str(document["entity_id"]),
+        tables=tuple(tables),
+        relationships=tuple(relationships),
+    )
 
 
 def check_mapping(mapping: Mapping) -> None:
@@ -112,4 +170,104 @@ def check_mapping(mapping: Mapping) -> None:
             raise MappingError(
                 f"{where}: M7 -- every mapped table carries at least one attribute. The "
                 f"engine refuses an entity with none, at deploy rather than at review."
+            )
+
+
+def key_shape(expression: str) -> str:
+    """A key expression with its column names removed, which is what M6 compares.
+
+    M6 asks that a relationship's target expression mirror the target entity's own key
+    expression. It is the *shape* that has to match, not the spelling: a foreign key column is
+    routinely named differently from the primary key it points at. What must not differ is the
+    casting, because that is what decides the VARCHAR the two sides produce -- a bare column on
+    one side and a cast on the other join to nothing at all.
+    """
+    parts: list[str] = []
+    last = 0
+    for literal in _LITERAL.finditer(expression):
+        # A separator inside a concat is part of the shape and survives verbatim: 'A1' + '23'
+        # and 'A12' + '3' are one key without it.
+        parts.append(_without_names(expression[last : literal.start()]))
+        parts.append(literal.group(0))
+        last = literal.end()
+    parts.append(_without_names(expression[last:]))
+    return " ".join("".join(parts).split())
+
+
+def _without_names(fragment: str) -> str:
+    def anonymous(word: re.Match[str]) -> str:
+        found = word.group(0).lower()
+        if found in _SHAPE_WORDS:
+            return found
+        # A name immediately followed by "(" is a function, and a function decides the value
+        # as surely as a cast does: lpad(x, 5, '0') and x produce different keys, and
+        # anonymising the name would make them the same shape.
+        called = fragment[word.end() : word.end() + 1] == "("
+        return found if called else "?"
+
+    return _IDENTIFIER.sub(anonymous, fragment)
+
+
+def check_relationships(mappings: Sequence[Mapping], model: Model) -> None:
+    """Refuse what M6 refuses. Every one of its failures is silent in the built warehouse.
+
+    A mis-spelled `source_table` is skipped by the engine without a word, a differently shaped
+    target expression makes pairs that join to nothing, and an edge no mapping loads makes no
+    pairs at all. All three show up as an inherited key that is null everywhere, which reads
+    as data rather than as a defect. ADR 0006.
+    """
+    loaded: list[tuple[Mapping, Relationship]] = [
+        (mapping, edge) for mapping in mappings for edge in mapping.relationships
+    ]
+    declared = {edge.id for _, edge in loaded}
+    modelled = {edge.id: edge for edge in model.relationships}
+
+    for edge_id in modelled:
+        if edge_id not in declared:
+            raise MappingError(
+                f"M6 -- {model.path.name} declares {edge_id} and no mapping loads it. The "
+                f"engine builds no pair object at all, so every join along that edge returns "
+                f"null, which reads as 'these rows have no target' rather than as a gap."
+            )
+
+    for mapping, edge in loaded:
+        edge_id = edge.id
+        where = mapping.path.name
+        if edge_id not in modelled:
+            expected = [candidate.id for candidate in model.edges_from(mapping.entity_id)]
+            raise MappingError(
+                f"{where}: M6 -- {edge_id} is not an edge {model.path.name} declares. An id "
+                f"is <SRC>_<NAME>_<TGT>, so {mapping.entity_id} can load {expected or 'none'}. "
+                f"The engine would build this pair object from the mapping alone: it would "
+                f"work, and be an edge nothing explains."
+            )
+        declared = modelled[edge_id]
+        if mapping.entity_id != declared.source_entity_id:
+            raise MappingError(
+                f"{where}: M6 -- {edge_id} runs from {declared.source_entity_id}, and this "
+                f"mapping loads {mapping.entity_id}. An edge is declared by the entity it "
+                f"runs from, because that is the row the target expression reads."
+            )
+        tables = {table.table for table in mapping.tables}
+        if edge.source_table not in tables:
+            raise MappingError(
+                f"{where}: M6 -- {edge_id} names source_table {edge.source_table!r}, which is "
+                f"not byte-identical to any table in its group ({sorted(tables)}). The engine "
+                f"skips a relationship whose source_table it cannot match, in silence, and "
+                f"the inherited key is then null on every row."
+            )
+        target = next((one for one in mappings if one.entity_id == declared.target_entity_id), None)
+        if target is None:
+            raise MappingError(
+                f"{where}: M6 -- {edge_id} points at {declared.target_entity_id}, which no "
+                f"mapping loads. There is nothing for the pairs to join to."
+            )
+        keys = {key_shape(key) for table in target.tables for key in table.primary_keys}
+        if key_shape(edge.target_expression) not in keys:
+            raise MappingError(
+                f"{where}: M6 -- {edge_id} targets {edge.target_expression!r}, which is not "
+                f"shaped like {declared.target_entity_id}'s own key ({sorted(keys)} with the "
+                f"names taken out). The column may be named anything; the casting may not "
+                f"differ, because a bare column and a cast produce different keys and the "
+                f"pairs then join to nothing."
             )

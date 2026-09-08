@@ -60,9 +60,21 @@ has a `START_TIMESTAMP` attribute; confirmed, not assumed.
   whatever has the warehouse open.
 - **`<entity>_focal` and `<entity>_idfr` are created and never populated** on this platform.
   Anything joining to them returns nothing, with no error. DAR reads the `view_*` layer only.
-- **`view_<entity>_with_rel` carries no relationship keys** despite its name. Its columns are
-  identical to `view_<entity>`. Relationship keys come from `view_<src>_<rel>_<tgt>` or the
-  pair table.
+- **`view_<entity>_with_rel` is two different things and its name says neither.** On a
+  relationship's **source** side it is a passthrough: its columns are identical to
+  `view_<entity>`, and it carries no relationship key at all. On a relationship's **target**
+  side it becomes a join back to the source entity and gains that entity's key *and every one
+  of its attributes*, one row per source row — so it **fans out**, and summing the target's own
+  measure over it multiplies. Measured on a probe: 200.75 against a true 150.75. Never read it.
+- **Relationship keys come from `v_<src>_<name>_<tgt>`**, which is the raw pair table plus a
+  `rel_name` column. Not `view_<src>_<name>_<tgt>`: that one is a *current* view, ranked with
+  `rank()` — so it re-points a child's whole history at whichever target it points at now, and
+  returns two rows for a child that named two targets at one instant. ADR 0006.
+- **A null foreign key is never retracted.** The engine's reader drops null targets, so
+  "belongs to nobody" cannot be expressed: re-landing a row with a null key writes nothing at
+  all — no row, no tombstone, no `row_st` flip — and the stale pair survives forever.
+- **`type_key` is not stable** across models or even across entities within one. Resolve a
+  relationship by name, never by number.
 - **Object names keep the model's casing**: `view_ORDER`, not `view_order`. Identifiers
   resolve case-insensitively, so a consumer may write either — but code matching names out of
   the catalog must normalise.

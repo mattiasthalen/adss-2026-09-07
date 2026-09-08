@@ -46,3 +46,66 @@ model:
             question about demand by geography means this unless it says otherwise.
           type: STRING
           effective_timestamp: true
+
+        - id: FREIGHT_CHARGE
+          name: FREIGHT_CHARGE
+          definition: What the business paid to have this order carried to its destination.
+          description: >-
+            One amount for the whole order, not per item, and it is a cost of fulfilling the
+            order rather than anything the customer was billed for. Nothing states the
+            currency -- there is only one, and no record of which -- so it is whatever
+            currency the business keeps its books in. That is a gap to be filled, not a
+            convention to be relied on: two currencies added together would look exactly
+            like this.
+          type: NUMBER
+          effective_timestamp: true
+
+    - id: CUSTOMER
+      name: CUSTOMER
+      definition: >-
+        A party the business has agreed to supply, and against whom orders and payment are
+        recorded.
+      description: >-
+        One customer is one such party. It exists from the moment the business is willing to
+        accept an order from it, independently of whether it has ever placed one.
+      attributes:
+        - id: CUSTOMER_CODE
+          name: CUSTOMER_CODE
+          definition: The code the business uses when it refers to one particular customer.
+          description: Unique across all customers, and never reused once issued.
+          type: STRING
+          effective_timestamp: false
+
+        - id: TRADING_NAME
+          name: TRADING_NAME
+          definition: The name the customer trades under, and is addressed by.
+          description: >-
+            What a person would call the customer. Not a legal or registered name, which the
+            business does not record.
+          type: STRING
+          effective_timestamp: true
+
+        - id: BASED_IN_COUNTRY
+          name: BASED_IN_COUNTRY
+          definition: The country the customer itself is in.
+          description: >-
+            Where the customer is, which is a different question from where an order is going
+            -- see DESTINATION_COUNTRY. A question about who is buying means this; a question
+            about where goods move means that. They coincide often enough that using one for
+            the other is easy and wrong.
+          type: STRING
+          effective_timestamp: true
+
+  # No cardinality is declared, because the modelling language has nowhere to declare it: a
+  # `cardinality` field is rejected outright, and `type` accepts any string and is dropped on
+  # compile. Writing `type: "1:N"` here would read as a statement the engine never receives.
+  # That an order has one customer is inferred from the mapping's shape and pinned by a data
+  # check instead. ADR 0006.
+  relationships:
+    - name: IS_PLACED_BY
+      definition: The customer whose request the business accepted when it created this order.
+      description: >-
+        An order is placed by exactly one customer, and by the same one for its whole life:
+        this records who asked for the goods, not who is billed or who receives them.
+      source_entity_id: ORDER
+      target_entity_id: CUSTOMER

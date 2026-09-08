@@ -16,7 +16,12 @@ from typing import Annotated
 import typer
 
 from adss import __version__
-from adss.checks import run_checks
+from adss.checks import (
+    contracts_of,
+    relationship_check_names,
+    relationship_checks,
+    run_checks,
+)
 from adss.contract import read_contract
 from adss.das import (
     clock_check_sql,
@@ -27,15 +32,16 @@ from adss.das import (
     staged_view_sql,
 )
 from adss.destination import shoot
-from adss.engine import Engine
+from adss.engine import Engine, is_installed, metadata_schema
 from adss.landing import land
 from adss.model import read_model
 from adss.names import Schema
 from adss.platform import exclusive, install, reading
 from adss.project import Project
+from adss.question import read_questions
 from adss.source import over_http, record, replay
 from adss.sqlformat import formatted
-from adss.uss import bridge_sql, calendar_sql, peripheral_sql, read_uss
+from adss.uss import bridge_sql, calendar_sql, entity_ids, peripheral_sql, read_uss
 
 app = typer.Typer(
     name="adss",
@@ -178,11 +184,16 @@ def das_unpack(
             check.write_text(laid_out)
             typer.echo(f"wrote {check.relative_to(project.root)}")
 
+    # Names only: this is a DAS command, and it needs to know which files belong to the
+    # other generator, not what they say.
+    written_checks |= {
+        project.checks_sql / name for name in relationship_check_names(read_model(project.model))
+    }
     for orphan in sorted(project.checks_sql.glob("*.sql")):
         if orphan in written_checks:
             continue
         if check_only:
-            typer.echo(f"{orphan.relative_to(project.root)} belongs to no contract")
+            typer.echo(f"{orphan.relative_to(project.root)} belongs to nothing declared")
             stale = True
         else:
             orphan.unlink()
@@ -205,8 +216,16 @@ def das_unpack(
 
 @dab.command("install")
 def dab_install() -> None:
-    """Put the modelling framework into the warehouse. Once per warehouse."""
+    """Put the modelling framework into the warehouse. Once per warehouse, and idempotent.
+
+    The engine refuses a second install and says to drop its schemas, which is right for a
+    person and wrong for a build: a build has to be runnable twice.
+    """
     project = Project.discover()
+    schema = metadata_schema(project.connections)
+    if is_installed(project.warehouse, schema):
+        typer.echo(f"the modelling framework is already in {schema}")
+        return
     _engine(project).run("install", "--connection", "dev")
     typer.echo("installed the modelling framework")
 
@@ -231,11 +250,20 @@ def _generate(project: Project) -> dict[str, str]:
     """The whole generated layer, as file name to SQL. Nothing here is hand-written."""
     model = read_model(project.model)
     uss = read_uss(project.uss, model)
-    entity_ids = list(dict.fromkeys(event.entity_id for event in uss.events))
-    generated = {f"{model.entity(e).object_name}.sql": peripheral_sql(model, e) for e in entity_ids}
+    named = entity_ids(model, uss)
+    generated = {f"{model.entity(e).object_name}.sql": peripheral_sql(model, e) for e in named}
     generated["_bridge.sql"] = bridge_sql(model, uss)
     generated["_calendar.sql"] = calendar_sql()
     return {name: formatted(sql, project.sqlfluff_config) for name, sql in generated.items()}
+
+
+def _generated_checks(project: Project) -> dict[str, str]:
+    """The checks the model generates, as file name to SQL. The contracts generate the rest."""
+    model = read_model(project.model)
+    return {
+        f"{name}.sql": formatted(sql, project.sqlfluff_config)
+        for name, sql in relationship_checks(model).items()
+    }
 
 
 @dar.command("generate")
@@ -247,9 +275,31 @@ def dar_generate(
     """Write the star schema's SQL from the model and its declarations."""
     project = Project.discover()
     project.dar_sql.mkdir(parents=True, exist_ok=True)
+    project.checks_sql.mkdir(parents=True, exist_ok=True)
     stale = False
-    for name, sql in _generate(project).items():
-        written = project.dar_sql / name
+    generated_checks = _generated_checks(project)
+    everything = {project.dar_sql / n: s for n, s in _generate(project).items()}
+    everything |= {project.checks_sql / n: s for n, s in generated_checks.items()}
+
+    # This command is a second writer into checks/, so it sweeps what it no longer generates.
+    # Rename a relationship and the check named for the old one is still executed by `adss
+    # check` -- and an unrunnable check aborts the whole run before a finding is printed.
+    kept = {
+        project.checks_sql / f"{table}__{part}.sql"
+        for table in contracts_of(project)
+        for part in ("clock", "key")
+    } | set(everything)
+    for orphan in sorted(project.checks_sql.glob("*.sql")):
+        if orphan in kept:
+            continue
+        if check:
+            typer.echo(f"{orphan.relative_to(project.root)} belongs to nothing declared")
+            stale = True
+        else:
+            orphan.unlink()
+            typer.echo(f"removed {orphan.relative_to(project.root)}")
+
+    for written, sql in everything.items():
         if check:
             current = written.read_text() if written.exists() else ""
             if current != sql:
@@ -313,7 +363,19 @@ def build(
 
 @app.command("shoot")
 def shoot_destination() -> None:
-    """Photograph the destination, for the pull request the slice is accepted in."""
+    """Photograph the destination, one image per question, beside the question it answers.
+
+    The picture is the record of what was delivered, so it belongs next to what was asked
+    rather than in a directory of screenshots nobody browses.
+    """
     project = Project.discover()
-    image = shoot(project.destination, project.screenshots, project.browser_cache)
-    typer.echo(f"{image} ({image.stat().st_size:,} bytes)")
+    for question in read_questions(project.questions):
+        image = shoot(
+            project.destination,
+            project.screenshots,
+            project.browser_cache,
+            question=question.id,
+        )
+        beside = question.directory / "answer.png"
+        beside.write_bytes(image.read_bytes())
+        typer.echo(f"{beside.relative_to(project.root)} ({image.stat().st_size:,} bytes)")
