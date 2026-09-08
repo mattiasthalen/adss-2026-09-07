@@ -4,8 +4,8 @@ slice: 3
 status: green
 persona: Operations manager
 question: How many orders shipped per shipping month, and how many days did they take?
-aggregation: sum
-measure: ORDER.SHIPPED_ORDERS_COUNT
+aggregation: [count, sum]
+measure: [ORDER.SHIPPED_ORDERS_COUNT, ORDER.SHIP_LAG_ORDERS_DAYS]
 dimensions: [_calendar.month_label]
 time_grain: month
 defines:

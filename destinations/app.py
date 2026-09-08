@@ -155,7 +155,12 @@ def _(INK, MUTED, SEQUENTIAL, SURFACE, a1, alt, mo, pl, q1, shown):
     order = (
         a1.group_by("destination_country")
         .agg(pl.col("placed_orders_count").sum())
-        .sort("placed_orders_count", descending=True)["destination_country"]
+        # Ties broken by name. Without it the order is whatever the sort happened to
+        # produce, so the picture a slice was accepted on changes between runs from identical
+        # data -- and a reviewer diffing the PNG cannot tell a re-sorted tie from a new answer.
+        .sort(["placed_orders_count", "destination_country"], descending=[True, False])[
+            "destination_country"
+        ]
         .to_list()
     )
 
@@ -377,8 +382,9 @@ def _(a2, mo, q2, shown):
 
 
 @app.cell
-def _(answers, asked, mo, pl, shown):
-    q3 = asked[2]
+def _(a1, answers, asked, mo, pl, shown):
+    q3_placed = int(a1["placed_orders_count"].sum())
+    q3 = asked[2] if len(asked) > 2 else asked[-1]
     a3 = answers[q3.id].with_columns(
         pl.col("ship_lag_orders_days").cast(pl.Float64),
         # The division the question deliberately does not store. Conventions section 2: an
@@ -391,6 +397,12 @@ def _(answers, asked, mo, pl, shown):
 
     shipped = int(a3["shipped_orders_count"].sum())
     waited = float(a3["ship_lag_orders_days"].sum())
+    # Read from the data, so it can be zero, and a page that divides by it would take the
+    # whole render down rather than this one question.
+    each = f"{waited / shipped:.1f} days each" if shipped else "nothing shipped"
+    # Counted rather than asserted. Every other number on this page is computed, and a
+    # hardcoded one on the artefact a slice is accepted on goes quietly wrong on the next load.
+    unshipped = int(q3_placed - shipped) if q3_placed else 0
 
     shown(
         q3,
@@ -400,15 +412,15 @@ def _(answers, asked, mo, pl, shown):
 
             *Asked by the {q3.persona.lower()}.*
 
-            ## {shipped:,} orders out, {waited / shipped:.1f} days each
+            ## {shipped:,} orders out, {each}
 
-            on average across **{len(a3)}** months. Twenty-one orders are missing from this
-            entirely, because they have never shipped -- they are absent rather than counted
-            as having taken no time.
+            on average across **{len(a3)}** months. **{unshipped}** orders are missing from
+            this entirely, because they have never shipped -- they are absent rather than
+            counted as having taken no time.
             """
         ),
     )
-    return a3, q3, shipped, waited
+    return a3, each, q3, q3_placed, shipped, unshipped, waited
 
 
 @app.cell

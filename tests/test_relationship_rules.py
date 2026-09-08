@@ -106,7 +106,7 @@ def test_a_function_is_part_of_a_key_expression_shape_and_not_a_name_to_be_strip
     The rule exists to stop pairs that join to nothing, and a function changes the value as
     surely as a cast does -- so anonymising its name would be exactly the wrong half to drop.
     """
-    assert key_shape("customer_id") != key_shape("lpad(customer_id, 5, '0')")
+    assert key_shape("a") != key_shape("lpad(a, 5, '0')")
     assert key_shape("lpad(a, 5, '0')") == key_shape("lpad(b, 5, '0')"), "the column may differ"
     assert key_shape("lpad(a, 5, '0')") != key_shape("rpad(a, 5, '0')"), "the function may not"
     assert key_shape("cast(a AS VARCHAR)") != key_shape("a"), "and neither may the cast"

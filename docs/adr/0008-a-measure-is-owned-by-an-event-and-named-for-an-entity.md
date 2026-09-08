@@ -102,12 +102,28 @@ should say so rather than emit an ambiguous one.
 * Bad, because the deeper mismatch stays: the generator still names by entity what it owns by
   event. This narrows the consequence to nothing rather than removing the cause
 
+### A correction to ADR 0002
+
+The same mismatch makes one sentence of ADR 0002's published column contract false, for the first
+time, in this slice. `_stage` is defined there as "the entity this row is a row *of*", and
+`_measure__<entity>__<measure>` is described as "non-null only on the owning stage". With two
+events on `ORDER` both branches emit `_stage = 'order'`, so all 809 shipped rows share a stage with
+the placed rows while carrying a null `_measure__order__placed_orders_count`. The column is
+non-null only on the owning **event**, which `_event` names and `_stage` does not. The contract's
+behaviour is right; that sentence describing it is not.
+
 ## Confirmation
 
 `tests/test_uss.py` asserts that two events on one entity declaring one measure id are refused,
 and that the same id on two *different* entities is still accepted — which is the case the
 refusal must not catch, since `_measure__<entity>__` already distinguishes those.
 
-A second test asserts that `definitions()` returns one entry per declared measure, so a future
-change that reintroduces a silent overwrite fails on the count rather than on somebody reading a
-page carefully. That is the assertion that would have caught this, and it did not exist.
+A second test asserts that `definitions()` returns one entry per declared measure, counting what
+the glossary returns rather than the declarations twice, so a silent overwrite fails on the count
+rather than on somebody reading a page carefully. That is the assertion that would have caught
+this, and it did not exist.
+
+Both of these were written wrong the first time and a review caught them, which is worth leaving in
+the record: the first named an acceptance case no fixture contained, and the second compared a list
+with itself. A Confirmation section that names a test is only as good as what the test actually
+constructs, and neither of these could have failed for the reason it was written down for.

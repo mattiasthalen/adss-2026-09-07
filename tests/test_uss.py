@@ -91,10 +91,29 @@ def test_a_count_measure_is_one_per_row_and_a_sum_measure_is_its_attribute():
 
 
 def test_an_event_reads_the_history_view_and_keeps_the_latest_version():
-    sql = bridge()
-    assert 'dab."view_PARENT_hist"' in sql
-    assert "row_number() OVER (" in sql
-    assert "ORDER BY" in sql and "eff_tmstp DESC" in sql
+    """Asserted of the version CTE, whole.
+
+    Three whole-file substrings said nothing about it: the INHERIT CTE satisfies every one of
+    them, so the assertions were about a different window than the one they named. All three
+    mutations that matter -- row_number to rank, DESC to ASC, and adding eff_tmstp to the
+    partition -- left the suite green, and none is observable in the warehouse today because
+    every entity has exactly one version.
+    """
+    picked = cte_of(bridge(), "happened__version")
+    assert 'dab."view_PARENT_hist"' in picked
+    window = re.search(r"QUALIFY (\w+)\(\) OVER \((.*?)\) = 1", picked, re.DOTALL)
+    assert window, "the versions are ranked"
+    assert window.group(1) == "row_number", (
+        "rank() returns every tied row, and the engine writes a closing row sharing eff_tmstp"
+    )
+    partition = re.search(r"PARTITION BY ([^\n]+)", window.group(2))
+    assert partition and partition.group(1).strip() == 'revision."PARENT_key"', (
+        "one version per entity. Adding the timestamp makes row_number() return 1 for every "
+        "version, so every version becomes a bridge row"
+    )
+    assert re.search(r"ORDER BY\s+revision\.eff_tmstp DESC", window.group(2)), (
+        "the LATEST version. Ascending keeps the oldest, which this test is named against"
+    )
 
 
 def test_an_entity_with_no_date_for_the_event_has_no_row_for_it():
@@ -139,10 +158,30 @@ def test_an_event_without_a_definition_is_refused():
 
 
 def test_a_stage_that_does_not_own_a_measure_emits_a_typed_null_for_it():
-    sql = bridge()
-    assert "cast(NULL AS BIGINT) AS _measure__parent__finished_parents_count" in sql
-    assert "cast(NULL AS BIGINT) AS _measure__parent__happened_parents_count" in sql
-    assert "cast(NULL AS DECIMAL(28, 8)) AS _measure__parent__size_parents_units" in sql
+    """Every branch, every measure, paired with the value it carries -- not counted.
+
+    Whole-file substrings cannot see ownership: the NULL casts they look for are emitted by
+    SOME branch whatever the generator decides, so deciding ownership by entity rather than by
+    event left the suite green while emitting a column its own CTE does not have. And rotating
+    the value expressions within one branch, leaving the aliases in contract order, emits valid
+    SQL that puts a count into a sum column -- green until a build compares two answers.
+    """
+    _, uss = plan()
+    for event in uss.events:
+        branch = branch_of(bridge(), event.name)
+        for owner, measure, column in uss.measure_columns():
+            value = re.search(rf"^\s*(.+?) AS {re.escape(column)},?$", branch, re.MULTILINE)
+            assert value, f"{event.name} emits no {column}"
+            if owner is event:
+                assert value.group(1) == f"{event.name}.{column}", (
+                    f"{event.name} owns {column}, so it carries its own value for it -- and "
+                    f"carries it under its own name, not another measure's"
+                )
+            else:
+                assert value.group(1) == f"cast(NULL AS {measure.sql_type})", (
+                    f"{event.name} does not own {column}, so it emits a typed NULL. A zero "
+                    f"here would be counted; a value from elsewhere would be multiplied"
+                )
 
 
 def test_every_branch_emits_the_contract_columns_in_the_contract_order():
@@ -432,10 +471,19 @@ def test_two_events_on_one_entity_may_not_name_the_same_measure():
 def test_the_same_measure_id_on_two_different_entities_is_still_accepted():
     """The column already carries the entity, so those two do not collide. A refusal that
     caught them would forbid the ordinary case to prevent the rare one.
+
+    Asserted against a fixture that actually contains the case. The version of this test that
+    shipped with ADR 0008 read the ordinary fixture, whose measure ids are all distinct, and
+    asserted that its columns were unique -- a statement about the fixture, not the refusal.
+    Keying the refusal on the measure id alone, which is precisely what the record says it
+    must not do, left it green.
     """
-    _, uss = plan()
-    columns = [c for _, _, c in uss.measure_columns()]
-    assert len(columns) == len(set(columns))
+    model, _ = plan()
+    shared = read_uss(FIXTURES / "shared_measure_id_across_entities.yaml", model)
+    columns = [column for _, _, column in shared.measure_columns()]
+    assert "_measure__parent__happened_parents_count" in columns
+    assert "_measure__child__happened_parents_count" in columns
+    assert len(columns) == len(set(columns)), "the entity in the name is what keeps them apart"
 
 
 def test_every_declared_measure_keeps_its_own_definition():
@@ -448,6 +496,13 @@ def test_every_declared_measure_keeps_its_own_definition():
     model, uss = plan()
     declared = [(e.entity_id, m.id, m.definition) for e in uss.events for m in e.measures]
     carried = definitions(model, uss)
-    assert len({(entity, measure) for entity, measure, _ in declared}) == len(declared)
+    # Counted against what the glossary actually returns, not against the same list twice.
+    # The version of this that shipped with ADR 0008 compared `declared` with itself, so it
+    # could not fail on the count the record says it guards.
+    measures = [token for token in carried if ".measures." in token]
+    assert len(measures) == len(declared), (
+        "one entry per declared measure. Two sharing a token means one definition replaced "
+        "the other, which is the failure nothing else reports"
+    )
     for entity, measure, definition in declared:
         assert carried[f"{entity}.measures.{measure}"] == definition

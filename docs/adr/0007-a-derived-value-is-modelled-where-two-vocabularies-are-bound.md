@@ -97,18 +97,24 @@ difference between the option chosen there and the one rejected.
 
 ### The line this record draws
 
-M5 permits an expression that reads its own row, and its prose enumerates three forms — a column,
+M5 permits an expression that reads its own row, and its prose enumerated three forms — a column,
 a cast, a `CASE` over columns of that row. A subtraction of two dates is none of them, and passes
 only because M5's mechanical check is four keywords and seven function names. Relying on that
 silently is the quiet exception §11 rules out. So the rule, in force from here:
 
-> **Arithmetic over columns of the same row is permitted in a mapping.** A `CASE` on *values*, a
+> **Arithmetic over columns of the same row is permitted in a mapping.** A `CASE`, a
 > default, a coalesce that invents a value, a filter, a bucket, or anything that changes the grain
 > is not — those are meaning, and meaning belongs in the model as an attribute with a definition.
 
 Conventions §1.4 M5 is clarified to say so, per §11's first rung. The distinction is that
 arithmetic over one row produces a value the row already implies; the others produce a value
 somebody chose, and a choice needs a definition beside it.
+
+`CASE` moves to the forbidden side, and the first draft of this record had it on both. M5
+permitted "a `CASE` over columns of that row" and the rule above forbade "a `CASE` on *values*" —
+but every `CASE` is over columns and on their values at once, so the pair decided nothing and
+handed back exactly the argument this section exists to close. By the test above a `CASE` is
+always a choice.
 
 One trap belongs in the record because the error message misleads: `extract(DAY FROM (b - a))` is
 **refused** by M5's checker, because the regex matches the bare word `from` inside the expression.
@@ -143,9 +149,14 @@ schema: the question returns both additive measures and the page divides them. T
 `BIGINT` count or an exact `DECIMAL` sum, and the two answers are compared row by row as values.
 A float would break that comparison in a way no test would find on the machine that wrote it:
 DuckDB's `sum` over doubles is order-dependent, measured here as `[0.1, 0.2, 0.3]` summing to
-`0.6000000000000001` and the same three reversed to `0.6`. `tests/test_questions.py` pins that
-every question's answer holds only exact types, so the first float-valued measure fails a test
-rather than producing a disagreement that is not one.
+`0.6000000000000001` and the same three reversed to `0.6`.
+
+Two things guard it, and it is worth being exact about which catches what. `tests/test_exactness.py`
+pins the predicate — a float is reported, a `Decimal` and a `bool` are not, every row is looked
+at, not only the first. That runs on every commit. The predicate is then applied to both answers
+of every question by a data check in `run_checks`, which runs after `adss build` rather than in
+the gate — so a float-valued measure fails `adss check`, not `pytest`, and it fails on the
+*values* returned rather than on a column's declared type.
 
 What is **not** confirmed, and is recorded rather than claimed: nothing checks that
 `SHIP_LAG_DAYS` still equals the two dates it was derived from. Such a check is tautological
