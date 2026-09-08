@@ -1,0 +1,32 @@
+uss:
+  events:
+    - id: HAPPENED
+      entity: PARENT
+      definition: A parent happened.
+      kind: transaction
+      date_attribute: HAPPENED_ON
+      measures:
+        - {id: HAPPENED_PARENTS_COUNT, definition: How many happened., aggregate: count}
+        - {id: SIZE_PARENTS_UNITS, definition: How big they were., aggregate: sum, attribute: PARENT_SIZE}
+    - id: FINISHED
+      entity: PARENT
+      definition: A parent finished.
+      kind: transaction
+      date_attribute: FINISHED_ON
+      measures:
+        - {id: FINISHED_PARENTS_COUNT, definition: How many finished., aggregate: count}
+    - id: OCCURRED
+      entity: CHILD
+      definition: A child occurred.
+      kind: transaction
+      date_attribute: OCCURRED_ON
+      measures:
+        - {id: OCCURRED_CHILDREN_COUNT, definition: How many occurred., aggregate: count}
+        - {id: WEIGHT_CHILDREN_UNITS, definition: What they weighed., aggregate: sum, attribute: CHILD_WEIGHT}
+    - id: REACHED
+      entity: CHILD
+      definition: A child reached, on the day the parent it points at happened.
+      kind: transaction
+      date_attribute: PARENT.HAPPENED_ON
+      measures:
+        - {id: REACHED_CHILDREN_COUNT, definition: How many were reached., aggregate: count}

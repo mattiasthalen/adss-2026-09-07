@@ -69,6 +69,15 @@ class Event:
     def name(self) -> str:
         return self.id.lower()
 
+    @property
+    def dated_by(self) -> tuple[str | None, str]:
+        """Where the date comes from: an entity reached along an edge, or this event's own.
+
+        `PARENT.HAPPENED_ON` is inherited; `HAPPENED_ON` is the event's own entity's. ADR 0009.
+        """
+        entity, _, attribute = self.date_attribute_id.rpartition(".")
+        return (entity or None, attribute)
+
 
 @dataclass(frozen=True, slots=True)
 class Uss:
@@ -208,10 +217,19 @@ def _refuse_measures_of_things_that_are_not_numbers(uss: Uss, model: Model) -> N
                 f"tell. A snapshot stage arrives in the slice that first needs one."
             )
         entity = model.entity(event.entity_id)
-        if not entity.attribute(event.date_attribute_id).is_date:
-            raise UssError(
-                f"{event.id} is dated by {event.date_attribute_id}, which is not a date."
-            )
+        inherited, attribute_id = event.dated_by
+        if inherited is not None:
+            reachable = {edge.target_entity_id for edge in model.edges_from(entity.id)}
+            if inherited not in reachable:
+                raise UssError(
+                    f"{event.id} is dated by {event.date_attribute_id}, and no edge reaches "
+                    f"{inherited} from {entity.id}. {entity.id} reaches "
+                    f"{sorted(reachable) or 'nothing'}. A date inherits along a declared edge "
+                    f"or it does not inherit at all."
+                )
+            entity = model.entity(inherited)
+        if not entity.attribute(attribute_id).is_date:
+            raise UssError(f"{event.id} is dated by {attribute_id}, which is not a date.")
         for measure in event.measures:
             if measure.attribute_id and not entity.attribute(measure.attribute_id).is_number:
                 raise UssError(
@@ -223,13 +241,17 @@ def _refuse_measures_of_things_that_are_not_numbers(uss: Uss, model: Model) -> N
 def _version_cte(model: Model, event: Event) -> str:
     """The version of each entity this event is measured on: the latest in which it is dated."""
     entity = model.entity(event.entity_id)
-    date = crossing(event.date_attribute_id)
+    inherited, attribute_id = event.dated_by
+    date = crossing(attribute_id)
     held = "revision"
     lines = [
         f"    {held}.{crossing(entity.source_key)} AS {entity.key_column}",
         f"    {held}.eff_tmstp AS _observed_at",
-        f"    cast({held}.{date} AS DATE) AS _event_date",
     ]
+    # An inherited date is resolved with the key, in the CTE that walks the edge, so both are
+    # true as of one instant. ADR 0009.
+    if inherited is None:
+        lines.append(f"    cast({held}.{date} AS DATE) AS _event_date")
     for measure in event.measures:
         column = f"_measure__{entity.object_name}__{measure.id.lower()}"
         if measure.aggregate is Aggregate.COUNT:
@@ -239,11 +261,14 @@ def _version_cte(model: Model, event: Event) -> str:
             value = f"cast({held}.{attribute} AS {SUM_TYPE})"
         lines.append(f"    {value} AS {column}")
     selected = ",\n".join(lines)
+    # An inherited date is filtered where it is resolved, not here: this entity has no such
+    # column to filter on.
+    dated = "" if inherited else f"WHERE {held}.{date} IS NOT NULL\n"
     return (
         f"{event.name}__version AS (\n"
         f"SELECT\n{selected}\n"
         f'FROM dab."view_{entity.id}_hist" AS {held}\n'
-        f"WHERE {held}.{date} IS NOT NULL\n"
+        f"{dated}"
         f"QUALIFY row_number() OVER (\n"
         f"    PARTITION BY {held}.{crossing(entity.source_key)}\n"
         f"    ORDER BY {held}.eff_tmstp DESC\n"
@@ -269,26 +294,41 @@ def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
     source = model.entity(edge.source_entity_id)
     target = model.entity(edge.target_entity_id)
     held = edge.id.lower()
+    # If the event is dated by this target's attribute, the date is resolved here, off the same
+    # parent the key came from, so both are true as of one instant. ADR 0009.
+    inherited, attribute_id = event.dated_by
+    dates = inherited == target.id
+    carried = f",\n    cast(dated.{crossing(attribute_id)} AS DATE) AS _event_date" if dates else ""
+    joined = (
+        f'\nLEFT JOIN dab."view_{target.id}_hist" AS dated\n'
+        f"    ON dated.{crossing(target.source_key)} = pair.{crossing(target.source_key)}\n"
+        f"    AND dated.eff_tmstp <= revision._observed_at"
+        if dates
+        else ""
+    )
     return (
         f"{event.name}__{held} AS (\n"
         f"SELECT\n"
         f"    revision.{source.key_column} AS {source.key_column},\n"
         f"    revision._observed_at AS _observed_at,\n"
-        f"    pair.{crossing(target.source_key)} AS {target.key_column}\n"
+        f"    pair.{crossing(target.source_key)} AS {target.key_column}"
+        f"{carried}\n"
         f"FROM {event.name}__version AS revision\n"
         f'LEFT JOIN dab."v_{edge.id}" AS pair\n'
         f"    ON pair.{crossing(source.source_key)} = revision.{source.key_column}\n"
         f"    AND pair.rel_name = '{edge.id}'\n"
         f"    AND pair.row_st = 'Y'\n"
-        f"    AND pair.eff_tmstp <= revision._observed_at\n"
+        f"    AND pair.eff_tmstp <= revision._observed_at"
+        f"{joined}\n"
         f"QUALIFY row_number() OVER (\n"
         f"    PARTITION BY revision.{source.key_column}, revision._observed_at\n"
         f"    ORDER BY\n"
         f"        pair.eff_tmstp DESC,\n"
         f"        pair.ver_tmstp DESC,\n"
-        f"        pair.{crossing(target.source_key)}\n"
-        f") = 1\n"
-        f")"
+        f"        pair.{crossing(target.source_key)}"
+        + (",\n        dated.eff_tmstp DESC" if dates else "")
+        + "\n) = 1\n"
+        ")"
     )
 
 
@@ -296,10 +336,14 @@ def _stage_cte(model: Model, event: Event) -> str:
     """One stage: the entity's version, with the key of everything it inherits from."""
     entity = model.entity(event.entity_id)
     edges = model.edges_from(entity.id)
+    inherited, _ = event.dated_by
+    dater = "revision"
+    if inherited is not None:
+        dater = next(edge.id.lower() for edge in edges if edge.target_entity_id == inherited)
     lines = [
         f"    revision.{entity.key_column} AS {entity.key_column}",
         "    revision._observed_at AS _observed_at",
-        "    revision._event_date AS _event_date",
+        f"    {dater}._event_date AS _event_date",
     ]
     lines += [
         f"    {edge.id.lower()}.{model.entity(edge.target_entity_id).key_column} "
@@ -321,8 +365,14 @@ def _stage_cte(model: Model, event: Event) -> str:
         for edge in edges
     )
     selected = ",\n".join(lines)
+    # An event's own date is filtered in the version CTE; an inherited one is not there to
+    # filter, so it is filtered where it was resolved. Same rule, one step along the walk: a
+    # row whose date does not resolve is absent rather than dated null -- and the calendar's
+    # inner join would otherwise drop it silently, which looks like the rule working. ADR 0009.
+    absent = "" if inherited is None else f"\nWHERE {dater}._event_date IS NOT NULL"
     return (
-        f"{event.name} AS (\nSELECT\n{selected}\nFROM {event.name}__version AS revision{joins}\n)"
+        f"{event.name} AS (\nSELECT\n{selected}\n"
+        f"FROM {event.name}__version AS revision{joins}{absent}\n)"
     )
 
 
