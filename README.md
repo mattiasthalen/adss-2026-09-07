@@ -147,6 +147,11 @@ here, uncompressed and unmodified.
 The point of the branch. These are the ones already identified, all of them checkable against
 the commits on the slice branches and against the transcripts here.
 
+A later reading of these logs found that the first two below have a cause this section gets
+wrong: the skill file was never opened until 22:20:57, so the rules they are measured against
+were not in force. See [`skill/findings.md`](skill/findings.md), which also carries the diff
+of what the interview settled against what reached the repository.
+
 **Five architecture decision records were batched into one commit.** Commit `e81a9af`,
 `docs(adr): decide the five records slice 1 rests on`, adds `docs/adr/0001` through `0005` in a
 single commit. The skill says a MADR is written at the decision and never batched. The decisions
