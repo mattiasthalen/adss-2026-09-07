@@ -328,9 +328,14 @@ def _inherit_cte(model: Model, event: Event, edge: Relationship) -> str:
     inherited, attribute_id = event.dated_by
     dates = inherited == target.id
     carried = f",\n    cast(dated.{crossing(attribute_id)} AS DATE) AS _event_date" if dates else ""
+    # The candidate versions are the DATED ones. Without that clause the latest version wins
+    # even when it is the one that blanked the date -- an ordinary shape in a full change log --
+    # and the child's date is null, so ADR 0009's own rule removes its row. A whole grain then
+    # leaves the bridge while the parent's own event stays dated, and nothing says so.
     joined = (
         f'\nLEFT JOIN dab."view_{target.id}_hist" AS dated\n'
         f"    ON dated.{crossing(target.source_key)} = pair.{crossing(target.source_key)}\n"
+        f"    AND dated.{crossing(attribute_id)} IS NOT NULL\n"
         f"    AND dated.eff_tmstp <= revision._observed_at"
         if dates
         else ""

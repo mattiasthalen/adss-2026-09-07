@@ -536,8 +536,20 @@ def _(answers, asked, mo, pl, shown):
     a4 = a4.with_columns((pl.col("order_month") != a4["order_month"].max()).alias("complete"))
 
     taken = float(a4["revenue_order_lines_amount"].sum())
-    best = (a4.filter(pl.col("complete")).sort("revenue_order_lines_amount", descending=True)).row(
-        0, named=True
+    # A month can only be the best whole one if a whole one was recorded. On an answer of one
+    # row -- or none -- there is no such month, and a page that indexed row 0 anyway would take
+    # the whole render down rather than showing the emptiness, which is the actual news.
+    whole = a4.filter(pl.col("complete"))
+    best = (
+        whole.sort("revenue_order_lines_amount", descending=True).row(0, named=True)
+        if whole.height
+        else None
+    )
+    superlative = (
+        f"The best whole month was **{best['order_month']}**, "
+        f"at **{best['revenue_order_lines_amount']:,.0f}**."
+        if best
+        else "No whole month was recorded."
     )
 
     # No currency symbol anywhere on this page. The model says nothing records which currency
@@ -554,13 +566,12 @@ def _(answers, asked, mo, pl, shown):
             ## {taken:,.0f} taken
 
             across **{len(a4)}** months, from **{a4["order_month"].min()}** to
-            **{a4["order_month"].max()}**. The best whole month was **{best["order_month"]}**,
-            at **{best["revenue_order_lines_amount"]:,.0f}**. No currency is shown because
-            nothing in the source records one.
+            **{a4["order_month"].max()}**. {superlative} No currency is shown because nothing
+            in the source records one.
             """
         ),
     )
-    return a4, best, q4, taken
+    return a4, best, q4, superlative, taken
 
 
 @app.cell

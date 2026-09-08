@@ -155,7 +155,15 @@ def aggregated(
         current = pending.pop()
         if isinstance(current, dict):
             name = str(current.get("function_name", "")).lower()
-            call = current.get("class") in ("FUNCTION", "WINDOW") and not current.get("is_operator")
+            # A WINDOW node is an aggregate only when the engine says WINDOW_AGGREGATE.
+            # `row_number`, `rank`, `ntile` and `lag` are all in duckdb_functions()'s aggregate
+            # list, so reading that list alone refused "rank the months" -- an ordinary shape --
+            # and sent its author looking for a fan-out that is not there.
+            call = (
+                current.get("type") == "WINDOW_AGGREGATE"
+                if current.get("class") == "WINDOW"
+                else current.get("class") == "FUNCTION" and not current.get("is_operator")
+            )
             if call and name in aggregates:
                 found.append((name, tuple(_columns_under(current.get("children", [])))))
         pending += _children(current)

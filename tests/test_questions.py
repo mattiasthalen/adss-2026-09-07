@@ -313,3 +313,41 @@ def test_every_question_in_this_repository_is_answerable_at_build_time_too():
     for question in read_questions(PROJECT.questions):
         finding = answerable_finding(question, defined)
         assert finding.passed, finding.detail
+
+
+def test_a_ranking_window_is_not_an_aggregate(tmp_path: Path):
+    """`row_number`, `rank`, `ntile` and `lag` are all in the engine's aggregate list, so
+    reading that list alone refused "rank the months" -- an ordinary shape for an answer -- and
+    told its author to look for a fan-out that is not there. A ranking window multiplies
+    nothing; only a windowed AGGREGATE does, and the engine's own node type says which."""
+    directory = variant(
+        tmp_path,
+        "01-ranked",
+        uss_sql=answering(
+            "row_number() OVER (ORDER BY b._measure__parent__size_parents_units) AS month_label"
+        ),
+    )
+    check_question(read_question(directory), neutral_definitions())
+
+
+def test_a_windowed_aggregate_over_a_peripherals_column_is_still_refused(tmp_path: Path):
+    directory = variant(
+        tmp_path, "01-windowed", uss_sql=joining("sum(p.parent_size) OVER () AS n", "p")
+    )
+    with pytest.raises(QuestionError, match="parent_size"):
+        check_question(read_question(directory), neutral_definitions())
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "sum(p.parent_size * b._measure__parent__size_parents_units) AS n",
+        "sum(b._measure__parent__size_parents_units * p.parent_size) AS n",
+    ],
+)
+def test_a_peripherals_column_multiplied_into_a_measure_is_refused(tmp_path: Path, expression: str):
+    """Both spellings, because the walk's column order is not the source order and the refusal
+    must not depend on which operand it happens to reach first."""
+    directory = variant(tmp_path, "01-mixed", uss_sql=joining(expression, "p"))
+    with pytest.raises(QuestionError, match="parent_size"):
+        check_question(read_question(directory), neutral_definitions())

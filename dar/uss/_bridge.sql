@@ -130,6 +130,7 @@ ordered__order_line_is_part_of_order AS (
     LEFT JOIN dab."view_ORDER_hist" AS dated
         ON
             pair."ORDER_key" = dated."ORDER_key"
+            AND dated."PLACED_ON" IS NOT NULL
             AND revision._observed_at >= dated.eff_tmstp
     QUALIFY row_number() OVER (
         PARTITION BY revision.order_line_key, revision._observed_at
