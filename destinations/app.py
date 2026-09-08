@@ -15,12 +15,14 @@ def _():
     import polars as pl
 
     import adss.question as question_module
+    from adss.destination import as_text
     from adss.model import read_model
     from adss.project import Project
     from adss.uss import definitions, read_uss
 
     return (
         alt,
+        as_text,
         definitions,
         duckdb,
         mo,
@@ -659,6 +661,162 @@ def _(a4, mo, q4, shown):
 @app.cell
 def _(a4, mo, q4, shown):
     shown(q4, mo.ui.table(a4, page_size=25, selection=None, show_column_summaries=False))
+    return
+
+
+@app.cell
+def _(answers, as_text, asked, mo, pl, shown):
+    q5 = asked[4] if len(asked) > 4 else asked[-1]
+    a5 = answers[q5.id].with_columns(pl.col("revenue_order_lines_amount").cast(pl.Float64))
+    # The recording stops inside the last quarter, so every panel falls off the same cliff at
+    # the same point and none of them did. Derived from the answer, never from a date the page
+    # was told. Same rule as q04's last month, and louder here: five weeks of a thirteen-week
+    # quarter rather than six days of a month.
+    a5 = a5.with_columns((pl.col("order_quarter") != a5["order_quarter"].max()).alias("complete"))
+
+    # Panels ordered by what each category took, so the eye starts with the biggest business.
+    # Ties broken by name: an unstable sort changes the delivered picture with no change to the
+    # answer, and a reviewer diffing the PNG cannot tell that from a new number.
+    category_ranked = (
+        a5.group_by("product_category")
+        .agg(pl.col("revenue_order_lines_amount").sum())
+        .sort(["revenue_order_lines_amount", "product_category"], descending=[True, False])
+    )
+    category_order = category_ranked["product_category"].to_list()
+    category_taken = float(a5["revenue_order_lines_amount"].sum())
+    category_biggest = category_ranked.row(0, named=True)
+
+    shown(
+        q5,
+        mo.md(
+            f"""
+            ## {q5.question}
+
+            *Asked by the {q5.persona.lower()}.*
+
+            ## {category_taken:,.0f} taken across {len(category_order)} categories
+
+            over **{a5["order_quarter"].n_unique()}** quarters, from
+            **{a5["order_quarter"].min()}** to **{a5["order_quarter"].max()}**. The largest is
+            **{as_text(category_biggest["product_category"])}** at
+            **{category_biggest["revenue_order_lines_amount"]:,.0f}**, which is a fact about
+            size and not about which one to buy more of -- for that, read the shapes below
+            rather than the heights. No currency is shown because nothing in the source
+            records one.
+            """
+        ),
+    )
+    return a5, category_biggest, category_order, q5, category_ranked, category_taken
+
+
+@app.cell
+def _(GRID, MUTED, SEQUENTIAL, SURFACE, a5, alt, mo, category_order, q5, shown):
+    # Small multiples rather than eight lines on one chart. Eight is exactly where categorical
+    # colour stops working, and the question is the SHAPE of each category over time -- which a
+    # reader gets from eight small panels on one shared scale and cannot get from eight hues.
+    # One hue throughout, so colour carries nothing and the panel title carries identity.
+    category_trend = (
+        alt.Chart(a5)
+        .mark_area(
+            color=SEQUENTIAL[3],
+            opacity=0.9,
+            line=alt.OverlayMarkDef(color=SEQUENTIAL[6], strokeWidth=1.5),
+        )
+        .encode(
+            x=alt.X(
+                "order_quarter:O",
+                title=None,
+                axis=alt.Axis(labelAngle=-90, labelColor=MUTED, labelFontSize=9),
+            ),
+            y=alt.Y(
+                "revenue_order_lines_amount:Q",
+                title=None,
+                axis=alt.Axis(labelColor=MUTED, gridColor=GRID, format="~s"),
+            ),
+            opacity=alt.Opacity(
+                "complete:N",
+                scale=alt.Scale(domain=[True, False], range=[0.9, 0.3]),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip("product_category:N", title="Category"),
+                alt.Tooltip("order_quarter:O", title="Ordered in"),
+                alt.Tooltip("revenue_order_lines_amount:Q", title="Revenue", format=",.2f"),
+                alt.Tooltip("complete:N", title="Whole quarter"),
+            ],
+        )
+        # The background belongs to the FacetChart, not to each panel: altair refuses a
+        # `background` on a chart that is about to be facetted, and says so.
+        .properties(width=150, height=95)
+        .facet(
+            facet=alt.Facet(
+                "product_category:N",
+                title=None,
+                sort=category_order,
+                header=alt.Header(labelFontSize=11),
+            ),
+            columns=4,
+        )
+        .properties(background=SURFACE)
+        .configure_view(stroke=None)
+        .configure_axis(domainColor="#c3c2b7", tickColor="#c3c2b7", labelFontSize=10)
+    )
+
+    shown(q5, mo.ui.altair_chart(category_trend, chart_selection=False, legend_selection=False))
+    return (category_trend,)
+
+
+@app.cell
+def _(MUTED, a5, mo, q5, shown):
+    shown(
+        q5,
+        mo.md(
+            f"""
+            <span style="color:{MUTED}">One panel per category on a shared scale, largest
+            first, so the heights compare and the shapes are what you read. The last quarter,
+            **{a5["order_quarter"].max()}**, is faded on every panel because the recording stops
+            inside it -- five weeks of thirteen. It is shorter than the others, not smaller: the
+            business was taking orders faster in those five weeks than in the whole quarter
+            before.</span>
+            """
+        ),
+    )
+    return
+
+
+@app.cell
+def _(mo, q5, shown):
+    shown(q5, mo.md("### What the words mean"))
+    return
+
+
+@app.cell
+def _(glossary, q5, shown):
+    shown(q5, glossary(q5))
+    return
+
+
+@app.cell
+def _(a5, mo, q5, shown):
+    shown(
+        q5,
+        mo.md(
+            f"""
+            ### The answer, row by row
+
+            {len(a5):,} rows -- every category sold something in every quarter, so the grid is
+            full and no cell here is an invented zero. The category is reached through the
+            product the line was for, which is two edges from the line and the first question
+            here that needed more than one.
+            """
+        ),
+    )
+    return
+
+
+@app.cell
+def _(a5, mo, q5, shown):
+    shown(q5, mo.ui.table(a5, page_size=16, selection=None, show_column_summaries=False))
     return
 
 

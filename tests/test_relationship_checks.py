@@ -39,6 +39,7 @@ def warehouse(connection: Db) -> None:
     for edge, source, target in (
         (NAME, "CHILD", "PARENT"),
         ("CHILD_SITS_BESIDE_NEIGHBOUR", "CHILD", "NEIGHBOUR"),
+        ("NEIGHBOUR_LIES_IN_DISTRICT", "NEIGHBOUR", "DISTRICT"),
     ):
         connection.execute(
             f'CREATE TABLE dab."v_{edge}" ('
@@ -47,9 +48,10 @@ def warehouse(connection: Db) -> None:
         )
     connection.execute(
         "CREATE TABLE dar__uss._bridge ("
-        "  _stage VARCHAR, child_key VARCHAR, parent_key VARCHAR, neighbour_key VARCHAR)"
+        "  _stage VARCHAR, child_key VARCHAR, parent_key VARCHAR, neighbour_key VARCHAR,"
+        "  district_key VARCHAR)"
     )
-    for peripheral in ("parent", "neighbour", "child"):
+    for peripheral in ("parent", "neighbour", "child", "district"):
         connection.execute(f"CREATE TABLE dar__uss.{peripheral} ({peripheral}_key VARCHAR)")
 
 
@@ -145,20 +147,20 @@ def test_loaded_is_not_satisfied_by_a_retracted_pair(scratch: Db):
 def test_resolves_fails_when_an_inherited_key_names_no_row_in_the_peripheral(scratch: Db):
     """What a target expression of the wrong shape looks like: pairs that join to nothing."""
     scratch.execute("INSERT INTO dar__uss.parent VALUES ('P1')")
-    scratch.execute("INSERT INTO dar__uss._bridge VALUES ('child', 'CH1', 'P1', NULL)")
+    scratch.execute("INSERT INTO dar__uss._bridge VALUES ('child', 'CH1', 'P1', NULL, NULL)")
     assert answer(scratch, f"{EDGE}__resolves") == 0
 
-    scratch.execute("INSERT INTO dar__uss._bridge VALUES ('child', 'CH2', 'P404', NULL)")
+    scratch.execute("INSERT INTO dar__uss._bridge VALUES ('child', 'CH2', 'P404', NULL, NULL)")
     assert answer(scratch, f"{EDGE}__resolves") == 1
 
 
 def test_resolves_accepts_a_row_that_inherited_nothing(scratch: Db):
     """A child with no parent keeps its bridge row and a null key. That is not a dangling key."""
-    scratch.execute("INSERT INTO dar__uss._bridge VALUES ('child', 'CH6', NULL, NULL)")
+    scratch.execute("INSERT INTO dar__uss._bridge VALUES ('child', 'CH6', NULL, NULL, NULL)")
     assert answer(scratch, f"{EDGE}__resolves") == 0
 
 
 def test_resolves_looks_only_at_the_stage_that_inherits(scratch: Db):
     """Every other stage emits a typed NULL for this key, and a null is not a dangling key."""
-    scratch.execute("INSERT INTO dar__uss._bridge VALUES ('parent', NULL, NULL, NULL)")
+    scratch.execute("INSERT INTO dar__uss._bridge VALUES ('parent', NULL, NULL, NULL, NULL)")
     assert answer(scratch, f"{EDGE}__resolves") == 0

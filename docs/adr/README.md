@@ -29,3 +29,6 @@ was built, not what was decided.
 | [0010](0010-a-composite-source-key-becomes-one-key-and-is-checked-against-its-parts.md) | A composite source key becomes one key expression, checked against the parts it was made from | 4 |
 | [0011](0011-a-float-in-the-source-is-recorded-as-a-decimal.md) | A float in the source is recorded as a decimal, chosen for where a bad value fails | 4 |
 | [0012](0012-the-bridge-protects-measures-and-not-the-attributes-beside-them.md) | The bridge protects a measure and not the attribute beside it, so a question may not aggregate a peripheral's number | 4 |
+| [0013](0013-an-ingest-is-one-observation-so-every-contract-it-lands-shares-one-clock.md) | An ingest is one observation, so every contract it lands shares one clock | 4 |
+| [0014](0014-a-stage-carries-the-key-of-everything-it-reaches-at-any-depth.md) | A stage carries the key of everything it reaches at any depth, and a target nothing reaches is refused | 5 |
+| [0015](0015-an-edge-first-seen-later-is-not-evidence-that-it-was-different-before.md) | An edge first seen after the row that inherits it resolves from the earliest observation, not to nothing | 5 |

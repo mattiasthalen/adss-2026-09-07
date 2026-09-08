@@ -74,6 +74,8 @@ def test_the_bridge_column_contract_is_an_order_not_a_set():
         "parent_key",
         "child_key",
         "neighbour_key",
+        # Two edges out, and in model order like every other key. ADR 0014.
+        "district_key",
         "_measure__parent__happened_parents_count",
         "_measure__parent__size_parents_units",
         "_measure__parent__finished_parents_count",
@@ -242,7 +244,7 @@ def test_a_definition_is_carried_verbatim_and_never_composed():
 def test_a_stage_carries_the_key_of_everything_it_inherits_from():
     """The edge runs one way. A child inherits its parent's key; a parent inherits nothing."""
     model, uss = plan()
-    assert entity_ids(model, uss) == ("PARENT", "CHILD", "NEIGHBOUR"), (
+    assert entity_ids(model, uss) == ("PARENT", "CHILD", "NEIGHBOUR", "DISTRICT"), (
         "an entity reached only by inheritance is still in the bridge, and still in model order"
     )
     occurred, happened = branch_of(bridge(), "occurred"), branch_of(bridge(), "happened")
@@ -591,3 +593,83 @@ def test_a_measure_of_the_entity_the_date_is_inherited_from_is_refused():
     model, _ = plan()
     with pytest.raises(UssError, match="PARENT_SIZE"):
         read_uss(FIXTURES / "bad_measure_of_the_inherited_entity.yaml", model)
+
+
+def test_a_stage_carries_the_key_of_an_entity_two_edges_away():
+    """ADR 0014. DISTRICT is reached only through NEIGHBOUR, which has no event of its own.
+
+    The walk was five independent one-hop lookups, so an entity two edges out got no key column
+    and no peripheral -- and the branch filled the gap with a typed null rather than failing. The
+    same shape was live on the real warehouse for a slice: every order line carried a null
+    customer key while the customer sat one hop past the order.
+    """
+    model, uss = plan()
+    assert "DISTRICT" in entity_ids(model, uss)
+    assert "district_key" in bridge_columns(model, uss)
+
+    occurred = branch_of(bridge(), "occurred")
+    assert "occurred.district_key AS district_key" in occurred, (
+        "read off the CTE that resolved it, never invented -- a typed null satisfies a bare "
+        "substring and would pass a generator that walks nothing"
+    )
+    assert 'pair."DISTRICT_key" AS district_key' in cte_of(
+        bridge(), "occurred__neighbour_lies_in_district"
+    )
+
+
+def test_the_second_hop_starts_from_the_first_hops_result_and_not_from_the_stage():
+    """The chain is dependent, not parallel. A CTE for an edge out of NEIGHBOUR has to join to
+    the CTE that found the neighbour, because the stage's own version has no neighbour key."""
+    second = cte_of(bridge(), "occurred__neighbour_lies_in_district")
+    assert "FROM occurred__child_sits_beside_neighbour AS" in second
+    assert 'pair."NEIGHBOUR_key" = ' in second, "joined on the key the first hop resolved"
+
+
+def test_the_second_hop_is_as_of_the_observation_of_the_row_that_inherits_it():
+    """ADR 0006's rule, carried along the chain rather than restarted at each hop. The instant
+    is the STAGE row's, so both keys on one bridge row are true at one moment."""
+    second = cte_of(bridge(), "occurred__neighbour_lies_in_district")
+    assert re.search(r"pair\.eff_tmstp <= \w+\._observed_at", second), (
+        "as of, at the second hop too"
+    )
+    assert re.search(r"PARTITION BY \w+\.child_key, \w+\._observed_at", second), (
+        "one row per stage row, so the chain cannot fan out however long it gets"
+    )
+
+
+def test_a_stage_that_reaches_nothing_deeper_is_unchanged():
+    """PARENT reaches nothing at all, and the closure must leave a zero-edge walk alone."""
+    happened = branch_of(bridge(), "happened")
+    assert "cast(NULL AS VARCHAR) AS district_key" in happened
+    assert "cast(NULL AS VARCHAR) AS neighbour_key" in happened
+
+
+def test_two_paths_to_one_entity_are_refused_rather_than_one_of_them_chosen():
+    """The bridge carries one district_key and two paths offer two answers. ADR 0014.
+
+    Picking either is choosing arbitrarily between two, which ADR 0006 refused to do for a
+    tied pair; this is the same refusal one level up, and the message lists both routes so
+    the model can be the place it is settled.
+    """
+    model = read_model(FIXTURES / "bad_two_paths.yaml")
+    with pytest.raises(UssError, match="two ways"):
+        read_uss(FIXTURES / "child_event_uss.yaml", model)
+
+
+def test_a_walk_that_returns_to_its_start_is_refused():
+    """A closure over a cycle does not terminate, and a key that is its own ancestor is not one."""
+    model = read_model(FIXTURES / "bad_cycle.yaml")
+    with pytest.raises(UssError, match="returns to"):
+        read_uss(FIXTURES / "child_event_uss.yaml", model)
+
+
+def test_an_edge_no_stage_reaches_is_refused_by_name():
+    """Its target gets no key and no peripheral, and the check generated for it names a table
+    that does not exist -- so `adss check` dies with a catalog error before printing a single
+    finding, which is the failure two comments in this codebase already exist to prevent.
+
+    This is what would have caught slice 4's silent two-hop hole a slice earlier. ADR 0014.
+    """
+    model = read_model(FIXTURES / "bad_unreached_edge.yaml")
+    with pytest.raises(UssError, match="STRANGER_WANDERS_TO_ELSEWHERE"):
+        read_uss(FIXTURES / "unreached_edge_uss.yaml", model)

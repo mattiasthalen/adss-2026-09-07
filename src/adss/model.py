@@ -153,8 +153,13 @@ def read_model(path: Path) -> Model:
     relationships = tuple(
         Relationship(
             name=_named("relationship", str(declared["name"])),
-            source_entity_id=str(declared["source_entity_id"]),
-            target_entity_id=str(declared["target_entity_id"]),
+            # The ends as well as the name. A relationship's id is composed from all three and
+            # is spelled into generated SQL, so validating only the middle left the rule with a
+            # hole -- it produced an unreadable KeyError rather than an injection, because an
+            # entity id with metacharacters is refused where the entity itself is declared, but
+            # a rule about ids should cover the ids.
+            source_entity_id=_named("relationship source", str(declared["source_entity_id"])),
+            target_entity_id=_named("relationship target", str(declared["target_entity_id"])),
             definition=str(declared["definition"]),
         )
         for declared in document.get("relationships", ())

@@ -1,0 +1,35 @@
+# An edge from an entity nothing reaches. Its target gets no key and no peripheral, and the
+# generated check for it names a table that does not exist -- so `adss check` dies with a
+# catalog error before printing a finding, rather than saying what is actually wrong.
+model:
+  id: NEUTRAL
+  name: NEUTRAL
+  definition: A model with an edge no stage can walk.
+  description: It exists so a test proves the generator refuses rather than emitting a crash.
+  entities:
+    - id: PARENT
+      name: PARENT
+      definition: A thing with an event.
+      description: One parent.
+      attributes:
+        - {id: PARENT_NUMBER, name: PARENT_NUMBER, definition: Its number., type: STRING, effective_timestamp: false}
+        - {id: HAPPENED_ON, name: HAPPENED_ON, definition: When it happened., type: START_TIMESTAMP}
+    - id: STRANGER
+      name: STRANGER
+      definition: A thing nothing points at and nothing measures.
+      description: One stranger.
+      attributes:
+        - {id: STRANGER_NUMBER, name: STRANGER_NUMBER, definition: Its number., type: STRING, effective_timestamp: false}
+    - id: ELSEWHERE
+      name: ELSEWHERE
+      definition: A thing only the stranger points at.
+      description: One elsewhere.
+      attributes:
+        - {id: ELSEWHERE_NUMBER, name: ELSEWHERE_NUMBER, definition: Its number., type: STRING, effective_timestamp: false}
+
+  relationships:
+    - name: WANDERS_TO
+      definition: A stranger wanders to an elsewhere.
+      description: An edge no stage reaches, so nothing walks it.
+      source_entity_id: STRANGER
+      target_entity_id: ELSEWHERE

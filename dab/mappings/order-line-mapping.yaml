@@ -24,6 +24,11 @@ mapping_groups:
           - id: REVENUE
             transformation_expression: quantity * unit_price * (1 - discount)
     relationships:
+      # The first hop of the chain that reaches a category. Spelled exactly as
+      # product-mapping.yaml spells its own key -- a bare column. ADR 0014.
+      - id: ORDER_LINE_IS_FOR_PRODUCT
+        source_table: das__staged.order_details
+        target_transformation_expression: product_id
       - id: ORDER_LINE_IS_PART_OF_ORDER
         source_table: das__staged.order_details
         # Spelled exactly as order-mapping.yaml spells its own key -- a bare column.

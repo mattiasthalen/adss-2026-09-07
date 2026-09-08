@@ -61,7 +61,7 @@ def _load(connection: Db, children: list[tuple[str, str, Decimal]]) -> None:
 def _build(connection: Db) -> None:
     model = read_model(FIXTURES / "model.yaml")
     uss = read_uss(FIXTURES / "uss.yaml", model)
-    for entity in ("PARENT", "CHILD", "NEIGHBOUR"):
+    for entity in ("PARENT", "CHILD", "NEIGHBOUR", "DISTRICT"):
         connection.execute(peripheral_sql(model, entity).replace(";", ""))
     connection.execute(bridge_sql(model, uss).replace(";", ""))
 

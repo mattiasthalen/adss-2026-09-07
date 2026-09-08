@@ -38,9 +38,14 @@ def engine_objects(connection: duckdb.DuckDBPyConnection) -> None:
         'CREATE TABLE dab."view_NEIGHBOUR_hist" ("NEIGHBOUR_key" VARCHAR, eff_tmstp TIMESTAMP, '
         '"NEIGHBOUR_NUMBER" VARCHAR, "NEIGHBOUR_LABEL" VARCHAR)'
     )
+    connection.execute(
+        'CREATE TABLE dab."view_DISTRICT_hist" ("DISTRICT_key" VARCHAR, eff_tmstp TIMESTAMP, '
+        '"DISTRICT_NUMBER" VARCHAR, "DISTRICT_LABEL" VARCHAR)'
+    )
     for edge, source, target in (
         ("CHILD_POINTS_AT_PARENT", "CHILD", "PARENT"),
         ("CHILD_SITS_BESIDE_NEIGHBOUR", "CHILD", "NEIGHBOUR"),
+        ("NEIGHBOUR_LIES_IN_DISTRICT", "NEIGHBOUR", "DISTRICT"),
     ):
         connection.execute(
             f'CREATE TABLE dab."v_{edge}" ("{source}_key" VARCHAR, "{target}_key" VARCHAR, '

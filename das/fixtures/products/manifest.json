@@ -1,0 +1,6 @@
+{
+  "entity": "Products",
+  "requests": {
+    "https://demodata.grapecity.com/northwind/odata/v1/Products?$count=true&$top=100&$skip=0": "page-0000.json"
+  }
+}

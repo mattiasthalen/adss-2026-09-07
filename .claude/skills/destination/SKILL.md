@@ -28,6 +28,12 @@ uv run adss shoot                          photograph it for a pull request
 - **It invents no fact.** No currency symbol where the model records no currency, no hardcoded
   count beside computed ones, no label the page was told rather than shown. Everything on the
   picture a slice is accepted on is derived from the answer, or it is not on the picture.
+- **A value out of the warehouse reaches the page as text, through `as_text`.** Markdown is HTML,
+  so a category name carrying a positioned `<div>` puts a different number on the accepted
+  picture — and nothing catches it: no cell raised, the file is a normal size, and both of the
+  question's queries still agree, because the same poisoned string sits on both sides of that
+  comparison. It is not script execution, which the frontend's sanitiser stops. It does not need
+  to be.
 
 ## Charts
 
@@ -51,6 +57,17 @@ identical data, and a reviewer diffing the PNG cannot tell a re-sorted tie from 
 Render twice and compare the bytes.
 
 ## Screenshots
+
+**Every name in the notebook is defined by exactly one cell.** marimo's whole model is a
+dependency graph over names, so reusing `total` or `order` in a second question's cells is a
+`MultipleDefinitionError` that breaks *both* — and the failure surfaces as a blank page, not as an
+error you see. Suffix or qualify per question.
+
+**The thumbnail exporter does not tell you a cell failed.** `marimo export thumbnail --execute`
+exits zero and photographs the wreckage; only `marimo export html` reports it. So the page is
+executed twice: once as HTML to find out whether it worked, then as a thumbnail. A size floor does
+not substitute — a title and two paragraphs is 28 kB.
+
 
 `uv run adss shoot`. Three things about it are the result of getting them wrong first:
 
