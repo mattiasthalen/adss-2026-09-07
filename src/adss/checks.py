@@ -161,6 +161,28 @@ def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[
             continue
         control = _rows(connection, question.staged_sql)
         answer = _rows(connection, question.uss_sql)
+        # The comparison below is row by row, by value, which is exact only while every value
+        # is. A float would make it order-dependent rather than wrong: DuckDB's sum over
+        # doubles is not associative -- [0.1, 0.2, 0.3] sums to 0.6000000000000001 and the
+        # same three reversed to 0.6 -- so two queries could sum one measure in two orders and
+        # disagree by a bit, on some machines, some of the time. There is no such value today
+        # and this is what says so. ADR 0007.
+        loose = sorted(
+            {
+                type(value).__name__
+                for row in (*control, *answer)
+                for value in row
+                if isinstance(value, float)
+            }
+        )
+        findings.append(
+            Finding(
+                f"{question.id}: both answers hold only exact values",
+                not loose,
+                f"found {loose} -- a ratio belongs to whoever asks, not to a stored answer, "
+                f"and an inexact value makes this comparison order-dependent",
+            )
+        )
         findings.append(
             Finding(
                 f"{question.id}: the source and the star schema agree",

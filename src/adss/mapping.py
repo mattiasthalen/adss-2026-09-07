@@ -60,6 +60,8 @@ _SHAPE_WORDS = frozenset(
     }
 )
 
+ATTRIBUTE_KEYS = frozenset({"id", "transformation_expression"})
+
 REQUIRED_STRATEGY = "FULL_LOG"
 REQUIRED_CLOCK = "extracted_at"
 
@@ -77,6 +79,7 @@ class Table:
     ingestion_strategy: str
     effective_timestamp_expression: str
     expressions: tuple[str, ...]
+    declared: tuple[tuple[str, ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +115,7 @@ def read_mapping(path: Path) -> Mapping:
                 str(attribute["transformation_expression"])
                 for attribute in table.get("attributes", [])
             ),
+            declared=tuple(tuple(attribute) for attribute in table.get("attributes", [])),
         )
         for group in document["mapping_groups"]
         for table in group["tables"]
@@ -172,6 +176,21 @@ def check_mapping(mapping: Mapping) -> None:
                 raise MappingError(
                     f"{where}: M5 -- {expression!r} reaches beyond its row. An expression "
                     f"that does is a join, and every join comes from a declared relationship."
+                )
+        for keys in table.declared:
+            # A YAML flow mapping treats the commas inside a function call as its own
+            # separators, so `{id: X, transformation_expression: f('a', b, c)}` silently
+            # becomes the expression `f('a'` plus keys named `b` and `c)`. There is no YAML
+            # error and nothing downstream notices: the truncated expression still reads its
+            # own row, so M5 accepts it, and the engine is the first thing to object -- to SQL
+            # nobody wrote. The stray keys are the signature, and they are the only one.
+            stray = [key for key in keys if key not in ATTRIBUTE_KEYS]
+            if stray:
+                raise MappingError(
+                    f"{where}: an attribute declares {stray}, which is not a key an attribute "
+                    f"has. Almost always this is YAML flow style splitting an expression on "
+                    f"the commas inside a function call -- write that attribute in block "
+                    f"style, or quote the expression."
                 )
         if not table.expressions:
             raise MappingError(

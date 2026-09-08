@@ -15,6 +15,13 @@ mapping_groups:
           - {id: PLACED_ON, transformation_expression: order_date}
           - {id: DESTINATION_COUNTRY, transformation_expression: ship_country}
           - {id: FREIGHT_CHARGE, transformation_expression: freight}
+          - {id: SHIPPED_ON, transformation_expression: shipped_date}
+          # Arithmetic over columns of this row, which M5 permits and ADR 0007 bounds.
+          # Block style, not flow: a flow mapping would split this expression on the commas
+          # inside the call and silently keep `date_diff('day'`. Refused now, but the shape is
+          # the point -- an expression with a comma in it is written like this.
+          - id: SHIP_LAG_DAYS
+            transformation_expression: date_diff('day', order_date, shipped_date)
     # M6. The id is <SRC>_<NAME>_<TGT>; source_table is byte-identical to the table above,
     # because a mismatch is skipped in silence; and the target expression is spelled exactly
     # as customer-mapping.yaml spells its own key, because a different spelling produces

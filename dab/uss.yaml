@@ -28,3 +28,28 @@ uss:
             freight charge however many items are on it.
           aggregate: sum
           attribute: FREIGHT_CHARGE
+
+    - id: SHIPPED
+      entity: ORDER
+      definition: >-
+        An order shipped: the goods left the business on their way to the destination. One per
+        order, on the day they left. An order the business has not recorded as gone has no
+        shipment event at all, so it is absent here rather than counted as a zero.
+      kind: transaction
+      date_attribute: SHIPPED_ON
+      measures:
+        - id: SHIPPED_ORDERS_COUNT
+          definition: >-
+            The number of orders that went out, counted on the day they left rather than the
+            day they were accepted. An order accepted in one month and shipped in the next
+            counts once, in the second.
+          aggregate: count
+
+        - id: SHIP_LAG_ORDERS_DAYS
+          definition: >-
+            The days orders spent waiting to go out, added up. Additive over any set of shipped
+            orders and any period, because each shipped order contributes its own wait exactly
+            once. The wait of a typical order is this divided by SHIPPED_ORDERS_COUNT over the
+            same set -- a division a question does, and never a number this system stores.
+          aggregate: sum
+          attribute: SHIP_LAG_DAYS

@@ -77,3 +77,18 @@ def test_arithmetic_and_functions_over_one_row_are_permitted(expression: str):
 )
 def test_an_expression_that_leaves_its_row_is_still_refused(expression: str):
     assert reaching(expression), f"{expression} does not read its own row"
+
+
+def test_an_expression_split_by_yaml_flow_style_is_refused():
+    """A flow mapping treats the commas inside a function call as its own separators.
+
+    `{id: X, transformation_expression: f('a', b, c)}` parses to the expression `f('a'` plus
+    two keys named `b` and `c)`, with no YAML error and nothing else to notice: the truncated
+    expression reads its own row, so M5 accepts it, and the engine is the first thing to
+    complain -- about SQL nobody wrote. It has now cost two slices, so it is refused here by
+    the one signature it always leaves, which is a key the schema does not have.
+    """
+    with pytest.raises(MappingError) as refused:
+        check_mapping(read_mapping(FIXTURES / "bad_split_expression.yaml"))
+    assert "flow style" in str(refused.value)
+    assert "b" in str(refused.value) and "c)" in str(refused.value)
