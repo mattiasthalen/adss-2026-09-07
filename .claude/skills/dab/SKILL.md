@@ -45,7 +45,9 @@ They are in `docs/conventions.md` §1.4 and checked by `tests/test_mapping_rules
   **not `concat`**, which ignores nulls and turns a missing half into a shorter key that collides
   with a real one. `||` yields null and fails at the engine instead. Two entries are refused at
   deploy unless `allow_multiple_identifiers` is set, and with it the key becomes a minted UUID.
-  ADR 0010.
+  A generated check counts the composed key against the source's own parts on every build, so a
+  separator that is wrong for the data that landed fails then rather than merging two rows in
+  silence. ADR 0010.
 
 ## What the engine does and does not do
 

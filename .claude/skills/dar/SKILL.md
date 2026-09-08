@@ -41,12 +41,25 @@ many-to-one relationships, and a measure is non-null only on the stage that owns
 parent's measure onto its children multiplies it when summed — that is the fan trap, and
 avoiding it is the entire reason there is a bridge rather than one wide join.
 
-Two consequences at query time, neither of which the schema can enforce:
+Slice 4 measured it on two grains rather than asserting it: 2,155 line rows carry an order key
+and the order's freight stays at 64,942.69. `tests/test_fan_out.py` is that measurement, and a
+generated check per measure repeats it on every build.
+
+**The half that is false.** The bridge protects the measure *column*. It protects nothing on a
+peripheral — and a numeric attribute that is also a measure's source is published in **both**
+places. `sum(o.freight_charge)` over `_bridge ⨝ order` returns 207,306.10 against a true
+64,942.69: once per line. It is one join and one sum, and it looks exactly like an answer.
+
+Three consequences at query time, none of which the schema can enforce:
 
 - A join on the row's own `_stage` key may be `INNER`. A join on an **inherited** key must be
   `LEFT`.
 - A ratio is `sum(a) / sum(b)` at query time. It is never a stored measure: an average of
   averages is wrong at every grain but the one it was computed at.
+- **Aggregate `_measure__` columns and nothing else.** A question's `uss.sql` is refused if it
+  applies any aggregate to a peripheral's column, or writes `count(*)` over the bridge — which
+  counts measurement events rather than the thing asked about. Checked on the engine's parse
+  tree, so a cast, a window or a subquery does not get past it. ADR 0012.
 
 ## Adding a measure
 
@@ -72,3 +85,13 @@ scope or aggregation words: `placed_orders_count`, never `total_orders`. Then re
   do not run a formatter over `dar/uss` afterwards — either produces a diff on every
   regeneration.
 - A zero-edge walk is a valid walk. One entity and no relationships is the normal case.
+- **An event may be dated by a date it inherits**: `date_attribute: ORDER.PLACED_ON` on an event
+  whose entity reaches `ORDER`. The date is resolved in the same CTE and at the same instant as
+  the key, off the same parent row, so the two cannot disagree. A row whose inherited date does
+  not resolve gets **no bridge row** — filtered where it was resolved, because the version CTE
+  has no such column to filter. Without that the row would arrive dated null and the calendar's
+  inner join would drop it, which looks exactly like the rule working. ADR 0009.
+- **A composed key is measured, not argued about.** Where a source key is composite the mapping
+  joins the parts with a separator, and a generated check counts the composition against the
+  parts on every build. A separator that is wrong for the data that landed says so then. ADR
+  0010.

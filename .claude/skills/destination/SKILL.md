@@ -25,6 +25,9 @@ uv run adss shoot                          photograph it for a pull request
   The working directory is not where you think during an export or a screenshot.
 - **It explains nothing itself.** Definitions are copied from the model. A page that writes
   its own definition has created a second one, and it will be the one that is out of date.
+- **It invents no fact.** No currency symbol where the model records no currency, no hardcoded
+  count beside computed ones, no label the page was told rather than shown. Everything on the
+  picture a slice is accepted on is derived from the answer, or it is not on the picture.
 
 ## Charts
 
@@ -35,6 +38,17 @@ two additive measures at query time.
 
 Cast an aggregate to `DOUBLE` before charting: DuckDB `DECIMAL` reaches the frontend as a
 decimal type the chart library cannot encode.
+
+**Mark the period the recording stops inside.** A series has to end somewhere and the last
+period is short rather than small — drawn at full strength beside whole ones it reads as a
+collapse, and a reader acts on it. Fade it, caption it beneath, and say it in the tooltip too,
+because a distinction carried by opacity alone is carried by nothing. Derive which period it is
+from the answer, never from a date the page was told. It is loudest in a bar chart of a single
+magnitude and quietest in a heatmap, which is not a reason to prefer the heatmap.
+
+**Break every tie in a sort.** An unstable order changes the delivered picture between runs on
+identical data, and a reviewer diffing the PNG cannot tell a re-sorted tie from a new answer.
+Render twice and compare the bytes.
 
 ## Screenshots
 
