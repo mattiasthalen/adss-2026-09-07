@@ -1,0 +1,48 @@
+# What the source sends, what it is called here, and what type it becomes. This file is the
+# documentation, the schema and the transformation; there is nothing beside it to keep in
+# step. Descriptions stay in the source's vocabulary -- what a thing MEANS is dab/model.yaml's
+# job, and saying it twice is how two numbers start disagreeing.
+endpoints:
+  source:
+    provider: odata
+    service: https://demodata.grapecity.com/northwind/odata/v1
+    entity: Categories
+    page_size: 100  # the service rejects $top above 100 with a bare 400
+  target:
+    platform: duckdb
+    models: [historized, current]
+
+ownership:
+  team: adss
+  upstream: >-
+    A public demo OData service. No owner, no SLA and no change notification, so a failing
+    contract check is the notification. The recording under das/fixtures is what every build
+    reads; the scheduled live run is what says the recording has gone stale.
+
+schema:
+  primary_keys: [category_id]
+  columns:
+    - source_path: CategoryId
+      target_name: category_id
+      type: INTEGER
+      mode: REQUIRED
+      description: Edm.Int32, Nullable=false. The entity key.
+    - source_path: CategoryName
+      target_name: category_name
+      type: STRING
+      mode: REQUIRED
+      description: Edm.String, Nullable=false.
+    - source_path: Description
+      target_name: description
+      type: STRING
+      mode: NULLABLE
+      description: Edm.String. A sentence about the category, in the source's own words.
+    - source_path: Picture
+      target_name: picture
+      type: STRING
+      mode: NULLABLE
+      description: >-
+        Edm.Binary, which OData serialises as base64 text in JSON, so STRING is the faithful
+        transcription and the vocabulary has no closer type. It is recorded because a contract
+        describes the whole entity the source sent; nothing models it and nothing reads it. It
+        is most of this entity set's bytes.

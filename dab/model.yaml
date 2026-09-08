@@ -172,6 +172,77 @@ model:
           type: NUMBER
           effective_timestamp: true
 
+    - id: PRODUCT
+      name: PRODUCT
+      definition: >-
+        A kind of goods the business offers to supply, described once and sold many times.
+      description: >-
+        One product is one such kind of goods. It exists independently of any order: the
+        business can offer something nobody has yet asked for, and can stop offering something
+        that appears on years of past orders.
+      attributes:
+        - id: PRODUCT_CODE
+          name: PRODUCT_CODE
+          definition: The code the business uses when it refers to one particular product.
+          description: >-
+            A number rather than a word. People say the product's name; this is what the
+            system files it under, and it is what an order line points at.
+          type: STRING
+          effective_timestamp: false
+
+        - id: PRODUCT_NAME
+          name: PRODUCT_NAME
+          definition: The name the product is offered and asked for under.
+          description: >-
+            What a person calls it. It is not unique by any rule the business states, and
+            nothing here relies on it being so.
+          type: STRING
+          effective_timestamp: true
+
+        - id: LIST_PRICE
+          name: LIST_PRICE
+          definition: The price the business currently offers this product at.
+          description: >-
+            What it costs today, which is not what any past order was agreed at -- that is
+            ORDER_LINE.AGREED_UNIT_PRICE, and the two move independently. Nothing states the
+            currency, as with every other amount in this model.
+          type: NUMBER
+          effective_timestamp: true
+
+    - id: CATEGORY
+      name: CATEGORY
+      definition: A grouping of products the business sells and reports on together.
+      description: >-
+        One category is one such grouping. It is how the business divides what it offers, so a
+        question about what sells well by kind means this rather than anything about a single
+        product.
+      attributes:
+        - id: CATEGORY_CODE
+          name: CATEGORY_CODE
+          definition: The code the business uses when it refers to one particular category.
+          description: >-
+            A number rather than a word, like PRODUCT_CODE. People say the category's name.
+          type: STRING
+          effective_timestamp: false
+
+        - id: CATEGORY_NAME
+          name: CATEGORY_NAME
+          definition: The name the category is known and reported by.
+          description: >-
+            What a person calls it -- Beverages, Seafood. This is the word a question about
+            categories groups by, and the one that appears on a page.
+          type: STRING
+          effective_timestamp: true
+
+        - id: CATEGORY_DESCRIPTION
+          name: CATEGORY_DESCRIPTION
+          definition: A sentence saying what kinds of goods belong to this category.
+          description: >-
+            The business's own words about where the line falls between one category and the
+            next. It explains the grouping; it does not decide it.
+          type: STRING
+          effective_timestamp: true
+
   # No cardinality is declared, because the modelling language has nowhere to declare it: a
   # `cardinality` field is rejected outright, and `type` accepts any string and is dropped on
   # compile. Writing `type: "1:N"` here would read as a statement the engine never receives.
@@ -185,6 +256,23 @@ model:
         this records who asked for the goods, not who is billed or who receives them.
       source_entity_id: ORDER
       target_entity_id: CUSTOMER
+
+    - name: IS_FOR
+      definition: The product this line is asking the business to supply.
+      description: >-
+        A line is for exactly one product and for the same one for its whole life: changing
+        what was asked for is a different line, not a changed one.
+      source_entity_id: ORDER_LINE
+      target_entity_id: PRODUCT
+
+    - name: IS_IN
+      definition: The category this product is grouped under.
+      description: >-
+        A product is in exactly one category. This is the second hop of the only chain in this
+        model that has one -- a line reaches a category through the product it is for, and
+        never directly, because nothing on an order names a category. ADR 0014.
+      source_entity_id: PRODUCT
+      target_entity_id: CATEGORY
 
     - name: IS_PART_OF
       definition: The order this line is one of the things asked for on.

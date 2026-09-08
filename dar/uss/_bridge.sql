@@ -114,6 +114,27 @@ ordered__version AS (
     ) = 1
 ),
 
+ordered__order_line_is_for_product AS (
+    SELECT
+        revision.order_line_key AS order_line_key,
+        revision._observed_at AS _observed_at,
+        pair."PRODUCT_key" AS product_key
+    FROM ordered__version AS revision
+    LEFT JOIN dab."v_ORDER_LINE_IS_FOR_PRODUCT" AS pair
+        ON
+            revision.order_line_key = pair."ORDER_LINE_key"
+            AND pair.rel_name = 'ORDER_LINE_IS_FOR_PRODUCT'
+            AND pair.row_st = 'Y'
+            AND revision._observed_at >= pair.eff_tmstp
+    QUALIFY row_number() OVER (
+        PARTITION BY revision.order_line_key, revision._observed_at
+        ORDER BY
+            pair.eff_tmstp DESC,
+            pair.ver_tmstp DESC,
+            pair."PRODUCT_key" ASC
+    ) = 1
+),
+
 ordered__order_line_is_part_of_order AS (
     SELECT
         revision.order_line_key AS order_line_key,
@@ -139,6 +160,27 @@ ordered__order_line_is_part_of_order AS (
             pair.ver_tmstp DESC,
             pair."ORDER_key" ASC,
             dated.eff_tmstp DESC
+    ) = 1
+),
+
+ordered__product_is_in_category AS (
+    SELECT
+        revision.order_line_key AS order_line_key,
+        revision._observed_at AS _observed_at,
+        pair."CATEGORY_key" AS category_key
+    FROM ordered__order_line_is_for_product AS revision
+    LEFT JOIN dab."v_PRODUCT_IS_IN_CATEGORY" AS pair
+        ON
+            revision.product_key = pair."PRODUCT_key"
+            AND pair.rel_name = 'PRODUCT_IS_IN_CATEGORY'
+            AND pair.row_st = 'Y'
+            AND revision._observed_at >= pair.eff_tmstp
+    QUALIFY row_number() OVER (
+        PARTITION BY revision.order_line_key, revision._observed_at
+        ORDER BY
+            pair.eff_tmstp DESC,
+            pair.ver_tmstp DESC,
+            pair."CATEGORY_key" ASC
     ) = 1
 ),
 
@@ -168,14 +210,24 @@ ordered AS (
         revision.order_line_key AS order_line_key,
         revision._observed_at AS _observed_at,
         order_line_is_part_of_order._event_date AS _event_date,
+        order_line_is_for_product.product_key AS product_key,
         order_line_is_part_of_order.order_key AS order_key,
+        product_is_in_category.category_key AS category_key,
         order_is_placed_by_customer.customer_key AS customer_key,
         revision._measure__order_line__revenue_order_lines_amount AS _measure__order_line__revenue_order_lines_amount
     FROM ordered__version AS revision
+    LEFT JOIN ordered__order_line_is_for_product AS order_line_is_for_product
+        ON
+            revision.order_line_key = order_line_is_for_product.order_line_key
+            AND revision._observed_at = order_line_is_for_product._observed_at
     LEFT JOIN ordered__order_line_is_part_of_order AS order_line_is_part_of_order
         ON
             revision.order_line_key = order_line_is_part_of_order.order_line_key
             AND revision._observed_at = order_line_is_part_of_order._observed_at
+    LEFT JOIN ordered__product_is_in_category AS product_is_in_category
+        ON
+            revision.order_line_key = product_is_in_category.order_line_key
+            AND revision._observed_at = product_is_in_category._observed_at
     LEFT JOIN ordered__order_is_placed_by_customer AS order_is_placed_by_customer
         ON
             revision.order_line_key = order_is_placed_by_customer.order_line_key
@@ -192,6 +244,8 @@ SELECT
     placed.order_key AS order_key,
     placed.customer_key AS customer_key,
     cast(NULL AS VARCHAR) AS order_line_key,
+    cast(NULL AS VARCHAR) AS product_key,
+    cast(NULL AS VARCHAR) AS category_key,
     placed._measure__order__placed_orders_count AS _measure__order__placed_orders_count,
     placed._measure__order__freight_orders_amount AS _measure__order__freight_orders_amount,
     cast(NULL AS BIGINT) AS _measure__order__shipped_orders_count,
@@ -210,6 +264,8 @@ SELECT
     shipped.order_key AS order_key,
     shipped.customer_key AS customer_key,
     cast(NULL AS VARCHAR) AS order_line_key,
+    cast(NULL AS VARCHAR) AS product_key,
+    cast(NULL AS VARCHAR) AS category_key,
     cast(NULL AS BIGINT) AS _measure__order__placed_orders_count,
     cast(NULL AS DECIMAL(28, 8)) AS _measure__order__freight_orders_amount,
     shipped._measure__order__shipped_orders_count AS _measure__order__shipped_orders_count,
@@ -228,6 +284,8 @@ SELECT
     ordered.order_key AS order_key,
     ordered.customer_key AS customer_key,
     ordered.order_line_key AS order_line_key,
+    ordered.product_key AS product_key,
+    ordered.category_key AS category_key,
     cast(NULL AS BIGINT) AS _measure__order__placed_orders_count,
     cast(NULL AS DECIMAL(28, 8)) AS _measure__order__freight_orders_amount,
     cast(NULL AS BIGINT) AS _measure__order__shipped_orders_count,

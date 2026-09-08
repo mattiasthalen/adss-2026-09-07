@@ -1,0 +1,83 @@
+# What the source sends, what it is called here, and what type it becomes. This file is the
+# documentation, the schema and the transformation; there is nothing beside it to keep in
+# step. Descriptions stay in the source's vocabulary -- what a thing MEANS is dab/model.yaml's
+# job, and saying it twice is how two numbers start disagreeing.
+endpoints:
+  source:
+    provider: odata
+    service: https://demodata.grapecity.com/northwind/odata/v1
+    entity: Products
+    page_size: 100  # the service rejects $top above 100 with a bare 400
+  target:
+    platform: duckdb
+    models: [historized, current]
+
+ownership:
+  team: adss
+  upstream: >-
+    A public demo OData service. No owner, no SLA and no change notification, so a failing
+    contract check is the notification. The recording under das/fixtures is what every build
+    reads; the scheduled live run is what says the recording has gone stale.
+
+schema:
+  primary_keys: [product_id]
+  columns:
+    - source_path: ProductId
+      target_name: product_id
+      type: INTEGER
+      mode: REQUIRED
+      description: Edm.Int32, Nullable=false. The entity key.
+    - source_path: ProductName
+      target_name: product_name
+      type: STRING
+      mode: REQUIRED
+      description: Edm.String, Nullable=false.
+    - source_path: SupplierId
+      target_name: supplier_id
+      type: INTEGER
+      mode: NULLABLE
+      description: >-
+        Edm.Int32, and the metadata does not mark it non-null. A navigation property points at
+        Supplier; nothing here loads that entity set.
+    - source_path: CategoryId
+      target_name: category_id
+      type: INTEGER
+      mode: NULLABLE
+      description: >-
+        Edm.Int32, and the metadata does not mark it non-null -- so the source permits a
+        product in no category at all, whatever this recording happens to contain.
+    - source_path: QuantityPerUnit
+      target_name: quantity_per_unit
+      type: STRING
+      mode: NULLABLE
+      description: Edm.String. Free text, not a number and not a unit.
+    - source_path: UnitPrice
+      target_name: unit_price
+      type: DECIMAL
+      precision: 18
+      scale: 4
+      mode: NULLABLE
+      description: >-
+        Edm.Decimal with Scale=Variable. The scale is pinned here because the source does not
+        pin it. This is the product's own price, which is a different column from the price on
+        an order line.
+    - source_path: UnitsInStock
+      target_name: units_in_stock
+      type: INTEGER
+      mode: NULLABLE
+      description: Edm.Int16.
+    - source_path: UnitsOnOrder
+      target_name: units_on_order
+      type: INTEGER
+      mode: NULLABLE
+      description: Edm.Int16.
+    - source_path: ReorderLevel
+      target_name: reorder_level
+      type: INTEGER
+      mode: NULLABLE
+      description: Edm.Int16.
+    - source_path: Discontinued
+      target_name: discontinued
+      type: BOOLEAN
+      mode: REQUIRED
+      description: Edm.Boolean, Nullable=false.

@@ -1,0 +1,25 @@
+# How one entity is loaded from what the system recorded. This is the one artefact whose job
+# is to bind two vocabularies, so it names both -- but only in table, primary_keys and
+# transformation_expression. See docs/conventions.md section 1.4.
+entity_id: PRODUCT
+mapping_groups:
+  - name: default_mapping_group
+    tables:
+      - connection: dev
+        table: das__staged.products
+        primary_keys: [product_id]
+        ingestion_strategy: FULL_LOG
+        entity_effective_timestamp_expression: extracted_at
+        attributes:
+          - {id: PRODUCT_CODE, transformation_expression: cast(product_id AS VARCHAR)}
+          - {id: PRODUCT_NAME, transformation_expression: product_name}
+          - {id: LIST_PRICE, transformation_expression: unit_price}
+    relationships:
+      # The second hop of the only chain here. It runs from PRODUCT, so by M6 it is declared
+      # by this mapping rather than by the one that reaches PRODUCT. ADR 0014.
+      #
+      # Spelled exactly as category-mapping.yaml spells its own key -- a bare column. A cast
+      # here would produce a different VARCHAR and join to nothing.
+      - id: PRODUCT_IS_IN_CATEGORY
+        source_table: das__staged.products
+        target_transformation_expression: category_id

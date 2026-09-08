@@ -11,3 +11,5 @@ workflow:
     - ./mappings/order-mapping.yaml
     - ./mappings/customer-mapping.yaml
     - ./mappings/order-line-mapping.yaml
+    - ./mappings/product-mapping.yaml
+    - ./mappings/category-mapping.yaml
