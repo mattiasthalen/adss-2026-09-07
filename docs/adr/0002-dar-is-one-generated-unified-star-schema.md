@@ -157,10 +157,15 @@ section now describes the check that exists. A fourth asserts `DESCRIBE dar__uss
 equals the plan on the real warehouse, and a fifth counts the description table directly, which is
 the only place an ingestion-strategy defect is visible.
 
-**The fan-out test is not among them, and cannot be yet.** It needs two grains — parents and
-children — and this slice has one entity. It lands with the second grain, in the slice that first
-creates something for a measure to multiply across. Until then the property is argued rather than
-demonstrated, which [deviations.md](../deviations.md) records against D-0001 as well.
+**The fan-out test exists as of slice 4**, in `tests/test_fan_out.py`. It **could have existed in
+slice 2**, and this section said otherwise: it claimed the test needed two grains the system did
+not yet have. The test runs entirely on the neutral fixture, and that fixture gained a CHILD with
+its own measure in slice 2, at the same time as the first relationship. What was missing was not a
+second grain but the decision to go and build one; the excuse was wrong and the two slices of
+delay were real. It runs the
+generated SQL over a two-grain warehouse and asserts that a parent's measure is its own total and
+not its children times it; ADR 0012 records what it covers, what mutation makes it fail, and the
+half of D-0001's argument it shows to be false.
 
 `adss dar generate --check` regenerates and fails on any diff, which is what keeps the committed
 SQL from becoming a second truth.

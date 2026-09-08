@@ -14,12 +14,20 @@ from dataclasses import dataclass
 
 import duckdb
 
-from adss.contract import read_contract
-from adss.model import Model, read_model
+from adss.contract import Contract, read_contract
+from adss.mapping import Mapping, Table
+from adss.model import Entity, Model, read_model
 from adss.names import Relation, Schema, crossing
 from adss.project import Project
-from adss.question import Status, read_questions, without_comments
-from adss.uss import BRIDGE, bridge_columns, read_uss
+from adss.question import (
+    Question,
+    QuestionError,
+    Status,
+    check_question,
+    read_questions,
+    without_comments,
+)
+from adss.uss import BRIDGE, Event, Uss, bridge_columns, definitions, read_uss
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +63,21 @@ def _zero(connection: duckdb.DuckDBPyConnection, sql: str) -> tuple[bool, str]:
     rows = _rows(connection, sql)
     value = rows[0][0] if rows and rows[0] else None
     return value == 0, f"{value}"
+
+
+def answerable_finding(question: Question, defined: dict[str, str]) -> Finding:
+    """Whether this question is answerable as written, as a finding rather than a traceback.
+
+    The static refusals -- the flow rules, the definitions, ADR 0012's aggregate rule -- were
+    reachable from the test suite alone, so `adss check` executed a question's SQL that nothing
+    had refused. A question can be added to a working tree without anybody running pytest; the
+    build is where it is used, so the build is where it is refused.
+    """
+    try:
+        check_question(question, defined)
+    except QuestionError as refused:
+        return Finding(f"{question.id}: answerable as written", False, str(refused))
+    return Finding(f"{question.id}: answerable as written", True, "nothing to refuse")
 
 
 def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[Finding]:
@@ -161,6 +184,7 @@ def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[
             )
         )
 
+    defined = definitions(model, uss)
     for question in read_questions(project.questions):
         if question.status in (Status.DRAFT, Status.SUPERSEDED):
             findings.append(
@@ -171,6 +195,10 @@ def run_checks(project: Project, connection: duckdb.DuckDBPyConnection) -> list[
                     "running either would fail the build on something nobody is answering",
                 )
             )
+            continue
+        answerable = answerable_finding(question, defined)
+        findings.append(answerable)
+        if not answerable.passed:
             continue
         control = _rows(connection, question.staged_sql)
         answer = _rows(connection, question.uss_sql)
@@ -285,6 +313,178 @@ def relationship_checks(model: Model) -> dict[str, str]:
             f"    AND t.{target.key_column} IS NULL;\n"
         )
     return generated
+
+
+def _composed(
+    mappings: Sequence[Mapping], contracts: Sequence[Contract]
+) -> list[tuple[str, Table, Contract]]:
+    """Every mapping table whose source key is composite, with the contract that declares it.
+
+    Only composite ones. Where the source key is one column the mapping simply names it, and
+    counting a thing against itself is a check that cannot fail.
+    """
+    by_table = {contract.table: contract for contract in contracts}
+    return [
+        (mapping.entity_id.lower(), table, contract)
+        for mapping in mappings
+        for table in mapping.tables
+        if (contract := by_table.get(table.table.rpartition(".")[2])) is not None
+        and len(contract.primary_keys) > 1
+    ]
+
+
+def composed_key_check_names(
+    mappings: Sequence[Mapping], contracts: Sequence[Contract]
+) -> tuple[str, ...]:
+    """What composed_key_checks would be called, without emitting or formatting any of it."""
+    return tuple(
+        f"{entity}__{contract.table}__composed_key.sql"
+        for entity, _, contract in _composed(mappings, contracts)
+    )
+
+
+def composed_key_checks(
+    mappings: Sequence[Mapping], contracts: Sequence[Contract]
+) -> dict[str, str]:
+    """One check per composite source key: the composition has as many distinct values. ADR 0010.
+
+    A separator argument is a prediction about what the parts can hold. This is a measurement
+    over what actually landed, so a separator that is wrong for this data says so on the build
+    that loaded it rather than in a report six months later.
+
+    The parts are counted as a tuple and the composition as the single value the engine will
+    key on. Two source rows that compose to one key make the second count smaller, and the
+    entity that disappears takes its measures with it.
+    """
+    generated: dict[str, str] = {}
+    for entity, table, contract in _composed(mappings, contracts):
+        current = Relation(Schema.DAS_STAGED, f"{contract.table}__current")
+        parts = ", ".join(contract.primary_keys)
+        composed = table.primary_keys[0]
+        # Named for the entity AND the table. Keyed on the entity alone, an entity
+        # loaded from two composite tables kept only the last check and reported
+        # nothing missing -- and `adss check` printed PASS for the one that survived.
+        generated[f"{entity}__{contract.table}__composed_key"] = (
+            f"{_COMPOSED}\n"
+            f"SELECT count(*) AS collisions\n"
+            f"FROM (\n"
+            f"    SELECT\n"
+            f"        count(DISTINCT ROW({parts})) AS parts,\n"
+            f"        count(DISTINCT {composed}) AS composed\n"
+            f"    FROM {current.sql}\n"
+            f") AS counted\n"
+            f"WHERE counted.parts != counted.composed;\n"
+        )
+    return generated
+
+
+_COMPOSED = "-- Generated from dab/mappings/. Do not edit; regenerate with `adss dar generate`."
+
+
+def _dated_elsewhere(model: Model, uss: Uss) -> list[tuple[Event, Event, Entity]]:
+    """Every event that inherits its date, paired with the event that owns that date.
+
+    Only where such an event exists. Without one there is nothing independent to compare the
+    inherited date against, and a check that re-derives what it expects from the generator
+    agrees with a broken generator -- which is the trap `entity_keys` already carries a note
+    about.
+    """
+    paired: list[tuple[Event, Event, Entity]] = []
+    for event in uss.events:
+        inherited, attribute_id = event.dated_by
+        if inherited is None:
+            continue
+        owner = next(
+            (
+                candidate
+                for candidate in uss.events
+                if candidate.entity_id == inherited and candidate.dated_by == (None, attribute_id)
+            ),
+            None,
+        )
+        if owner is not None:
+            paired.append((event, owner, model.entity(inherited)))
+    return paired
+
+
+def inherited_date_check_names(model: Model, uss: Uss) -> tuple[str, ...]:
+    """What inherited_date_checks would be called, without emitting or formatting any of it."""
+    return tuple(
+        f"{event.name}__inherited_date.sql" for event, _, _ in _dated_elsewhere(model, uss)
+    )
+
+
+def inherited_date_checks(model: Model, uss: Uss) -> dict[str, str]:
+    """One check per inherited date: it agrees with the stage that owns that date. ADR 0009.
+
+    The date and the key are resolved in one CTE at one instant, and the two ways that breaks --
+    resolving the date at a different instant than the key, or against a different version of the
+    parent -- are both invisible in the warehouse. The parent's own stage carries the same date
+    through a different code path, so comparing them is independent rather than circular.
+
+    What it does not see: a row dropped because its inherited date did not resolve. ADR 0009
+    makes such a row absent by construction, and an absent row disagrees with nothing. Nothing in
+    the model says how many rows a stage should have, so there is no honest count to check it
+    against; the record says so rather than implying this covers it.
+    """
+    generated: dict[str, str] = {}
+    for event, owner, entity in _dated_elsewhere(model, uss):
+        generated[f"{event.name}__inherited_date"] = (
+            f"{_INHERITED}\n"
+            f"SELECT count(*) AS disagreements\n"
+            f"FROM {BRIDGE.sql} AS inheriting\n"
+            f"INNER JOIN {BRIDGE.sql} AS dating\n"
+            f"    ON dating.{entity.key_column} = inheriting.{entity.key_column}\n"
+            f"    AND dating._event = '{owner.name}'\n"
+            f"WHERE inheriting._event = '{event.name}'\n"
+            f"    AND inheriting._event_date != dating._event_date;\n"
+        )
+    return generated
+
+
+_INHERITED = "-- Generated from dab/uss.yaml. Do not edit; regenerate with `adss dar generate`."
+
+
+_MEASURE = "-- Generated from dab/uss.yaml. Do not edit; regenerate with `adss dar generate`."
+
+
+def measure_check_names(uss: Uss) -> tuple[str, ...]:
+    """What measure_checks would be called, without emitting or formatting any of it.
+
+    The contract side of `checks/` only needs the names, to leave these files alone -- the same
+    reason relationship_check_names exists, and the same cost: a DAS command now reads the
+    declarations to learn what it must not delete.
+    """
+    return tuple(
+        f"{column.removeprefix('_')}__isolated.sql" for _, _, column in uss.measure_columns()
+    )
+
+
+def measure_checks(uss: Uss) -> dict[str, str]:
+    """One check per measure: it is non-null on its own event's rows and on no other. ADR 0012.
+
+    This is the property D-0001 rests on, carried into every build. `tests/test_fan_out.py`
+    proves it with numbers on a warehouse it builds; this asserts the mechanism on the warehouse
+    that was actually built, where a wrong number would be believed.
+
+    By EVENT and not by stage. Two events on one entity share a stage, so a per-stage check would
+    let one event's measure sit on another event's row and report nothing -- and that is the
+    likelier defect, since every branch of the union comes off the same stage's CTE.
+
+    It counts leaks only. A measure that is null everywhere would pass here, and is not this
+    check's to catch: a bridge that lost its rows disagrees with the source, which is what
+    `adss check` compares on every build.
+    """
+    return {
+        f"{column.removeprefix('_')}__isolated": (
+            f"{_MEASURE}\n"
+            f"SELECT count(*) AS leaked\n"
+            f"FROM {BRIDGE.sql} AS b\n"
+            f"WHERE b._event != '{event.name}'\n"
+            f"    AND b.{column} IS NOT NULL;\n"
+        )
+        for event, _, column in uss.measure_columns()
+    }
 
 
 def _first_gap(control: list[tuple[object, ...]], answer: list[tuple[object, ...]]) -> str:

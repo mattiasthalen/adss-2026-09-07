@@ -53,3 +53,21 @@ uss:
             same set -- a division a question does, and never a number this system stores.
           aggregate: sum
           attribute: SHIP_LAG_DAYS
+
+    - id: ORDERED
+      entity: ORDER_LINE
+      definition: >-
+        A line was ordered: the business agreed to supply one kind of goods, in a quantity, at
+        a price. One per line, on the day the order carrying it was accepted -- a line has no
+        day of its own.
+      kind: transaction
+      # Inherited along IS_PART_OF, resolved with the key and at the same instant. ADR 0009.
+      date_attribute: ORDER.PLACED_ON
+      measures:
+        - id: REVENUE_ORDER_LINES_AMOUNT
+          definition: >-
+            What the business took, added up over lines. It is additive over any set of lines
+            and any period, because each line contributes what it earned exactly once -- and
+            it may not be added to anything measured per order, which is a different grain.
+          aggregate: sum
+          attribute: REVENUE

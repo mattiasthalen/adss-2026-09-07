@@ -65,6 +65,10 @@ uv run pre-commit run --all-files
    they are still live regularly changes the answer, which is the whole return.
 3. **Build** — machinery is test-first, the failing test and the code in one commit. Data
    checks land in the commit that makes them true; TDD is for functions, not for a `SELECT`.
+   **Run the mutation before the ADR's Confirmation section claims one.** A confirmation that
+   names a test which could not fail for the reason given is worse than none, because it stops
+   anybody looking again — and it has happened here more than once. Break the thing on purpose,
+   watch the suite go red, and write down what it said.
 4. **Verify** — layering, conventions, an independent recomputation, test quality, and a code
    review of the diff.
 5. **Present** — the page, the screenshot, the pull request.
@@ -88,3 +92,8 @@ routing a number through integration and generation changed it. It does **not** 
 definition; both queries would be written to it and both would be wrong together. When they
 disagree, `dab/model.yaml` is the arbiter — the query that departs from the definition is the
 one that changes, never both until they match.
+
+An answer query may aggregate `_measure__` columns and nothing else, and it is refused if it
+does otherwise. The bridge protects a measure with a typed null on every branch that does not
+own it; it protects nothing on a peripheral, and a numeric attribute that is also a measure's
+source is published in both places. ADR 0012.

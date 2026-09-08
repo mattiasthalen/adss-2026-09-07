@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 from adss.model import Model
-from adss.names import Schema
+from adss.names import Schema, refuse_unsafe, unsafe
 
 # An attribute expression may read its own row: a column, a cast of one, a CASE over them, or
 # arithmetic over them. Anything else is a join, and every join must come from a declared
@@ -101,6 +101,13 @@ class Mapping:
     relationships: tuple[Relationship, ...] = ()
 
 
+def _named(entity_id: str) -> str:
+    """The entity a mapping is for names a generated check's file. names.py says which are safe."""
+    if unsafe(entity_id):
+        raise MappingError(refuse_unsafe("entity", entity_id))
+    return entity_id
+
+
 def read_mapping(path: Path) -> Mapping:
     document = yaml.safe_load(path.read_text())
     tables = [
@@ -131,7 +138,7 @@ def read_mapping(path: Path) -> Mapping:
     ]
     return Mapping(
         path=path,
-        entity_id=str(document["entity_id"]),
+        entity_id=_named(str(document["entity_id"])),
         tables=tuple(tables),
         relationships=tuple(relationships),
     )

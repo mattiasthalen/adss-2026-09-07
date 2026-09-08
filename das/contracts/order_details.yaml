@@ -1,0 +1,64 @@
+# What the source sends, what it is called here, and what type it becomes. This file is the
+# documentation, the schema and the transformation; there is nothing beside it to keep in
+# step. Descriptions stay in the source's vocabulary -- what a thing MEANS is dab/model.yaml's
+# job, and saying it twice is how two numbers start disagreeing.
+endpoints:
+  source:
+    provider: odata
+    service: https://demodata.grapecity.com/northwind/odata/v1
+    entity: OrderDetails
+    page_size: 100  # the service rejects $top above 100 with a bare 400
+  target:
+    platform: duckdb
+    models: [historized, current]
+
+ownership:
+  team: adss
+  upstream: >-
+    A public demo OData service. No owner, no SLA and no change notification, so a failing
+    contract check is the notification. The recording under das/fixtures is what every build
+    reads; the scheduled live run is what says the recording has gone stale.
+
+schema:
+  # The first composite key this system has met. DAS records it as the source declares it --
+  # two columns -- and the single key the modelling engine needs is composed in the mapping,
+  # where a check compares it back against these two. ADR 0010.
+  primary_keys: [order_id, product_id]
+  columns:
+    - source_path: OrderId
+      target_name: order_id
+      type: INTEGER
+      mode: REQUIRED
+      description: >-
+        Edm.Int32. Half the entity key. The metadata does not mark it Nullable=false, unlike
+        Order.OrderId, which it does.
+    - source_path: ProductId
+      target_name: product_id
+      type: INTEGER
+      mode: REQUIRED
+      description: Edm.Int32. The other half of the entity key, and likewise not marked non-null.
+    - source_path: UnitPrice
+      target_name: unit_price
+      type: DECIMAL
+      precision: 18
+      scale: 4
+      mode: REQUIRED
+      description: >-
+        Edm.Decimal with Scale=Variable, Nullable=false. The scale is pinned here because the
+        source does not pin it.
+    - source_path: Quantity
+      target_name: quantity
+      type: INTEGER
+      mode: REQUIRED
+      description: Edm.Int16, Nullable=false.
+    - source_path: Discount
+      target_name: discount
+      type: DECIMAL
+      precision: 18
+      scale: 4
+      mode: REQUIRED
+      description: >-
+        Edm.Single, Nullable=false -- a 32-bit float. Recorded as a decimal rather than a
+        double because the vocabulary has no REAL, so neither is a transcription, and a NaN
+        or an Infinity then fails at this cast rather than propagating into a measure that
+        both of a question's answers would agree on. D-0002, ADR 0011.

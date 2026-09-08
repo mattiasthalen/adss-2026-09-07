@@ -41,7 +41,7 @@ def raw_view_sql(contract: Contract, lake: Path) -> str:
     """
     relation = Relation(Schema.DAS_RAW, contract.table)
     glob = lake / contract.table / "extracted_on=*" / "*.parquet"
-    landed = ["payload", *PROVENANCE, "extracted_on", "_dlt_load_id", "_dlt_id"]
+    landed = ["payload", *PROVENANCE, "extracted_at", "extracted_on", "_dlt_load_id", "_dlt_id"]
     selected = ",\n".join(f"    landed.{name} AS {name}" for name in landed)
     return (
         f"{_GENERATED.format(table=contract.table)}\n"
@@ -68,7 +68,7 @@ def staged_view_sql(contract: Contract) -> str:
         for column in contract.columns
     ]
     lines += [f"    landed.{name} AS {name}" for name in PROVENANCE]
-    lines.append("    to_timestamp(cast(landed._dlt_load_id AS DOUBLE)) AS extracted_at")
+    lines.append("    landed.extracted_at AS extracted_at")
     lines.append("    landed.extracted_on AS extracted_on")
     selected = ",\n".join(lines)
     return (
@@ -118,6 +118,11 @@ def clock_check_sql(contract: Contract) -> str:
     loader's UTC date -- and the check would then fail on every machine east or west of
     Greenwich for a warehouse that is perfectly correct.
 
+    `IS DISTINCT FROM` rather than `<>`, because a null is not equal to anything and is not
+    unequal to anything either: with `<>` a row whose clock is missing satisfied neither side
+    and was counted by neither, so the check passed on exactly the rows it exists to find. A
+    load that predates ADR 0013's landed column is that row.
+
     Emitted per contract rather than written in Python: the machinery must work for any
     source, so it may not name one, and SQL in a string is SQL the linter never sees.
     """
@@ -126,19 +131,23 @@ def clock_check_sql(contract: Contract) -> str:
         f"{_GENERATED.format(table=contract.table)}\n"
         f"SELECT count(*) AS disagreements\n"
         f"FROM {relation.sql} AS staged\n"
-        f"WHERE staged.extracted_on <> cast(timezone('UTC', staged.extracted_at) AS DATE);\n"
+        f"WHERE staged.extracted_on IS DISTINCT FROM "
+        f"cast(timezone('UTC', staged.extracted_at) AS DATE);\n"
     )
 
 
 def key_check_sql(contract: Contract) -> str:
     """One row per key in the current view, however many loads the change log holds."""
     current = Relation(Schema.DAS_STAGED, f"{contract.table}__current")
-    # Parenthesised: count(DISTINCT a, b) is not a function DuckDB has, so a composite key
-    # would emit a check that cannot run -- and an unrunnable check aborts the whole run
-    # before any finding is printed.
+    # ROW(), not bare parentheses. count(DISTINCT a, b) is not a function DuckDB has, so a
+    # composite key needs its parts made into one value -- and grouping parentheses do not
+    # survive: the formatter removes them as redundant, which turns a working check back into
+    # one that cannot run. It is a function call now, which the formatter has no licence to
+    # unwrap. An unrunnable check aborts the whole run before a finding is printed.
     keys = ", ".join(f"latest.{key}" for key in contract.primary_keys)
+    counted = f"ROW({keys})" if len(contract.primary_keys) > 1 else keys
     return (
         f"{_GENERATED.format(table=contract.table)}\n"
-        f"SELECT count(*) - count(DISTINCT ({keys})) AS duplicates\n"
+        f"SELECT count(*) - count(DISTINCT {counted}) AS duplicates\n"
         f"FROM {current.sql} AS latest;\n"
     )

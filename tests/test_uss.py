@@ -8,6 +8,7 @@ import pytest
 
 from adss.model import Attribute, AttributeType, Entity, Relationship, read_model
 from adss.uss import (
+    Aggregate,
     Uss,
     UssError,
     bridge_columns,
@@ -506,3 +507,87 @@ def test_every_declared_measure_keeps_its_own_definition():
     )
     for entity, measure, definition in declared:
         assert carried[f"{entity}.measures.{measure}"] == definition
+
+
+def test_a_stage_may_be_dated_by_a_date_it_inherits():
+    """An entity with no date of its own is dated by the one it reaches. ADR 0009.
+
+    The walk already resolves the parent as of the observation time of the row that inherits,
+    and puts its key on that row. A date is another column of the row it already found.
+    """
+    model, _ = plan()
+    uss = read_uss(FIXTURES / "inherited_date.yaml", model)
+    sql = bridge_sql(model, uss)
+    resolved = cte_of(sql, "reached__child_points_at_parent")
+    assert 'cast(dated."HAPPENED_ON" AS DATE) AS _event_date' in resolved, (
+        "the date comes off the inherited entity"
+    )
+    # The same CTE and the same instant. Two instants on one bridge row is what ADR 0006 calls
+    # the entire difference between the option it chose and the one it rejected, and an
+    # unbounded join here would take whichever version of the parent the engine reached first.
+    assert 'ON dated."PARENT_key" = pair."PARENT_key"' in resolved, (
+        "off the same parent the key came from"
+    )
+    assert re.search(r"dated\.eff_tmstp\s*<=\s*revision\._observed_at", resolved), (
+        "as of the observation time of the row that inherits, exactly as the key is"
+    )
+    assert "_event_date" not in cte_of(sql, "reached__version"), (
+        "the event's own entity has no date to give, so its version CTE emits none"
+    )
+    # And the stage reads the date from where it was resolved, not from its own version.
+    stage = cte_of(sql, "reached")
+    assert "child_points_at_parent._event_date AS _event_date" in stage, (
+        "a stage whose date is inherited reads it off the edge that resolved it"
+    )
+
+
+def test_an_unqualified_date_attribute_still_means_the_events_own_entity():
+    model, uss = plan()
+    sql = bridge_sql(model, uss)
+    assert 'cast(revision."HAPPENED_ON" AS DATE) AS _event_date' in cte_of(sql, "happened__version")
+
+
+def test_a_date_on_an_entity_no_edge_reaches_is_refused_with_the_edges_that_exist():
+    model, _ = plan()
+    with pytest.raises(UssError, match="no edge"):
+        read_uss(FIXTURES / "bad_unreachable_date.yaml", model)
+
+
+def test_a_row_whose_inherited_date_does_not_resolve_has_no_bridge_row():
+    """The same rule as an event that did not happen, one layer along the walk.
+
+    The version CTE filters its own date; an inherited one is not there to filter, so the stage
+    filters where it was resolved. Without it a line whose order cannot be resolved would carry
+    a null event date into the bridge -- and the calendar's inner join would drop it silently,
+    which looks like the rule working and is not.
+    """
+    model, _ = plan()
+    uss = read_uss(FIXTURES / "inherited_date.yaml", model)
+    stage = cte_of(bridge_sql(model, uss), "reached")
+    assert re.search(r"WHERE \w+\._event_date IS NOT NULL", stage), (
+        "an unresolvable inherited date means no row, by construction"
+    )
+
+
+def test_a_measure_is_checked_against_the_events_own_entity_not_the_one_it_inherits_from():
+    """An inherited date names another entity; the measures still belong to this one.
+
+    Resolving the date by reassigning the entity checked every measure against the wrong one.
+    Both directions are here, because the first version of this test asserted only that the
+    fixture loaded -- and every measure on that event was a `count`, which names no attribute
+    and so never reaches the check at all. It passed under the defect it was written for.
+    """
+    model, _ = plan()
+    uss = read_uss(FIXTURES / "inherited_date.yaml", model)
+    reached = next(e for e in uss.events if e.id == "REACHED")
+    summed = next(m for m in reached.measures if m.aggregate is Aggregate.SUM)
+    assert summed.attribute_id == "CHILD_WEIGHT", "an attribute CHILD has and PARENT does not"
+
+
+def test_a_measure_of_the_entity_the_date_is_inherited_from_is_refused():
+    """The other direction. PARENT has PARENT_SIZE and CHILD does not, so summing it on a CHILD
+    event must be refused -- the bridge would otherwise select a column its own CTE never
+    emits, which is SQL that cannot bind rather than a number that is wrong."""
+    model, _ = plan()
+    with pytest.raises(UssError, match="PARENT_SIZE"):
+        read_uss(FIXTURES / "bad_measure_of_the_inherited_entity.yaml", model)

@@ -17,7 +17,13 @@ import typer
 
 from adss import __version__
 from adss.checks import (
+    composed_key_check_names,
+    composed_key_checks,
     contracts_of,
+    inherited_date_check_names,
+    inherited_date_checks,
+    measure_check_names,
+    measure_checks,
     relationship_check_names,
     relationship_checks,
     run_checks,
@@ -33,7 +39,8 @@ from adss.das import (
 )
 from adss.destination import shoot
 from adss.engine import Engine, is_installed, metadata_schema
-from adss.landing import land
+from adss.landing import land, observation
+from adss.mapping import read_mapping
 from adss.model import read_model
 from adss.names import Schema
 from adss.platform import exclusive, install, reading
@@ -125,10 +132,15 @@ def das_ingest(
 ) -> None:
     """Append one load of every contract to the lake."""
     project = Project.discover()
+    # Taken once, before anything is fetched. One run of this command is one observation of
+    # the source, so every contract it lands carries the same time -- otherwise an as-of join
+    # between two entities depends on the order their file names happen to sort in. ADR 0013.
+    observed_at = observation()
+    typer.echo(f"observing at {observed_at.isoformat()}")
     for path in project.contract_paths():
         declared = read_contract(path)
         fetch = over_http if live else replay(project.fixtures / declared.table)
-        loads = land(declared, fetch, project.lake, project.pipelines)
+        loads = land(declared, fetch, project.lake, project.pipelines, observed_at)
         typer.echo(f"landed {declared.table}: {', '.join(loads)}")
 
 
@@ -186,8 +198,16 @@ def das_unpack(
 
     # Names only: this is a DAS command, and it needs to know which files belong to the
     # other generator, not what they say.
+    model = read_model(project.model)
     written_checks |= {
-        project.checks_sql / name for name in relationship_check_names(read_model(project.model))
+        project.checks_sql / name
+        for name in relationship_check_names(model)
+        + measure_check_names(read_uss(project.uss, model))
+        + inherited_date_check_names(model, read_uss(project.uss, model))
+        + composed_key_check_names(
+            [read_mapping(path) for path in project.mapping_paths()],
+            [read_contract(path) for path in project.contract_paths()],
+        )
     }
     for orphan in sorted(project.checks_sql.glob("*.sql")):
         if orphan in written_checks:
@@ -260,10 +280,16 @@ def _generate(project: Project) -> dict[str, str]:
 def _generated_checks(project: Project) -> dict[str, str]:
     """The checks the model generates, as file name to SQL. The contracts generate the rest."""
     model = read_model(project.model)
-    return {
-        f"{name}.sql": formatted(sql, project.sqlfluff_config)
-        for name, sql in relationship_checks(model).items()
-    }
+    uss = read_uss(project.uss, model)
+    mappings = [read_mapping(path) for path in project.mapping_paths()]
+    contracts = [read_contract(path) for path in project.contract_paths()]
+    written = (
+        relationship_checks(model)
+        | measure_checks(uss)
+        | inherited_date_checks(model, uss)
+        | composed_key_checks(mappings, contracts)
+    )
+    return {f"{name}.sql": formatted(sql, project.sqlfluff_config) for name, sql in written.items()}
 
 
 @dar.command("generate")

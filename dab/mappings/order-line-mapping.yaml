@@ -1,0 +1,31 @@
+# How one entity is loaded from what the system recorded. This is the one artefact whose job
+# is to bind two vocabularies, so it names both -- but only in table, primary_keys and
+# transformation_expression. See docs/conventions.md section 1.4.
+entity_id: ORDER_LINE
+mapping_groups:
+  - name: default_mapping_group
+    tables:
+      - connection: dev
+        table: das__staged.order_details
+        # The first composite key here. One entry, joined with || and a separator: `concat`
+        # ignores nulls and would turn a missing half into a shorter key that collides with a
+        # real one. A generated check counts this against the source's own two columns.
+        # ADR 0010.
+        primary_keys: ["cast(order_id AS VARCHAR) || '-' || cast(product_id AS VARCHAR)"]
+        ingestion_strategy: FULL_LOG
+        entity_effective_timestamp_expression: extracted_at
+        attributes:
+          - id: LINE_NUMBER
+            transformation_expression: cast(order_id AS VARCHAR) || '-' || cast(product_id AS VARCHAR)
+          - {id: QUANTITY, transformation_expression: quantity}
+          - {id: AGREED_UNIT_PRICE, transformation_expression: unit_price}
+          - {id: DISCOUNT_RATE, transformation_expression: discount}
+          # Arithmetic over columns of this row, which M5 permits and ADR 0007 bounds.
+          - id: REVENUE
+            transformation_expression: quantity * unit_price * (1 - discount)
+    relationships:
+      - id: ORDER_LINE_IS_PART_OF_ORDER
+        source_table: das__staged.order_details
+        # Spelled exactly as order-mapping.yaml spells its own key -- a bare column.
+        # A cast here would produce a different VARCHAR and join to nothing.
+        target_transformation_expression: order_id

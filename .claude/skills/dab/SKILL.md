@@ -41,7 +41,26 @@ They are in `docs/conventions.md` §1.4 and checked by `tests/test_mapping_rules
   its failure is invisible in both of a question's acceptance queries.
 - **M2 — exactly one primary key.** Two entries are read as two *alternate identifiers*, not
   as a composite key, and that mode cannot be undone once loaded. Compose with
-  `concat(cast(a AS VARCHAR), '-', cast(b AS VARCHAR))` — the separator is not cosmetic.
+  `cast(a AS VARCHAR) || '-' || cast(b AS VARCHAR)` — the separator is not cosmetic, and
+  **not `concat`**, which ignores nulls and turns a missing half into a shorter key that collides
+  with a real one. `||` yields null and fails at the engine instead. Two entries are refused at
+  deploy unless `allow_multiple_identifiers` is set, and with it the key becomes a minted UUID.
+  A generated check counts the composed key against the source's own parts on every build, so a
+  separator that is wrong for the data that landed fails then rather than merging two rows in
+  silence. ADR 0010.
+
+## Ids
+
+An id in `model.yaml`, `uss.yaml` or a mapping becomes three things: a quoted SQL identifier, a
+string literal inside a generated check, and the stem of a file under `checks/`. A letter, then
+letters, digits and underscores — refused at read time otherwise, because a quote in an event id
+closes the literal and comments out the rest, so the check runs and reports nothing wrong for
+ever, and a slash writes the file outside `checks/`.
+
+That is not a security boundary and the record does not pretend it is. Whoever can edit these
+files can already run arbitrary SQL: the engine compiles a mapping's `transformation_expression`
+verbatim into a view over the same warehouse, and sqlfluff is a formatter, not a validator —
+injected multi-statement SQL passes through it unchanged.
 
 ## What the engine does and does not do
 

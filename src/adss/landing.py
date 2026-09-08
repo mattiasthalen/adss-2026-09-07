@@ -9,6 +9,7 @@ ADR 0003.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,13 +25,31 @@ from adss.source import Fetch, pages
 LAYOUT = "{table_name}/extracted_on={YYYY}-{MM}-{DD}/{load_id}.{file_id}.{ext}"
 
 
-def land(contract: Contract, fetch: Fetch, root: Path, pipelines_dir: Path) -> list[str]:
-    """Append one load of one contract's entity set to the lake. Returns the load ids."""
+def observation() -> datetime:
+    """When this ingest observed the source. Taken once and given to every contract it
+    lands, because one run of one command is one observation and dating its rows apart
+    would say the business changed between two HTTP calls. ADR 0013.
+    """
+    return datetime.now(tz=UTC)
+
+
+def land(
+    contract: Contract, fetch: Fetch, root: Path, pipelines_dir: Path, observed_at: datetime
+) -> list[str]:
+    """Append one load of one contract's entity set to the lake. Returns the load ids.
+
+    `observed_at` is required rather than defaulted. A default would let a caller land two
+    contracts under two clocks by saying nothing, which is exactly the defect ADR 0013 is
+    about -- and it said nothing for four slices.
+    """
 
     @dlt.resource(  # type: ignore[misc]
         name=contract.table,
         write_disposition="append",
-        columns={"payload": {"data_type": "json"}},
+        columns={
+            "payload": {"data_type": "json"},
+            "extracted_at": {"data_type": "timestamp"},
+        },
     )
     def records() -> Iterator[dict[str, Any]]:
         for url, page in pages(contract.source, fetch):
@@ -42,6 +61,10 @@ def land(contract: Contract, fetch: Fetch, root: Path, pipelines_dir: Path) -> l
                     "source_system": contract.source.service,
                     "source_entity": contract.source.entity,
                     "source_url": url,
+                    # The ingest's clock, not this pipeline's. The loader's own id is one per
+                    # pipeline and there is one pipeline per contract, so deriving the time
+                    # from it gave every contract a different one. ADR 0013.
+                    "extracted_at": observed_at,
                 }
 
     destination = filesystem(

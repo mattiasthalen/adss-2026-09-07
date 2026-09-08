@@ -523,5 +523,144 @@ def _(a3, mo, q3, shown):
     return
 
 
+@app.cell
+def _(answers, asked, mo, pl, shown):
+    q4 = asked[3] if len(asked) > 3 else asked[-1]
+    # Decimal is exact and altair cannot encode it. The cast is here, on the way to the
+    # picture, rather than in the query -- which stays exact so the two answers can be
+    # compared as values.
+    a4 = answers[q4.id].with_columns(pl.col("revenue_order_lines_amount").cast(pl.Float64))
+    # A series has to stop somewhere, and the period it stops in is short rather than small.
+    # Drawn at full strength beside twenty-two whole months, the last bar reads as a collapse
+    # in demand -- so it is marked, here, from the answer alone.
+    a4 = a4.with_columns((pl.col("order_month") != a4["order_month"].max()).alias("complete"))
+
+    taken = float(a4["revenue_order_lines_amount"].sum())
+    # A month can only be the best whole one if a whole one was recorded. On an answer of one
+    # row -- or none -- there is no such month, and a page that indexed row 0 anyway would take
+    # the whole render down rather than showing the emptiness, which is the actual news.
+    whole = a4.filter(pl.col("complete"))
+    best = (
+        whole.sort("revenue_order_lines_amount", descending=True).row(0, named=True)
+        if whole.height
+        else None
+    )
+    superlative = (
+        f"The best whole month was **{best['order_month']}**, "
+        f"at **{best['revenue_order_lines_amount']:,.0f}**."
+        if best
+        else "No whole month was recorded."
+    )
+
+    # No currency symbol anywhere on this page. The model says nothing records which currency
+    # this is, and a symbol would be the page inventing a fact -- which is the one thing a
+    # destination is never allowed to do.
+    shown(
+        q4,
+        mo.md(
+            f"""
+            ## {q4.question}
+
+            *Asked by the {q4.persona.lower()}.*
+
+            ## {taken:,.0f} taken
+
+            across **{len(a4)}** months, from **{a4["order_month"].min()}** to
+            **{a4["order_month"].max()}**. {superlative} No currency is shown because nothing
+            in the source records one.
+            """
+        ),
+    )
+    return a4, best, q4, superlative, taken
+
+
+@app.cell
+def _(GRID, MUTED, SEQUENTIAL, SURFACE, a4, alt, mo, q4, shown):
+    # Magnitude per month, so bars rather than a line: the question is how much was taken in
+    # each month, not the shape of a trajectory between them. One series, so no legend -- the
+    # title above names it.
+    revenue = (
+        alt.Chart(a4)
+        .mark_bar(color=SEQUENTIAL[4], cornerRadiusEnd=3)
+        .encode(
+            x=alt.X("order_month:O", title=None, axis=alt.Axis(labelAngle=-90, labelColor=MUTED)),
+            y=alt.Y(
+                "revenue_order_lines_amount:Q",
+                title="revenue",
+                axis=alt.Axis(labelColor=MUTED, titleColor=MUTED, gridColor=GRID, format=",.0f"),
+            ),
+            # Never on colour alone: the caption below says what the faded bar is, and the
+            # tooltip says it again for anyone who reads a bar rather than a page.
+            opacity=alt.Opacity(
+                "complete:N",
+                scale=alt.Scale(domain=[True, False], range=[1.0, 0.35]),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip("order_month:O", title="Ordered in"),
+                alt.Tooltip("revenue_order_lines_amount:Q", title="Revenue", format=",.2f"),
+                alt.Tooltip("complete:N", title="Whole month"),
+            ],
+        )
+        .properties(height=190, width="container", background=SURFACE)
+        .configure_view(stroke=None)
+        .configure_axis(domainColor="#c3c2b7", tickColor="#c3c2b7", labelFontSize=11)
+    )
+
+    shown(q4, mo.ui.altair_chart(revenue, chart_selection=False, legend_selection=False))
+    return (revenue,)
+
+
+@app.cell
+def _(MUTED, a4, mo, q4, shown):
+    shown(
+        q4,
+        mo.md(
+            f"""
+            <span style="color:{MUTED}">The last bar, **{a4["order_month"].max()}**, is faded
+            because the recording stops inside that month. It is shorter than the others, not
+            smaller, and reading it as a fall in demand is reading the edge of the recording.
+            The question says where it ends.</span>
+            """
+        ),
+    )
+    return
+
+
+@app.cell
+def _(mo, q4, shown):
+    shown(q4, mo.md("### What the words mean"))
+    return
+
+
+@app.cell
+def _(glossary, q4, shown):
+    shown(q4, glossary(q4))
+    return
+
+
+@app.cell
+def _(a4, mo, q4, shown):
+    shown(
+        q4,
+        mo.md(
+            f"""
+            ### The answer, row by row
+
+            {len(a4):,} rows, at the grain of the order line rather than the order. Every other
+            question on this page is per order, and they can be read side by side because a
+            measure stays on the stage that owns it.
+            """
+        ),
+    )
+    return
+
+
+@app.cell
+def _(a4, mo, q4, shown):
+    shown(q4, mo.ui.table(a4, page_size=25, selection=None, show_column_summaries=False))
+    return
+
+
 if __name__ == "__main__":
     app.run()

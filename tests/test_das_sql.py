@@ -50,9 +50,12 @@ def test_every_type_in_the_vocabulary_emits_its_own_expression():
         assert expression in sql, f"{column_type} emitted the wrong expression"
 
 
-def test_the_staged_view_derives_the_observation_clock_from_the_load():
+def test_the_staged_view_reads_the_observation_clock_the_ingest_landed():
+    """ADR 0013. Derived from the loader's id it was one clock per pipeline, and there is one
+    pipeline per contract -- so two entities landed by one ingest could not be compared."""
     sql = staged_view_sql(contract())
-    assert "to_timestamp(cast(landed._dlt_load_id AS DOUBLE)) AS extracted_at" in sql
+    assert "landed.extracted_at AS extracted_at" in sql
+    assert "_dlt_load_id AS DOUBLE" not in sql, "the loader's clock is per pipeline, not per run"
 
 
 def test_no_loader_vocabulary_is_exposed_by_the_staged_view():

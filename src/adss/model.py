@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from adss.names import refuse_unsafe, unsafe
+
 
 class AttributeType(StrEnum):
     """The modelling language's whole type vocabulary. Semantic, not physical."""
@@ -120,15 +122,26 @@ class Model:
         return found
 
 
+class ModelError(Exception):
+    """A model this system will not build from."""
+
+
+def _named(kind: str, value: str) -> str:
+    """Every id here reaches SQL as an identifier and a file name. names.py says which are safe."""
+    if unsafe(value):
+        raise ModelError(refuse_unsafe(kind, value))
+    return value
+
+
 def read_model(path: Path) -> Model:
     document = yaml.safe_load(path.read_text())["model"]
     entities = tuple(
         Entity(
-            id=str(entity["id"]),
+            id=_named("entity", str(entity["id"])),
             definition=str(entity["definition"]),
             attributes=tuple(
                 Attribute(
-                    id=str(attribute["id"]),
+                    id=_named("attribute", str(attribute["id"])),
                     type=AttributeType(str(attribute["type"])),
                     definition=str(attribute["definition"]),
                 )
@@ -139,7 +152,7 @@ def read_model(path: Path) -> Model:
     )
     relationships = tuple(
         Relationship(
-            name=str(declared["name"]),
+            name=_named("relationship", str(declared["name"])),
             source_entity_id=str(declared["source_entity_id"]),
             target_entity_id=str(declared["target_entity_id"]),
             definition=str(declared["definition"]),

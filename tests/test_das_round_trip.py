@@ -11,7 +11,7 @@ import pytest
 
 from adss.contract import read_contract
 from adss.das import current_view_sql, lake_dir, raw_view_sql, staged_view_sql
-from adss.landing import land
+from adss.landing import land, observation
 from adss.source import record, replay
 from support import Responder
 
@@ -29,7 +29,7 @@ def landed(tmp_path: Path) -> Landed:
     record(contract.source, Responder(total=5), recording)
 
     root, pipelines = tmp_path / "lake", tmp_path / "pipelines"
-    land(contract, replay(recording), root, pipelines)
+    land(contract, replay(recording), root, pipelines, observation())
 
     connection = duckdb.connect()
     connection.execute("CREATE SCHEMA das__raw; CREATE SCHEMA das__staged;")
@@ -91,7 +91,43 @@ def test_the_row_carries_where_it_came_from(landed: Landed):
 def test_a_second_load_appends_rather_than_replacing(landed: Landed, tmp_path: Path):
     connection, root, recording = landed
     contract = read_contract(FIXTURES / "parent.yaml")
-    land(contract, replay(recording), root, tmp_path / "pipelines")
+    land(contract, replay(recording), root, tmp_path / "pipelines", observation())
 
     assert count(connection, "das__raw.parent") == 10, "DAS is non-volatile; a load is added"
     assert count(connection, "das__staged.parent__current") == 5, "one row per key, latest load"
+
+
+def test_two_contracts_landed_by_one_ingest_carry_one_observation(tmp_path: Path):
+    """ADR 0013. An ingest is one observation of one source, whatever order it lands things in.
+
+    Landed here in the order that broke slice 4 -- the child's contract first, which is what
+    `sorted()` produces -- because the failure was not that the times were wrong but that they
+    were two. A parent stamped a fraction of a second after the child it is joined to as of
+    means no version of it precedes that child, and every inheriting row is dropped.
+    """
+    contracts = [read_contract(FIXTURES / name) for name in ("composite_key.yaml", "parent.yaml")]
+    recording = tmp_path / "recording"
+    record(contracts[0].source, Responder(total=3), recording)
+
+    root, pipelines = tmp_path / "lake", tmp_path / "pipelines"
+    observed = observation()
+    for contract in contracts:
+        land(contract, replay(recording), root, pipelines, observed)
+
+    connection = duckdb.connect()
+    connection.execute("CREATE SCHEMA das__raw; CREATE SCHEMA das__staged;")
+    seen = {}
+    for contract in contracts:
+        connection.execute(raw_view_sql(contract, lake_dir(root)))
+        connection.execute(staged_view_sql(contract))
+        found = connection.execute(
+            f"SELECT DISTINCT extracted_at FROM das__staged.{contract.table}"
+        ).fetchall()
+        seen[contract.table] = {row[0] for row in found}
+
+    assert seen["composite_key"] == seen["parent"], (
+        "two contracts, one ingest, one observation -- the second landed is not later than the "
+        "first, however the file names happen to sort"
+    )
+    assert len(seen["parent"]) == 1
+    connection.close()
