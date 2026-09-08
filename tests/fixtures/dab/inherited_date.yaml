@@ -30,3 +30,8 @@ uss:
       date_attribute: PARENT.HAPPENED_ON
       measures:
         - {id: REACHED_CHILDREN_COUNT, definition: How many were reached., aggregate: count}
+        # A SUM, deliberately. A count names no attribute, so it never enters the check that
+        # says which entity a measure belongs to -- and with only counts here the whole
+        # fixture agreed with a reader that checked measures against PARENT.
+        - {id: REACHED_WEIGHT_CHILDREN_UNITS, definition: What the reached ones weighed.,
+           aggregate: sum, attribute: CHILD_WEIGHT}

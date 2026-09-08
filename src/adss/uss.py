@@ -243,7 +243,24 @@ def _refuse_measures_of_things_that_are_not_numbers(uss: Uss, model: Model) -> N
         if not dater.attribute(attribute_id).is_date:
             raise UssError(f"{event.id} is dated by {attribute_id}, which is not a date.")
         for measure in event.measures:
-            if measure.attribute_id and not entity.attribute(measure.attribute_id).is_number:
+            if measure.attribute_id is None:
+                continue
+            # By name, not by KeyError. A measure of an attribute the event's entity does not
+            # have is exactly what a reader that checked measures against the inherited entity
+            # would accept, so the refusal says whose attribute it is rather than dying.
+            if measure.attribute_id not in {a.id for a in entity.attributes}:
+                elsewhere = (
+                    f" {dater.id} has it and {entity.id} does not"
+                    if dater is not entity
+                    and measure.attribute_id in {a.id for a in dater.attributes}
+                    else ""
+                )
+                raise UssError(
+                    f"{event.id}.{measure.id} sums {measure.attribute_id}, which {entity.id} "
+                    f"does not have. A measure belongs to the entity of its own event, never "
+                    f"to one the event inherits a date from.{elsewhere}"
+                )
+            if not entity.attribute(measure.attribute_id).is_number:
                 raise UssError(
                     f"{event.id}.{measure.id} sums {measure.attribute_id}, which is not a "
                     f"number. Summing what is not a number produces a number nobody can read."

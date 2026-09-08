@@ -1,0 +1,13 @@
+# The other direction of the same defect: an event dated by PARENT.HAPPENED_ON, summing an
+# attribute PARENT has and CHILD does not. A reader that resolved the date by reassigning the
+# entity would accept this, and the bridge would then select a column its own CTE never emits.
+uss:
+  events:
+    - id: REACHED
+      entity: CHILD
+      definition: A child reached, on the day the parent it points at happened.
+      kind: transaction
+      date_attribute: PARENT.HAPPENED_ON
+      measures:
+        - {id: REACHED_SIZE_CHILDREN_UNITS, definition: A size the child does not have.,
+           aggregate: sum, attribute: PARENT_SIZE}

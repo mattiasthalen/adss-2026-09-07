@@ -8,6 +8,7 @@ import pytest
 
 from adss.model import Attribute, AttributeType, Entity, Relationship, read_model
 from adss.uss import (
+    Aggregate,
     Uss,
     UssError,
     bridge_columns,
@@ -571,10 +572,22 @@ def test_a_row_whose_inherited_date_does_not_resolve_has_no_bridge_row():
 def test_a_measure_is_checked_against_the_events_own_entity_not_the_one_it_inherits_from():
     """An inherited date names another entity; the measures still belong to this one.
 
-    Resolving the date by reassigning the entity checked every measure against the wrong one,
-    so a measure of an attribute the event's entity genuinely has was refused for not existing
-    -- and one it does not have would have been accepted if the inherited entity had it.
+    Resolving the date by reassigning the entity checked every measure against the wrong one.
+    Both directions are here, because the first version of this test asserted only that the
+    fixture loaded -- and every measure on that event was a `count`, which names no attribute
+    and so never reaches the check at all. It passed under the defect it was written for.
     """
     model, _ = plan()
     uss = read_uss(FIXTURES / "inherited_date.yaml", model)
-    assert any(e.id == "REACHED" for e in uss.events)
+    reached = next(e for e in uss.events if e.id == "REACHED")
+    summed = next(m for m in reached.measures if m.aggregate is Aggregate.SUM)
+    assert summed.attribute_id == "CHILD_WEIGHT", "an attribute CHILD has and PARENT does not"
+
+
+def test_a_measure_of_the_entity_the_date_is_inherited_from_is_refused():
+    """The other direction. PARENT has PARENT_SIZE and CHILD does not, so summing it on a CHILD
+    event must be refused -- the bridge would otherwise select a column its own CTE never
+    emits, which is SQL that cannot bind rather than a number that is wrong."""
+    model, _ = plan()
+    with pytest.raises(UssError, match="PARENT_SIZE"):
+        read_uss(FIXTURES / "bad_measure_of_the_inherited_entity.yaml", model)
