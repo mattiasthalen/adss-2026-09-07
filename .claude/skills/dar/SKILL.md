@@ -90,7 +90,10 @@ scope or aggregation words: `placed_orders_count`, never `total_orders`. Then re
   the key, off the same parent row, so the two cannot disagree. A row whose inherited date does
   not resolve gets **no bridge row** — filtered where it was resolved, because the version CTE
   has no such column to filter. Without that the row would arrive dated null and the calendar's
-  inner join would drop it, which looks exactly like the rule working. ADR 0009.
+  inner join would drop it, which looks exactly like the rule working. A generated check compares
+  the inherited date against the stage that *owns* it, which is independent because the two come
+  through different CTEs; it is generated only where such a stage exists, since a check that
+  re-derives what it expects from the generator agrees with a broken generator. ADR 0009.
 - **A composed key is measured, not argued about.** Where a source key is composite the mapping
   joins the parts with a separator, and a generated check counts the composition against the
   parts on every build. A separator that is wrong for the data that landed says so then. ADR
